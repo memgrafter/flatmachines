@@ -1,0 +1,83 @@
+{
+  "spec": "flatmachine",
+  "spec_version": "0.3.0",
+  "data": {
+    "name": "support-response-flow",
+    "expression_engine": "simple",
+    "context": {
+      "ticket_id": "{{ input.ticket_id }}",
+      "customer_message": "{{ input.customer_message }}",
+      "customer_tier": "{{ input.customer_tier }}",
+      "preferred_tone": "{{ input.preferred_tone }}",
+      "category": "{{ input.category }}",
+      "urgency": "{{ input.urgency }}",
+      "triage_summary": "{{ input.triage_summary }}",
+      "response": null
+    },
+    "agents": {
+      "response_drafter": "./response_drafter.json",
+      "response_polisher": "./response_polisher.json"
+    },
+    "settings": {
+      "max_steps": 4
+    },
+    "states": {
+      "start": {
+        "type": "initial",
+        "transitions": [
+          {"to": "draft"}
+        ]
+      },
+      "draft": {
+        "agent": "response_drafter",
+        "execution": {
+          "type": "retry",
+          "backoffs": [1, 2, 5],
+          "jitter": 0.1
+        },
+        "input": {
+          "ticket_id": "{{ context.ticket_id }}",
+          "customer_message": "{{ context.customer_message }}",
+          "customer_tier": "{{ context.customer_tier }}",
+          "preferred_tone": "{{ context.preferred_tone }}",
+          "category": "{{ context.category }}",
+          "urgency": "{{ context.urgency }}",
+          "triage_summary": "{{ context.triage_summary }}"
+        },
+        "output_to_context": {
+          "response": "{{ output.response | tojson }}"
+        },
+        "transitions": [
+          {"to": "polish"}
+        ]
+      },
+      "polish": {
+        "agent": "response_polisher",
+        "input": {
+          "response": "{{ context.response | tojson }}",
+          "customer_message": "{{ context.customer_message }}",
+          "customer_tier": "{{ context.customer_tier }}",
+          "preferred_tone": "{{ context.preferred_tone }}",
+          "category": "{{ context.category }}",
+          "urgency": "{{ context.urgency }}"
+        },
+        "output_to_context": {
+          "response": "{{ output.response | tojson }}"
+        },
+        "transitions": [
+          {"to": "done"}
+        ]
+      },
+      "done": {
+        "type": "final",
+        "output": {
+          "response": "{{ context.response | tojson }}"
+        }
+      }
+    }
+  },
+  "metadata": {
+    "description": "Nested machine that drafts and polishes a support response",
+    "tags": ["json", "nested"]
+  }
+}

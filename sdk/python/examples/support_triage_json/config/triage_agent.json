@@ -1,0 +1,39 @@
+{
+  "spec": "flatagent",
+  "spec_version": "0.6.0",
+  "data": {
+    "name": "support-triage",
+    "model": {
+      "provider": "cerebras",
+      "name": "zai-glm-4.6",
+      "temperature": 0.2,
+      "max_tokens": 512
+    },
+    "system": "You are a support triage agent. Classify the ticket and decide if a response is needed.",
+    "user": "Ticket ID: {{ input.ticket_id }}\nCustomer tier: {{ input.customer_tier }}\nMessage: {{ input.customer_message }}\nReturn a JSON classification that matches the output schema.",
+    "instruction_suffix": "Keep the summary under 25 words.",
+    "output": {
+      "category": {
+        "type": "str",
+        "description": "Primary issue category",
+        "enum": ["billing", "bug", "feature", "feedback", "other"]
+      },
+      "urgency": {
+        "type": "str",
+        "description": "Support urgency",
+        "enum": ["low", "medium", "high"]
+      },
+      "needs_response": {
+        "type": "bool",
+        "description": "Whether the customer should receive a reply"
+      },
+      "summary": {
+        "type": "str",
+        "description": "Short internal summary"
+      }
+    }
+  },
+  "metadata": {
+    "description": "Classifies tickets and determines response necessity"
+  }
+}

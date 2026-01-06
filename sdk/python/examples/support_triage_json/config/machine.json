@@ -1,0 +1,106 @@
+{
+  "spec": "flatmachine",
+  "spec_version": "0.3.0",
+  "data": {
+    "name": "support-triage-json",
+    "expression_engine": "simple",
+    "context": {
+      "ticket_id": "{{ input.ticket_id }}",
+      "customer_message": "{{ input.customer_message }}",
+      "customer_tier": "{{ input.customer_tier }}",
+      "preferred_tone": "{{ input.preferred_tone | default('friendly') }}",
+      "category": null,
+      "urgency": null,
+      "needs_response": null,
+      "triage_summary": null,
+      "response": null
+    },
+    "agents": {
+      "triage": "./triage_agent.json"
+    },
+    "machines": {
+      "response_flow": "./response_machine.json"
+    },
+    "settings": {
+      "max_steps": 6
+    },
+    "states": {
+      "start": {
+        "type": "initial",
+        "transitions": [
+          {"to": "triage"}
+        ]
+      },
+      "triage": {
+        "agent": "triage",
+        "execution": {
+          "type": "retry",
+          "backoffs": [1, 3, 6],
+          "jitter": 0.1
+        },
+        "input": {
+          "ticket_id": "{{ context.ticket_id }}",
+          "customer_message": "{{ context.customer_message }}",
+          "customer_tier": "{{ context.customer_tier }}"
+        },
+        "output_to_context": {
+          "category": "{{ output.category }}",
+          "urgency": "{{ output.urgency }}",
+          "needs_response": "{{ output.needs_response | tojson }}",
+          "triage_summary": "{{ output.summary }}"
+        },
+        "transitions": [
+          {
+            "condition": "context.needs_response == true",
+            "to": "compose_response"
+          },
+          {"to": "done_no_response"}
+        ]
+      },
+      "compose_response": {
+        "machine": "response_flow",
+        "input": {
+          "ticket_id": "{{ context.ticket_id }}",
+          "customer_message": "{{ context.customer_message }}",
+          "customer_tier": "{{ context.customer_tier }}",
+          "preferred_tone": "{{ context.preferred_tone }}",
+          "category": "{{ context.category }}",
+          "urgency": "{{ context.urgency }}",
+          "triage_summary": "{{ context.triage_summary }}"
+        },
+        "output_to_context": {
+          "response": "{{ output.response | tojson }}"
+        },
+        "transitions": [
+          {"to": "done_response"}
+        ]
+      },
+      "done_response": {
+        "type": "final",
+        "output": {
+          "ticket_id": "{{ context.ticket_id }}",
+          "category": "{{ context.category }}",
+          "urgency": "{{ context.urgency }}",
+          "needs_response": "{{ context.needs_response | tojson }}",
+          "triage_summary": "{{ context.triage_summary }}",
+          "response": "{{ context.response | tojson }}"
+        }
+      },
+      "done_no_response": {
+        "type": "final",
+        "output": {
+          "ticket_id": "{{ context.ticket_id }}",
+          "category": "{{ context.category }}",
+          "urgency": "{{ context.urgency }}",
+          "needs_response": "{{ context.needs_response | tojson }}",
+          "triage_summary": "{{ context.triage_summary }}",
+          "response": null
+        }
+      }
+    }
+  },
+  "metadata": {
+    "description": "Customer support triage with a nested response machine (JSON configs)",
+    "tags": ["json", "hsm", "support"]
+  }
+}

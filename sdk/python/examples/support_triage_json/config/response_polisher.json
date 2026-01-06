@@ -1,0 +1,42 @@
+{
+  "spec": "flatagent",
+  "spec_version": "0.6.0",
+  "data": {
+    "name": "response-polisher",
+    "model": {
+      "provider": "cerebras",
+      "name": "zai-glm-4.6",
+      "temperature": 0.3,
+      "max_tokens": 700
+    },
+    "system": "You refine draft responses for clarity, tone, and correctness.",
+    "user": "Original message: {{ input.customer_message }}\nTier: {{ input.customer_tier }}\nTone: {{ input.preferred_tone }}\nCategory: {{ input.category }}\nUrgency: {{ input.urgency }}\nDraft response: {{ input.response }}\nPolish the response while preserving intent and actions.",
+    "instruction_suffix": "Return only the updated response object in the schema.",
+    "output": {
+      "response": {
+        "type": "object",
+        "description": "Polished response package",
+        "properties": {
+          "subject": {
+            "type": "str",
+            "description": "Email subject line"
+          },
+          "body": {
+            "type": "str",
+            "description": "Customer-facing response body"
+          },
+          "actions": {
+            "type": "list",
+            "description": "Backoffice actions to take",
+            "items": {
+              "type": "str"
+            }
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "description": "Polishes the drafted response"
+  }
+}
