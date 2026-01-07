@@ -329,10 +329,7 @@
           "type": "object"
         },
         "output_to_context": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
+          "type": "object"
         },
         "output": {
           "type": "object"

@@ -28,7 +28,7 @@ export interface StateDefinition {
     execution?: ExecutionConfig;
     on_error?: string | Record<string, string>;
     input?: Record<string, any>;
-    output_to_context?: Record<string, string>;
+    output_to_context?: Record<string, any>;
     output?: Record<string, any>;
     transitions?: Transition[];
     tool_loop?: boolean;
