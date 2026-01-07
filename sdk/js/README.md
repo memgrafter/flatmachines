@@ -11,7 +11,3 @@ npm install flatagents
 ## Status
 
 This SDK is under development. See the [Python SDK](../python) for a working implementation.
-
-## License
-
-MIT License - see [LICENSE](../../LICENSE) for details.

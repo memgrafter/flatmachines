@@ -2,8 +2,9 @@
 set -e
 
 cd "$(dirname "$0")"
-REPO_ROOT="$(cd ../.. && pwd)"
-ASSETS_DIR="$PWD/flatagents/assets"
+SDK_DIR="$(pwd)"
+REPO_ROOT="$SDK_DIR/../.."
+ASSETS_DIR="$SDK_DIR/flatagents/assets"
 
 # Parse arguments
 DRY_RUN=false
@@ -108,6 +109,16 @@ fi
 
 # Copy root TypeScript specs to sdk assets
 cp "$REPO_ROOT/flatagent.d.ts" "$REPO_ROOT/flatmachine.d.ts" "$ASSETS_DIR/"
+
+# Copy root README for PyPI (hatchling requires readme in package dir)
+cp "$REPO_ROOT/README.md" "$SDK_DIR/README.md"
+
+# Validate README copy succeeded
+if ! diff -q "$REPO_ROOT/README.md" "$SDK_DIR/README.md" > /dev/null 2>&1; then
+    echo "RELEASE ABORTED: README.md does not match root. Ensure copy step is present."
+    exit 1
+fi
+echo "✓ README.md synced from root"
 
 # Extract versions from root TypeScript specs
 echo "Extracting spec versions from TypeScript files..."

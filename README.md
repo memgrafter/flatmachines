@@ -1,230 +1,244 @@
 # FlatAgents
 
-**Spec Status:** Stable. Extension planned.
+Define LLM agents in YAML. Run them anywhere.
 
-**Python SDK Status:** Functioning Prototype.
+**For LLM/machine readers:** see [MACHINES.md](./MACHINES.md) for comprehensive reference.
 
-LLM/machine readers: use MACHINES.md as a primary reference, it is more comprehensive and token efficient.
+## Why?
 
-A specification for LLM-powered agents. Define agents in YAML/JSON, run them anywhere.
+- **Composition over inheritance** — compose stateless agents and checkpointable machines
+- **Compact structure** — easy for LLMs to read and generate
+- **Simple hook interfaces** — escape hatches without complexity; webhook ready
+- **Inspectable** — every agent and machine is readable config
+- **Language-agnostic** — reduce code in any particular runtime
+- **Common TypeScript interface** — single schema for agents, single schema for machines
+- **Limitations** — hierarchical state machine networks can get complex at scale
 
-- **Orchestrate via code or existing orchestration** - FlatAgents defines single agents, not workflows. Compose them using your language of choice or plug into existing orchestration frameworks.
-- **Use LLM-assisted coding to define your agent YAMLs** - For best results, let an LLM help you write and iterate on agent configurations.
+*Inspired by Kubernetes manifests and character card specifications.*
 
-## The Spec
+## Core Concepts
 
-An agent is a single LLM call: **model + prompts + output schema**. That's it.
+Use machines to write flatagents and flatmachines, they are designed for LLMs.
 
-See [`flatagent.d.ts`](./flatagent.d.ts) for the full TypeScript schema.
+| Term | What it is |
+|------|------------|
+| **FlatAgent** | A single LLM call: model + prompts + output schema |
+| **FlatMachine** | A state machine that orchestrates multiple agents, actions, and state machines |
 
-### Derived Schemas
+Use FlatAgent alone for simple tasks. Use FlatMachine when you need multi-step workflows, branching, or error handling.
 
-The TypeScript definitions are the **source of truth**:
-- `/flatagent.d.ts` - FlatAgent schema
-- `/flatmachine.d.ts` - FlatMachine schema
+## Examples
 
-Other formats (JSON Schema, etc.) are **derived** from these files via `/scripts/generate-spec-assets.ts`.
+| Example | What it demonstrates |
+|---------|---------------------|
+| [helloworld](./sdk/python/examples/helloworld) | Minimal setup — single agent, single state machine |
+| [writer_critic](./sdk/python/examples/writer_critic) | Multi-agent loop — writer drafts, critic reviews, iterates |
+| [story_writer](./sdk/python/examples/story_writer) | Multi-step creative workflow with chapter generation |
+| [human_in_loop](./sdk/python/examples/human_in_loop) | Pause execution for human approval via hooks |
+| [error_handling](./sdk/python/examples/error_handling) | Error recovery and retry patterns at state machine level |
+| [dynamic_agent](./sdk/python/examples/dynamic_agent) | On-the-fly agent generation from runtime context |
+| [character_card](./sdk/python/examples/character_card) | Loading agent config from character card format |
+| [mdap](./sdk/python/examples/mdap) | MDAP voting execution — multi-sample consensus |
+| [gepa_self_optimizer](./sdk/python/examples/gepa_self_optimizer) | Self-optimizing prompts via reflection and critique |
+| [research_paper_analysis](./sdk/python/examples/research_paper_analysis) | Document analysis with structured extraction |
+| [multi_paper_synthesizer](./sdk/python/examples/multi_paper_synthesizer) | Cross-document synthesis with dynamic child machines |
+| [support_triage_json](./sdk/python/examples/support_triage_json) | JSON input/output with classification pipeline |
 
-### Structure
-
-```yaml
-spec: flatagent
-spec_version: "0.6.0"
-
-data:
-  name: my-agent
-  model: { ... }
-  system: "..."
-  user: "..."
-  output: { ... }
-
-metadata:
-  description: "Optional metadata"
-  tags: ["example"]
-```
-
-### Example Agent
-
-Define agents in YAML or JSON—both are first-class.
-
-**critic.yml**
-```yaml
-spec: flatagent
-spec_version: "0.6.0"
-
-data:
-  name: critic
-
-  model:
-    provider: cerebras
-    name: zai-glm-4.6
-    temperature: 0.5
-
-  system: |
-    Act as a ruthless critic. Analyze drafts for errors.
-    Rate severity as: High, Medium, or Low.
-
-  user: |
-    Question: {{ input.question }}
-    Draft: {{ input.draft }}
-
-  output:
-    critique:
-      type: str
-      description: "Specific errors found in the draft"
-    severity:
-      type: str
-      description: "Error severity"
-      enum: ["High", "Medium", "Low"]
-
-metadata:
-  description: "Critiques draft answers"
-  tags: ["reflection", "qa"]
-```
-
-**critic.json**
-```json
-{
-  "spec": "flatagent",
-  "spec_version": "0.6.0",
-  "data": {
-    "name": "critic",
-    "model": {
-      "provider": "cerebras",
-      "name": "zai-glm-4.6",
-      "temperature": 0.5
-    },
-    "system": "Act as a ruthless critic. Analyze drafts for errors.\nRate severity as: High, Medium, or Low.",
-    "user": "Question: {{ input.question }}\nDraft: {{ input.draft }}",
-    "output": {
-      "critique": {
-        "type": "str",
-        "description": "Specific errors found in the draft"
-      },
-      "severity": {
-        "type": "str",
-        "description": "Error severity",
-        "enum": ["High", "Medium", "Low"]
-      }
-    }
-  },
-  "metadata": {
-    "description": "Critiques draft answers",
-    "tags": ["reflection", "qa"]
-  }
-}
-```
-
-## Configuration Reference
-
-### Model Configuration
-
-```yaml
-model:
-  name: "gpt-4"              # Model name
-  provider: "openai"         # Provider (openai, anthropic, cerebras, etc.)
-  temperature: 0.7           # Sampling temperature (0.0 to 2.0)
-  max_tokens: 2048           # Maximum tokens to generate
-  top_p: 1.0                 # Nucleus sampling parameter
-  frequency_penalty: 0.0     # Frequency penalty (-2.0 to 2.0)
-  presence_penalty: 0.0      # Presence penalty (-2.0 to 2.0)
-```
-
-### Prompts (Jinja2 Templates)
-
-Prompts use Jinja2 templating. Available variables:
-- `input.*` - Values passed to the agent at runtime
-
-```yaml
-system: |
-  You are a helpful assistant specialized in {{ input.domain }}.
-
-user: |
-  Question: {{ input.question }}
-  Context: {{ input.context }}
-
-instruction_suffix: "Respond in JSON format."  # Optional, appended after user prompt
-```
-
-### Output Schema
-
-Declares expected output fields. The runtime decides how to extract them (structured output, tool calls, regex, etc.)
-
-```yaml
-output:
-  answer:
-    type: str
-    description: "The answer to the question"
-
-  confidence:
-    type: float
-    description: "Confidence score"
-
-  category:
-    type: str
-    description: "Answer category"
-    enum: ["factual", "opinion", "unknown"]
-
-  sources:
-    type: list
-    items:
-      type: str
-    description: "List of sources"
-
-  metadata:
-    type: object
-    properties:
-      reasoning:
-        type: str
-      tokens_used:
-        type: int
-```
-
-**Supported types:** `str`, `int`, `float`, `bool`, `json`, `list`, `object`
-
-### Metadata
-
-Extensibility layer. Runners ignore unrecognized keys.
-
-```yaml
-metadata:
-  description: "What this agent does"
-  tags: ["category", "type"]
-  author: "name"
-  # Add any custom fields
-```
-
-## Reference SDKs
-
-| SDK | Package | Status |
-|-----|---------|--------|
-| [Python](./sdk/python) | `pip install flatagents` | Available |
-| [JavaScript](./sdk/js) | `npm install flatagents` | Coming soon |
-
-### Python Quick Start
+## Quick Start
 
 ```bash
-pip install flatagents[litellm]
+pip install flatagents[all]
 ```
 
 ```python
 from flatagents import FlatAgent
 
-agent = FlatAgent(config_file="agent.yaml")
-result = await agent.execute(input={"question": "What is 2+2?"})
+agent = FlatAgent(config_file="reviewer.yml")
+result = await agent.call(query="Review this code...")
+print(result.output)
 ```
 
-### JavaScript Quick Start
+## Example Agent
 
-Coming soon.
+**reviewer.yml**
+```yaml
+spec: flatagent
+spec_version: "0.0.0"
 
-## Design Principles
+data:
+  name: code-reviewer
 
-1. **Definition over code** - Define what you want, not how to get it
-2. **Single responsibility** - One agent = one LLM call
-3. **Runtime agnostic** - Same spec works across different runners
-4. **Output-focused** - Declare the schema, let the runtime extract it
+  model:
+    provider: openai
+    name: gpt-4
+    temperature: 0.3
 
-## License
+  system: |
+    You are a senior code reviewer. Analyze code for bugs, 
+    style issues, and potential improvements.
 
-MIT License - see [LICENSE](LICENSE) for details.
+  user: |
+    Review this code:
+    {{ input.code }}
+
+  output:
+    issues:
+      type: list
+      items:
+        type: str
+      description: "List of issues found"
+    rating:
+      type: str
+      enum: ["good", "needs_work", "critical"]
+      description: "Overall code quality"
+```
+
+**What the fields mean:**
+
+- **spec/spec_version** — Format identifier and version
+- **data.name** — Agent identifier
+- **data.model** — LLM provider, model name, and parameters
+- **data.system** — System prompt (sets behavior)
+- **data.user** — User prompt template (uses Jinja2, `{{ input.* }}` for runtime values)
+- **data.output** — Structured output schema (the runtime extracts these fields)
+
+## Output Types
+
+```yaml
+output:
+  answer:      { type: str }
+  count:       { type: int }
+  score:       { type: float }
+  valid:       { type: bool }
+  raw:         { type: json }
+  items:       { type: list, items: { type: str } }
+  metadata:    { type: object, properties: { key: { type: str } } }
+```
+
+Use `enum: [...]` to constrain string values.
+
+## Multi-Agent Workflows
+
+For orchestration, use FlatMachine ([full docs in MACHINES.md](./MACHINES.md)):
+
+```python
+from flatagents import FlatMachine
+
+machine = FlatMachine(config_file="workflow.yml")
+result = await machine.execute(input={"query": "..."})
+```
+
+FlatMachine provides: state transitions, conditional branching, loops, retry with backoff, and error recovery—all in YAML.
+
+## Features
+
+- Checkpoint and restore
+- Python SDK (TypeScript SDK in progress)
+- [MACHINES.md](./MACHINES.md) — LLM-optimized reference docs
+- Decider agents and machines
+- On-the-fly agent and machine definitions
+- Webhook hooks for remote state machine handling
+- Metrics and logging
+- Error recovery and exception handling at the state machine level
+
+## Planned
+
+- Distributed execution — cross-network HSMs, inter-machine strategies
+- Parallel state execution
+- SQL persistence backend
+- TypeScript SDK
+- `max_depth` config to limit child machine nesting
+- Checkpoint pruning to prevent storage explosion
+- `$root/` path prefix — resolve agent/machine refs from workspace root, not config dir
+- Input size validation — warn when prompt exceeds model context window
+- Serialization warnings — flag non-JSON-serializable context values before checkpoint
+
+## Specs
+
+TypeScript definitions are the source of truth:
+- [`flatagent.d.ts`](./flatagent.d.ts)
+- [`flatmachine.d.ts`](./flatmachine.d.ts)
+
+## Python SDK
+
+```bash
+pip install flatagents[litellm]
+```
+
+### LLM Backends
+
+```python
+from flatagents import LiteLLMBackend, AISuiteBackend
+
+# LiteLLM (default)
+agent = FlatAgent(config_file="agent.yml")
+
+# AISuite
+backend = AISuiteBackend(model="openai:gpt-4o")
+agent = FlatAgent(config_file="agent.yml", backend=backend)
+```
+
+### Hooks
+
+Extend machine behavior with Python hooks:
+
+```python
+from flatagents import FlatMachine, MachineHooks
+
+class CustomHooks(MachineHooks):
+    def on_state_enter(self, state: str, context: dict) -> dict:
+        context["entered_at"] = time.time()
+        return context
+
+    def on_action(self, action: str, context: dict) -> dict:
+        if action == "fetch_data":
+            context["data"] = fetch_from_api()
+        return context
+
+machine = FlatMachine(config_file="machine.yml", hooks=CustomHooks())
+```
+
+**Available hooks**: `on_machine_start`, `on_machine_end`, `on_state_enter`, `on_state_exit`, `on_transition`, `on_error`, `on_action`
+
+### Execution Types
+
+```yaml
+execution:
+  type: retry              # retry | parallel | mdap_voting
+  backoffs: [2, 8, 16, 35] # Seconds between retries
+  jitter: 0.1              # ±10% random variation
+```
+
+| Type | Use Case |
+|------|----------|
+| `default` | Single call |
+| `retry` | Rate limit handling with backoff |
+| `parallel` | Multiple samples (`n_samples`) |
+| `mdap_voting` | Consensus voting (`k_margin`, `max_candidates`) |
+
+### Schema Validation
+
+```python
+from flatagents import validate_flatagent_config, validate_flatmachine_config
+
+warnings = validate_flatagent_config(config)
+warnings = validate_flatmachine_config(config)
+```
+
+### Logging & Metrics
+
+```python
+from flatagents import setup_logging, get_logger
+
+setup_logging(level="INFO")  # Respects FLATAGENTS_LOG_LEVEL env var
+logger = get_logger(__name__)
+```
+
+**Env vars**: `FLATAGENTS_LOG_LEVEL` (`DEBUG`/`INFO`/`WARNING`/`ERROR`), `FLATAGENTS_LOG_FORMAT` (`standard`/`json`/`simple`)
+
+For OpenTelemetry metrics:
+
+```bash
+pip install flatagents[metrics]
+export FLATAGENTS_METRICS_ENABLED=true
+```
