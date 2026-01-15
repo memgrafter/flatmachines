@@ -1,0 +1,25 @@
+spec: flatmachine
+spec_version: "1.0"
+data:
+  name: worker_node
+  context: {}
+  persistence:
+    enabled: true
+    backend: memory
+  states:
+    process_tasks:
+      type: initial
+      foreach: "{{ input.tasks }}"
+      as: task
+      agent: worker.yml
+      input:
+        task: "{{ task.task }}"
+        data: "{{ task.data }}"
+      output_to_context:
+        results: "{{ output }}"
+      transitions:
+        - to: final
+    final:
+      type: final
+      output:
+        processed_tasks: "{{ context.results }}"

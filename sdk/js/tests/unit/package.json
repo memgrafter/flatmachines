@@ -1,0 +1,34 @@
+{
+  "name": "flatagents-js-unit-tests",
+  "version": "1.0.0",
+  "description": "Unit test suite for FlatAgents JavaScript SDK",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:unit": "vitest run --config vitest.unit.config.ts unit",
+    "test:integration": "vitest run --config vitest.integration.config.ts integration",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts e2e",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui",
+    "test:parallel": "vitest run --pool=threads",
+    "test:isolated": "vitest run --pool=forks"
+  },
+  "devDependencies": {
+    "vitest": "^2.0.0",
+    "@vitest/coverage-v8": "^2.0.0",
+    "@vitest/ui": "^2.0.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.11.0",
+    "jsdom": "^24.0.0",
+    "mock-fs": "^5.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "vitest": {
+    "environment": "node"
+  }
+}

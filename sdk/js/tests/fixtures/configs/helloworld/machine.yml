@@ -1,0 +1,45 @@
+spec: flatmachine
+spec_version: "0.3.0"
+data:
+  name: hello-world-loop
+  
+  context:
+    target: "{{ input.target }}"
+    current: ""
+  
+  agents:
+    builder: ./next_char.yml
+  
+  states:
+    start:
+      type: initial
+      transitions:
+        - condition: "context.current == context.target"
+          to: done
+        - to: build_char
+    
+    build_char:
+      agent: builder
+      execution:
+        type: retry
+        backoffs: [2, 8, 16, 35]  # Delay seconds: 2 + 8 + 16 + 35 = 61s total
+        jitter: 0.1  # 10% of each delay added/subtracted randomly
+      input:
+        current: "{{ context.current }}"
+        target: "{{ context.target }}"
+      output_to_context:
+        current: "{{ context.current }}{{ output.next_char }}"
+      transitions:
+        - condition: "context.current == context.target"
+          to: done
+        - to: build_char
+    
+    done:
+      type: final
+      output:
+        result: "{{ context.current }}"
+        success: true
+
+metadata:
+  description: "Builds a target string character by character"
+  tags: ["demo", "loop"]

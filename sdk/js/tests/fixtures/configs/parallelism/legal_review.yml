@@ -1,0 +1,16 @@
+spec: flatmachine
+spec_version: "1.0"
+data:
+  name: legal_review
+  states:
+    initial:
+      type: initial
+      agent: reviewer.yml
+      input:
+        document: "{{ input.document }}"
+        type: "legal"
+      output:
+        result: "{{ output }}"
+    final:
+      type: final
+      output: "{{ context.result }}"

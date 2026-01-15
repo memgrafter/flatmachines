@@ -113,7 +113,9 @@ export class FlatMachine {
   private async executeAgent(def: State): Promise<any> {
     let agent = this.agents.get(def.agent!);
     if (!agent) {
-      agent = new FlatAgent(`${this.configDir}/${def.agent}`);
+      // Resolve agent name from agents map, or use directly as path
+      const agentPath = this.config.data.agents?.[def.agent!] ?? def.agent!;
+      agent = new FlatAgent(`${this.configDir}/${agentPath}`);
       this.agents.set(def.agent!, agent);
     }
     const input = this.render(def.input ?? {}, { context: this.context });

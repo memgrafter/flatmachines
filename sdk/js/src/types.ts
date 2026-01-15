@@ -17,6 +17,7 @@ export interface MachineConfig {
   data: {
     name?: string;
     context?: Record<string, any>;
+    agents?: Record<string, string>;
     states: Record<string, State>;
     persistence?: { enabled: boolean; backend: "local" | "memory" };
   };

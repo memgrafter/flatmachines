@@ -4,31 +4,48 @@ export class WebhookHooks implements MachineHooks {
   constructor(private url: string) {}
 
   private async send(event: string, data: Record<string, any>) {
-    await fetch(this.url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ event, ...data, timestamp: new Date().toISOString() }),
-    });
+    try {
+      const body = JSON.stringify({ event, ...data, timestamp: new Date().toISOString() }, (key, value) => {
+        if (typeof value === 'object' && value !== null) {
+          const seen = new WeakSet();
+          return JSON.parse(JSON.stringify(value, (k, v) => {
+            if (typeof v === 'object' && v !== null) {
+              if (seen.has(v)) return '[Circular]';
+              seen.add(v);
+            }
+            return v;
+          }));
+        }
+        return value;
+      });
+      await fetch(this.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+    } catch {
+      // Silently ignore webhook errors - hooks should not break the machine
+    }
   }
 
-  async onMachineStart(context: Record<string, any>) { 
-    await this.send("machine_start", { context }); 
-    return context; 
+  async onMachineStart(context: Record<string, any>) {
+    await this.send("machine_start", { context });
+    return context;
   }
-  
-  async onMachineEnd(context: Record<string, any>, output: any) { 
-    await this.send("machine_end", { context, output }); 
-    return output; 
+
+  async onMachineEnd(context: Record<string, any>, output: any) {
+    await this.send("machine_end", { context, output });
+    return output;
   }
-  
-  async onStateEnter(state: string, context: Record<string, any>) { 
-    await this.send("state_enter", { state, context }); 
-    return context; 
+
+  async onStateEnter(state: string, context: Record<string, any>) {
+    await this.send("state_enter", { state, context });
+    return context;
   }
-  
-  async onStateExit(state: string, context: Record<string, any>, output: any) { 
-    await this.send("state_exit", { state, context, output }); 
-    return output; 
+
+  async onStateExit(state: string, context: Record<string, any>, output: any) {
+    await this.send("state_exit", { state, context, output });
+    return output;
   }
 }
 
@@ -39,7 +56,11 @@ export class CompositeHooks implements MachineHooks {
     let result = context;
     for (const hook of this.hooks) {
       if (hook.onMachineStart) {
-        result = await hook.onMachineStart(result);
+        try {
+          result = await hook.onMachineStart(result);
+        } catch {
+          // Continue with next hook on error
+        }
       }
     }
     return result;
@@ -49,7 +70,11 @@ export class CompositeHooks implements MachineHooks {
     let result = output;
     for (const hook of this.hooks) {
       if (hook.onMachineEnd) {
-        result = await hook.onMachineEnd(context, result);
+        try {
+          result = await hook.onMachineEnd(context, result);
+        } catch {
+          // Continue with next hook on error
+        }
       }
     }
     return result;
@@ -59,7 +84,11 @@ export class CompositeHooks implements MachineHooks {
     let result = context;
     for (const hook of this.hooks) {
       if (hook.onStateEnter) {
-        result = await hook.onStateEnter(state, result);
+        try {
+          result = await hook.onStateEnter(state, result);
+        } catch {
+          // Continue with next hook on error
+        }
       }
     }
     return result;
@@ -69,7 +98,11 @@ export class CompositeHooks implements MachineHooks {
     let result = output;
     for (const hook of this.hooks) {
       if (hook.onStateExit) {
-        result = await hook.onStateExit(state, context, result);
+        try {
+          result = await hook.onStateExit(state, context, result);
+        } catch {
+          // Continue with next hook on error
+        }
       }
     }
     return result;
@@ -79,7 +112,11 @@ export class CompositeHooks implements MachineHooks {
     let result = to;
     for (const hook of this.hooks) {
       if (hook.onTransition) {
-        result = await hook.onTransition(from, result, context);
+        try {
+          result = await hook.onTransition(from, result, context);
+        } catch {
+          // Continue with next hook on error
+        }
       }
     }
     return result;
@@ -89,8 +126,12 @@ export class CompositeHooks implements MachineHooks {
     let result: string | null = null;
     for (const hook of this.hooks) {
       if (hook.onError) {
-        const hookResult = await hook.onError(state, error, context);
-        if (hookResult !== null) result = hookResult;
+        try {
+          const hookResult = await hook.onError(state, error, context);
+          if (hookResult !== null) result = hookResult;
+        } catch {
+          // Continue with next hook on error
+        }
       }
     }
     return result;

@@ -1,0 +1,20 @@
+spec: flatagent
+spec_version: "1.0"
+data:
+  name: next_char
+  model:
+    provider: cerebras
+    name: zai-glm-4.6
+    temperature: 0.6
+    max_tokens: 64
+  system: >
+    You are an assistant that follows instructions perfectly
+    and responds with only the requested content.
+  user: |
+    The goal is to build the exact string: '{{ input.target }}'.
+    The current string is: '{{ input.current }}'.
+    Provide the single next character to append. Wrap the character in double quotes (e.g., "a" or " "). Respond with only the quoted character and nothing else.
+  output:
+    next_char:
+      type: str
+      description: "The single next character to append"

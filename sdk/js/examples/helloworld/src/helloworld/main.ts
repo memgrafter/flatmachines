@@ -13,7 +13,7 @@ async function main() {
     console.log(`Target: '${target}'`);
     console.log('Building character by character...');
     
-    const result = await machine.execute({ input: { target } });
+    const result = await machine.execute({ target });
     console.log('Result:', JSON.stringify(result, null, 2));
     
     if (result?.success) {
