@@ -1,0 +1,16 @@
+spec: flatmachine
+spec_version: "1.0"
+data:
+  name: technical_review
+  states:
+    initial:
+      type: initial
+      agent: reviewer.yml
+      input:
+        document: "{{ input.document }}"
+        type: "technical"
+      output:
+        result: "{{ output }}"
+    final:
+      type: final
+      output: "{{ context.result }}"

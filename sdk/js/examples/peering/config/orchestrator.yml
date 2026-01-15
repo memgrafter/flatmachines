@@ -1,0 +1,27 @@
+spec: flatmachine
+spec_version: "1.0"
+data:
+  name: orchestrator
+  context:
+    tasks:
+      - task: "summarize"
+        data: "Large text data to summarize"
+      - task: "analyze"
+        data: "Data to analyze"
+      - task: "translate"
+        data: "Text to translate"
+  persistence:
+    enabled: true
+    backend: memory
+  states:
+    initial:
+      type: initial
+      launch: [worker_node.yml]
+      launch_input:
+        tasks: "{{ context.tasks }}"
+      transitions:
+        - to: wait_for_results
+    wait_for_results:
+      type: final
+      output:
+        message: "Tasks launched to worker nodes"

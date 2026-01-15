@@ -1,0 +1,26 @@
+{
+  "name": "flatagents-peering",
+  "version": "0.1.0",
+  "description": "Peering and persistence demo for FlatAgent.",
+  "type": "module",
+  "main": "src/peering/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/peering/main.ts",
+    "start": "node dist/peering/main.js"
+  },
+  "dependencies": {
+    "flatagents": "file:../../dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0"
+  },
+  "keywords": [
+    "flatagents",
+    "demo",
+    "peering"
+  ],
+  "author": "",
+  "license": "MIT"
+}

@@ -1,0 +1,29 @@
+spec: flatmachine
+spec_version: "1.0"
+data:
+  name: foreach_demo
+  context:
+    documents:
+      - name: "Doc1"
+        content: "First document"
+      - name: "Doc2"
+        content: "Second document"
+      - name: "Doc3"
+        content: "Third document"
+  states:
+    initial:
+      type: initial
+      foreach: "{{ context.documents }}"
+      as: doc
+      machine: doc_processor.yml
+      input:
+        document: "{{ doc.content }}"
+        name: "{{ doc.name }}"
+      output_to_context:
+        results: "{{ output }}"
+      transitions:
+        - to: summarize
+    summarize:
+      type: final
+      output:
+        processed: "{{ context.results }}"

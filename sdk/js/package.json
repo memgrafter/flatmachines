@@ -1,27 +1,40 @@
 {
   "name": "flatagents",
   "version": "0.1.0",
-  "description": "A lightweight framework for building LLM-powered agents with pluggable backends.",
+  "description": "TypeScript SDK for FlatAgents - Declarative LLM orchestration with YAML",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
-    "prepublishOnly": "npm run build",
-    "test": "echo \"No tests yet\""
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
   },
-  "keywords": ["llm", "agents", "ai", "framework", "flatagent"],
+  "keywords": [
+    "llm",
+    "orchestration",
+    "yaml",
+    "agents",
+    "state-machine"
+  ],
   "author": "memgrafter@gmail.com",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/memgrafter/flatagents.git",
-    "directory": "sdk/js"
+  "dependencies": {
+    "@ai-sdk/anthropic": "^0.0.55",
+    "@ai-sdk/openai": "^0.0.70",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "ai": "^3.0.0",
+    "nunjucks": "^3.2.4",
+    "yaml": "^2.4.0"
   },
-  "homepage": "https://github.com/memgrafter/flatagents",
   "devDependencies": {
-    "typescript": "^5.0.0"
+    "@types/node": "^25.0.8",
+    "@types/nunjucks": "^3.2.6",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
   }
 }

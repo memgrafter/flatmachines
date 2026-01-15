@@ -1,0 +1,26 @@
+{
+  "name": "flatagents-parallelism",
+  "version": "0.1.0",
+  "description": "Parallel execution demo for FlatAgent.",
+  "type": "module",
+  "main": "src/parallelism/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/parallelism/main.ts",
+    "start": "node dist/parallelism/main.js"
+  },
+  "dependencies": {
+    "flatagents": "file:../../dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0"
+  },
+  "keywords": [
+    "flatagents",
+    "demo",
+    "parallelism"
+  ],
+  "author": "",
+  "license": "MIT"
+}

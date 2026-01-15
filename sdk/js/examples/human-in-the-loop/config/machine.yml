@@ -1,0 +1,28 @@
+spec: flatmachine
+spec_version: "1.0"
+data:
+  name: human_in_loop_demo
+  context: {}
+  states:
+    generate_plan:
+      type: initial
+      agent: task_agent.yml
+      input:
+        request: "{{ input.request }}"
+      output_to_context:
+        plan: "{{ output.plan }}"
+      transitions:
+        - to: approval
+    approval:
+      type: initial
+      transitions:
+        - condition: "context.approved"
+          to: execute
+        - to: generate_plan
+    execute:
+      type: final
+      agent: task_agent.yml
+      input:
+        request: "Execute this approved plan: {{ context.plan }}"
+      output:
+        result: "{{ output }}"

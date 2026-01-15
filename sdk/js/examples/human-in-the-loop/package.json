@@ -1,0 +1,26 @@
+{
+  "name": "flatagents-human-in-the-loop",
+  "version": "0.1.0",
+  "description": "Human-in-the-loop demo for FlatAgent.",
+  "type": "module",
+  "main": "src/human-in-the-loop/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/human-in-the-loop/main.ts",
+    "start": "node dist/human-in-the-loop/main.js"
+  },
+  "dependencies": {
+    "flatagents": "file:../../dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0"
+  },
+  "keywords": [
+    "flatagents",
+    "demo",
+    "human-in-the-loop"
+  ],
+  "author": "",
+  "license": "MIT"
+}
