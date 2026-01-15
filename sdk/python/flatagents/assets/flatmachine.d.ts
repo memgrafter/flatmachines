@@ -209,9 +209,9 @@
  * PersistenceConfig  - Backend config: {enabled: true, backend: "local"|"memory"}
  * checkpoint_on      - Events to checkpoint: ["machine_start", "execute", "machine_end"]
  *
- * HIERARCHICAL EXECUTION:
- * -----------------------
- * States can invoke child machines via `machine:` field
+ * MACHINE LAUNCHING:
+ * ------------------
+ * States can launch peer machines via `machine:` field
  * MachineReference   - {path: "./child.yml"} or {inline: {...}}
  */
 

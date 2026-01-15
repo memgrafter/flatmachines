@@ -65,7 +65,7 @@ class FlatMachine:
     Supports:
     - Persistence (checkpoint/resume)
     - Concurrency control (locking)
-    - Hierarchical execution (machine calls)
+    - Machine launching (peer machine execution)
     """
 
     SPEC_VERSION = "0.4.0"
@@ -97,16 +97,16 @@ class FlatMachine:
         if Template is None:
             raise ImportError("jinja2 is required. Install with: pip install jinja2")
 
-        # Extract execution_id if passed (for child machines)
+        # Extract execution_id if passed (for launched machines)
         self.execution_id = kwargs.pop('_execution_id', None) or str(uuid.uuid4())
         self.parent_execution_id = kwargs.pop('_parent_execution_id', None)
         
-        # Extract _config_dir override (used for child machines)
+        # Extract _config_dir override (used for launched machines)
         config_dir_override = kwargs.pop('_config_dir', None)
         
         self._load_config(config_file, config_dict)
         
-        # Allow parent to override config_dir for child machines
+        # Allow launcher to override config_dir for launched machines
         if config_dir_override:
             self._config_dir = config_dir_override
         
@@ -162,7 +162,7 @@ class FlatMachine:
         # Background tasks for fire-and-forget launches
         self._background_tasks: set[asyncio.Task] = set()
 
-        # Invoker (for child machines)
+        # Invoker (for launching peer machines)
         self.invoker = invoker or InlineInvoker()
 
         logger.info(f"Initialized FlatMachine: {self.machine_name} (ID: {self.execution_id})")
@@ -554,7 +554,7 @@ class FlatMachine:
         child_id: str,
         input_data: Dict[str, Any]
     ) -> Any:
-        """Launch a child machine and write its result to the backend."""
+        """Launch a peer machine and write its result to the backend."""
         target_config = self._resolve_machine_config(machine_name)
 
         child = FlatMachine(
@@ -584,7 +584,7 @@ class FlatMachine:
         input_data: Dict[str, Any],
         timeout: Optional[float] = None
     ) -> Any:
-        """Invoke a single child machine with blocking read."""
+        """Invoke a single peer machine with blocking read."""
         child_id = str(uuid.uuid4())
 
         # Checkpoint intent (outbox pattern)
@@ -796,7 +796,7 @@ class FlatMachine:
             machines_to_launch = [launch_spec] if isinstance(launch_spec, str) else launch_spec
             await self._launch_fire_and_forget(machines_to_launch, launch_input)
 
-        # 3. Handle 'machine' (child machine execution with blocking read)
+        # 3. Handle 'machine' (peer machine execution with blocking read)
         machine_spec = state.get('machine')
         foreach_expr = state.get('foreach')
 

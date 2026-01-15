@@ -84,30 +84,30 @@ class InlineInvoker(MachineInvoker):
         # Create a unique ID per invocation by hashing the context
         # This ensures each loop iteration gets its own checkpoint
         context_hash = hashlib.md5(str(sorted(context.items())).encode()).hexdigest()[:8]
-        target_id = f"{caller_machine.execution_id}:child:{target_name}:{context_hash}"
+        target_id = f"{caller_machine.execution_id}:peer:{target_name}:{context_hash}"
+
+        logger.info(f"Launching peer machine: {target_name} (ID: {target_id})")
         
-        logger.info(f"Invoking child machine: {target_name} (ID: {target_id})")
-        
-        # Determine if we should reuse parent's persistence/lock
+        # Determine if we should reuse launcher's persistence/lock
         # (Usually yes for inline execution)
         target = FlatMachine(
             config_dict=target_config,  # Must use config_dict, not config
-            # Pass down parent's backend/lock to keep everything in same storage
+            # Pass down launcher's backend/lock to keep everything in same storage
             persistence=caller_machine.persistence,
             lock=caller_machine.lock,
             # Inherit config_dir so relative agent paths resolve correctly
             _config_dir=caller_machine._config_dir
         )
         
-        # Execute child
+        # Execute peer
         # Note: resume_from=target_id ensures if we crash and retry, we pick up
-        # where the child left off (or use its existing result)
+        # where the peer left off (or use its existing result)
         result = await target.execute(
             input=context,
             resume_from=target_id
         )
         
-        # Aggregate child machine stats back to parent
+        # Aggregate peer machine stats back to launcher
         caller_machine.total_api_calls += target.total_api_calls
         caller_machine.total_cost += target.total_cost
         

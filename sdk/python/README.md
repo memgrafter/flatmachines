@@ -12,7 +12,7 @@ Define LLM agents in YAML. Run them anywhere.
 - **Inspectable** — every agent and machine is readable config
 - **Language-agnostic** — reduce code in any particular runtime
 - **Common TypeScript interface** — single schema for agents, single schema for machines
-- **Limitations** — hierarchical state machine networks can get complex at scale
+- **Limitations** — machine topologies can get complex at scale
 
 *Inspired by Kubernetes manifests and character card specifications.*
 
@@ -41,8 +41,9 @@ Use FlatAgent alone for simple tasks. Use FlatMachine when you need multi-step w
 | [mdap](./sdk/python/examples/mdap) | MDAP voting execution — multi-sample consensus |
 | [gepa_self_optimizer](./sdk/python/examples/gepa_self_optimizer) | Self-optimizing prompts via reflection and critique |
 | [research_paper_analysis](./sdk/python/examples/research_paper_analysis) | Document analysis with structured extraction |
-| [multi_paper_synthesizer](./sdk/python/examples/multi_paper_synthesizer) | Cross-document synthesis with dynamic child machines |
+| [multi_paper_synthesizer](./sdk/python/examples/multi_paper_synthesizer) | Cross-document synthesis with dynamic machine launching |
 | [support_triage_json](./sdk/python/examples/support_triage_json) | JSON input/output with classification pipeline |
+| [parallelism](./sdk/python/examples/parallelism) | Parallel machines, dynamic foreach, fire-and-forget launches |
 
 ## Quick Start
 
@@ -140,14 +141,16 @@ FlatMachine provides: state transitions, conditional branching, loops, retry wit
 - Webhook hooks for remote state machine handling
 - Metrics and logging
 - Error recovery and exception handling at the state machine level
+- Parallel machine execution (`machine: [a, b, c]`)
+- Dynamic parallelism with `foreach`
+- Fire-and-forget launches for background tasks
 
 ## Planned
 
-- Distributed execution — cross-network HSMs, inter-machine strategies
-- Parallel state execution
+- Distributed execution — cross-network machine peering, inter-machine strategies
 - SQL persistence backend
 - TypeScript SDK
-- `max_depth` config to limit child machine nesting
+- `max_depth` config to limit machine launch nesting
 - Checkpoint pruning to prevent storage explosion
 - `$root/` path prefix — resolve agent/machine refs from workspace root, not config dir
 - Input size validation — warn when prompt exceeds model context window

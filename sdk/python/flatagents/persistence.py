@@ -26,7 +26,7 @@ class MachineSnapshot:
     total_api_calls: Optional[int] = None  # Cumulative API calls
     total_cost: Optional[float] = None  # Cumulative cost
     # Lineage (v0.4.0)
-    parent_execution_id: Optional[str] = None  # ID of parent machine if this is a child
+    parent_execution_id: Optional[str] = None  # ID of launcher machine if this was launched
     # Outbox pattern (v0.4.0)
     pending_launches: Optional[List[Dict[str, Any]]] = None  # LaunchIntent dicts awaiting completion
 

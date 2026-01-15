@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "flatagents"
 version = "0.4.0"
-description = "A lightweight framework for building LLM-powered agents and hierarchical state machines with pluggable backends."
+description = "A lightweight framework for building LLM-powered agents and composable state machines with pluggable backends."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"

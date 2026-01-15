@@ -2,7 +2,7 @@
 Result backends for FlatMachine inter-machine communication.
 
 Result backends handle the storage and retrieval of machine execution results,
-enabling parent machines to read outputs from child machines.
+enabling machines to read outputs from peer machines they launched.
 
 URI Scheme: flatagents://{execution_id}/[checkpoint|result]
 """
@@ -77,7 +77,7 @@ class ResultBackend(Protocol):
     Protocol for result backends.
 
     Result backends store and retrieve machine execution results,
-    enabling parent-child machine communication.
+    enabling inter-machine communication.
     """
 
     async def write(self, uri: str, data: Any) -> None:
