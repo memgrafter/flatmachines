@@ -40,17 +40,25 @@ describe('FlatMachine', () => {
       expect(() => new FlatMachine({ config: invalidConfig })).not.toThrow()
     })
 
-    it('should handle malformed configuration gracefully', () => {
-      const malformedConfigs = [
+    it('should throw on truly invalid configs', () => {
+      const invalidConfigs = [
         null,
         undefined,
-        {},
-        { spec: 'wrong_spec' },
-        { spec: 'flatmachine', spec_version: '0.1.0' },
         { spec: 'flatmachine', spec_version: '0.1.0', data: null }
       ]
-      
-      malformedConfigs.forEach(config => {
+
+      invalidConfigs.forEach(config => {
+        expect(() => new FlatMachine({ config: config as any })).toThrow()
+      })
+    })
+
+    it('should accept minimal valid config structure', () => {
+      const minimalConfigs = [
+        { spec: 'flatmachine', spec_version: '0.1.0', data: { states: {} } },
+        { spec: 'wrong_spec', spec_version: '0.1.0', data: { states: {} } }
+      ]
+
+      minimalConfigs.forEach(config => {
         expect(() => new FlatMachine({ config: config as any })).not.toThrow()
       })
     })

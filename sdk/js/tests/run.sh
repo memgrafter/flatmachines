@@ -164,13 +164,29 @@ run_suite() {
     fi
 }
 
+run_integration_runner() {
+    echo ""
+    echo -e "${YELLOW}🧪 Running Integration tests...${NC}"
+    echo "----------------------------------------------"
+    cd "$SCRIPT_DIR"
+    if ./integration/run.sh; then
+        TOTAL_PASSED=$((TOTAL_PASSED + 1))
+        echo -e "${GREEN}✓ Integration tests PASSED${NC}"
+        return 0
+    else
+        TOTAL_FAILED=$((TOTAL_FAILED + 1))
+        echo -e "${RED}✗ Integration tests FAILED${NC}"
+        return 1
+    fi
+}
+
 # Run the requested test suite(s)
 case "$TEST_TYPE" in
     unit)
         run_suite "Unit" "unit" "$TEST_PATTERN"
         ;;
     integration)
-        run_suite "Integration" "integration" "$TEST_PATTERN"
+        run_integration_runner
         ;;
     e2e)
         run_suite "E2E" "e2e" "$TEST_PATTERN"

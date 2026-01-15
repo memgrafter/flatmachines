@@ -364,7 +364,7 @@ export class FlatMachine {
     if (tasks.length === 0) {
       return mode === "any" ? (undefined as T) : ([] as T[]);
     }
-    const runner = mode === "any" ? this.firstCompleted(tasks) : Promise.all(tasks);
+    const runner: Promise<T | T[]> = mode === "any" ? this.firstCompleted(tasks) : Promise.all(tasks);
     if (!timeoutMs) return runner;
     return this.withTimeout(runner, timeoutMs);
   }

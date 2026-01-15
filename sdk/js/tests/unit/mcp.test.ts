@@ -324,59 +324,7 @@ describe('MCPToolProvider', () => {
     })
   })
 
-  describe.skip('Integration Behaviors', () => {
-    // Skipped: these tests require actual MCP servers - move to integration tests
-    it('should handle connection state across method calls', async () => {
-      const provider = new MCPToolProvider()
-
-      await provider.connect({
-        'test-server': { command: 'node', args: ['server.js'] }
-      }).catch(() => {})
-
-      await expect(provider.listTools()).resolves.toEqual([])
-      await expect(provider.callTool('test-server:some_tool', {})).rejects.toThrow()
-    })
-
-    it('should handle multiple server connection workflow', async () => {
-      const provider = new MCPToolProvider()
-
-      const servers = {
-        'calc-server': { command: 'node', args: ['calc.js'] },
-        'text-server': { command: 'python', args: ['text.py'] },
-        'file-server': { serverUrl: 'ws://localhost:3001' }
-      }
-
-      await provider.connect(servers).catch(() => {})
-
-      await expect(provider.listTools()).resolves.toEqual([])
-      await expect(provider.callTool('calc-server:add', { a: 10, b: 20 })).rejects.toThrow()
-    })
-
-    it('should handle tool filtering and calling workflow', async () => {
-      const provider = new MCPToolProvider()
-
-      await provider.connect({
-        'multi-server': { command: 'node', args: ['multi.js'] }
-      }).catch(() => {})
-
-      const allTools = provider.listTools()
-      expect(allTools).toBeInstanceOf(Promise)
-
-      const filteredTools = provider.listTools({
-        allow: ['calculator_*', 'file_*']
-      })
-      expect(filteredTools).toBeInstanceOf(Promise)
-
-      const calcResult = provider.callTool('multi-server:calculator_add', { x: 10, y: 20 })
-      const fileResult = provider.callTool('multi-server:file_read', { path: '/test.txt' })
-
-      expect(calcResult).toBeInstanceOf(Promise)
-      expect(fileResult).toBeInstanceOf(Promise)
-
-      await calcResult.catch(() => {})
-      await fileResult.catch(() => {})
-    })
-  })
+  // Integration behaviors covered in tests/integration/mcp.integration.test.ts
 
   describe('Performance and Load Testing', () => {
     it('should handle many concurrent operations', async () => {
@@ -462,23 +410,6 @@ describe('MCPToolProvider', () => {
       })
     })
 
-    it.skip('should handle edge case server names', async () => {
-      // Skipped: requires actual MCP servers - move to integration tests
-      const provider = new MCPToolProvider()
-
-      const serverConfigs = [
-        { '': { command: 'echo' } },
-        { 'server-with-dashes': { command: 'node' } },
-        { 'server.with.dots': { command: 'python' } },
-        { 'server_with_underscores': { command: 'bash' } },
-        { '服务器': { command: 'node' } }
-      ]
-
-      for (const servers of serverConfigs) {
-        await provider.connect(servers).catch(() => {})
-      }
-    })
-
     it('should handle extremely long names and patterns', async () => {
       const provider = new MCPToolProvider()
 
@@ -500,33 +431,6 @@ describe('MCPToolProvider', () => {
       expect(typeof provider2.connect).toBe('function')
     })
 
-    it.skip('should handle method chaining simulation', async () => {
-      // Skipped: requires actual MCP servers - move to integration tests
-      const provider = new MCPToolProvider()
-
-      await provider.connect({ 'test': { command: 'node' } }).catch(() => {})
-      await expect(provider.listTools()).resolves.toEqual([])
-      await expect(provider.callTool('test:tool', {})).rejects.toThrow()
-    })
-
-    it.skip('should handle repeated connect calls', async () => {
-      // Skipped: requires actual MCP servers - move to integration tests
-      const provider = new MCPToolProvider()
-
-      await provider.connect({ 'test1': { command: 'node' } }).catch(() => {})
-      await provider.connect({ 'test2': { command: 'python' } }).catch(() => {})
-      await provider.connect({ 'test3': { command: 'bash' } }).catch(() => {})
-    })
-
-    it.skip('should handle mixed operation order', async () => {
-      // Skipped: requires actual MCP servers - move to integration tests
-      const provider = new MCPToolProvider()
-
-      await expect(provider.listTools()).resolves.toEqual([])
-      await expect(provider.callTool('server:tool', {})).rejects.toThrow()
-      await expect(provider.listTools({ allow: ['*'] })).resolves.toEqual([])
-
-      await provider.connect({ 'test': { command: 'node' } }).catch(() => {})
-    })
+    // Server connection lifecycle tests covered in tests/integration/mcp.integration.test.ts
   })
 })

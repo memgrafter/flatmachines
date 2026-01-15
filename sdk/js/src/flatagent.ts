@@ -1,15 +1,29 @@
-import { generateText } from "ai";
+import { generateText, LanguageModel } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { createCerebras } from "@ai-sdk/cerebras";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import * as nunjucks from "nunjucks";
 import * as yaml from "yaml";
 import { readFileSync } from 'fs';
 import { AgentConfig } from './types';
 import { MCPToolProvider } from './mcp';
 
+// Known provider base URLs for OpenAI-compatible providers
+const PROVIDER_BASE_URLS: Record<string, string> = {
+  cerebras: "https://api.cerebras.ai/v1",
+  groq: "https://api.groq.com/openai/v1",
+  together: "https://api.together.xyz/v1",
+  fireworks: "https://api.fireworks.ai/inference/v1",
+  deepseek: "https://api.deepseek.com/v1",
+  mistral: "https://api.mistral.ai/v1",
+  perplexity: "https://api.perplexity.ai",
+};
+
 export class FlatAgent {
   public config: AgentConfig;
   private mcpProvider?: MCPToolProvider;
+  private model?: LanguageModel;
 
   constructor(configOrPath: AgentConfig | string) {
     this.config = typeof configOrPath === "string"
@@ -36,74 +50,75 @@ export class FlatAgent {
       user = `${user}\n\n${this.config.data.instruction_suffix}`;
     }
 
-    // Add output instruction if we have a schema and no tools
-    if (this.config.data.output && tools.length === 0) {
-      const outputInstruction = this.buildOutputInstruction();
-      if (outputInstruction) {
-        user = `${user}\n\n${outputInstruction}`;
-      }
-    }
-
-    // Call LLM
+    // Get model
+    const model = this.getModel();
     const modelConfig = this.config.data.model;
-    const params: any = {
-      model: this.getModel(),
+
+    // Call LLM via Vercel AI SDK
+    const generateParams: any = {
+      model,
       system,
       prompt: user,
-      temperature: modelConfig.temperature,
-      maxTokens: modelConfig.max_tokens,
-      topP: modelConfig.top_p,
-      frequencyPenalty: modelConfig.frequency_penalty,
-      presencePenalty: modelConfig.presence_penalty,
     };
+    if (modelConfig.temperature !== undefined) generateParams.temperature = modelConfig.temperature;
+    if (modelConfig.max_tokens !== undefined) generateParams.maxTokens = modelConfig.max_tokens;
+    if (modelConfig.top_p !== undefined) generateParams.topP = modelConfig.top_p;
+    if (modelConfig.frequency_penalty !== undefined) generateParams.frequencyPenalty = modelConfig.frequency_penalty;
+    if (modelConfig.presence_penalty !== undefined) generateParams.presencePenalty = modelConfig.presence_penalty;
 
-    // Use JSON mode if we have an output schema and no tools
-    if (this.config.data.output && tools.length === 0) {
-      // Note: @ai-sdk/openai doesn't directly support response_format, 
-      // but we can achieve similar behavior through prompting
-    }
+    const response = await generateText(generateParams);
 
-    const { text } = await generateText(params);
+    const text = response.text;
 
     // Extract structured output
     const output = this.extractOutput(text);
     return { content: text, output };
   }
 
-  private getModel() {
-    const { provider = "openai", name } = this.config.data.model;
-    if (provider === "anthropic") return createAnthropic()(`anthropic/${name}`);
-    if (provider === "cerebras") return createOpenAI({ 
-      baseURL: 'https://api.cerebras.ai/v1',
-      apiKey: process.env.CEREBRAS_API_KEY || process.env.OPENAI_API_KEY 
-    })(name);
-    return createOpenAI()(`openai/${name}`);
-  }
+  private getModel(): LanguageModel {
+    if (this.model) return this.model;
 
-  private buildOutputInstruction(): string {
-    if (!this.config.data.output) return "";
+    const { provider = "openai", name: modelName } = this.config.data.model;
+    const providerLower = provider.toLowerCase();
+    const providerUpper = provider.toUpperCase();
+    const apiKey = process.env[`${providerUpper}_API_KEY`];
+    const baseURL = process.env[`${providerUpper}_BASE_URL`] || PROVIDER_BASE_URLS[providerLower];
 
-    const fields = [];
-    for (const [name, fieldDef] of Object.entries(this.config.data.output)) {
-      const def = fieldDef as any;
-      const desc = def.description || '';
-      const parts = [`"${name}"`];
-      if (desc) parts.push(`(${desc})`);
-      if (def.enum) parts.push(`- one of: ${JSON.stringify(def.enum)}`);
-      fields.push(parts.join(" "));
+    if (providerLower === "openai") {
+      const openai = createOpenAI({ apiKey });
+      this.model = openai.chat(modelName);
+    } else if (providerLower === "anthropic") {
+      const anthropic = createAnthropic({ apiKey });
+      this.model = anthropic(modelName);
+    } else if (providerLower === "cerebras") {
+      const cerebras = createCerebras({ apiKey });
+      this.model = cerebras(modelName);
+    } else {
+      // Use createOpenAICompatible for any other OpenAI-compatible provider
+      if (!baseURL) {
+        throw new Error(`Unknown provider "${provider}". Set ${providerUpper}_BASE_URL environment variable.`);
+      }
+      const compatible = createOpenAICompatible({
+        name: providerLower,
+        baseURL,
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+      });
+      this.model = compatible(modelName);
     }
 
-    return `Respond with JSON containing: ${fields.join(", ")}`;
+    return this.model!;
   }
 
   private extractOutput(text: string): any {
     // Strip markdown fences and parse JSON
     const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
     const json = match ? match[1].trim() : text.trim();
-    
-    try { 
+
+    try {
       const parsed = JSON.parse(json);
-      
+
       // If we got a primitive but have a schema expecting an object,
       // map it to the first field
       if (this.config.data.output && parsed !== null && typeof parsed !== 'object') {
@@ -112,7 +127,7 @@ export class FlatAgent {
           return { [fields[0]]: parsed };
         }
       }
-      
+
       return parsed;
     } catch {
       // If JSON parsing fails, check if we have a single field schema
@@ -120,10 +135,15 @@ export class FlatAgent {
       if (this.config.data.output) {
         const fields = Object.keys(this.config.data.output);
         if (fields.length === 1) {
-          // Try to extract a quoted value from the text
-          const quotedMatch = json.trim().match(/^"([^"]*)"$/);
-          if (quotedMatch) {
-            return { [fields[0]]: quotedMatch[1] };
+          // Try strict match first - entire response is quoted
+          const strictMatch = json.trim().match(/^"([^"]*)"$/);
+          if (strictMatch) {
+            return { [fields[0]]: strictMatch[1] };
+          }
+          // Fall back to finding any quoted string in response
+          const lenientMatch = json.match(/"([^"]+)"/);
+          if (lenientMatch) {
+            return { [fields[0]]: lenientMatch[1] };
           }
           // If not quoted, use the raw text as the value
           if (json.trim()) {

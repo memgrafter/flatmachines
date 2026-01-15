@@ -1,0 +1,14 @@
+{
+  "name": "flatagents-integration-integration",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "vitest run",
+    "test:verbose": "vitest run --verbose"
+  },
+  "devDependencies": {
+    "vitest": "^1.0.0",
+    "@vitest/coverage-v8": "^1.0.0",
+    "typescript": "^5.0.0"
+  }
+}

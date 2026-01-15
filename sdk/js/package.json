@@ -23,10 +23,12 @@
   "author": "memgrafter@gmail.com",
   "license": "MIT",
   "dependencies": {
-    "@ai-sdk/anthropic": "^0.0.55",
-    "@ai-sdk/openai": "^0.0.70",
+    "@ai-sdk/anthropic": "^3.0.14",
+    "@ai-sdk/cerebras": "^2.0.13",
+    "@ai-sdk/openai": "^3.0.11",
+    "@ai-sdk/openai-compatible": "^2.0.12",
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "ai": "^3.0.0",
+    "ai": "^6.0.37",
     "nunjucks": "^3.2.4",
     "yaml": "^2.4.0"
   },

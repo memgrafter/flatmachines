@@ -1,5 +1,5 @@
 spec: flatagent
-spec_version: "1.0"
+spec_version: "0.6.0"
 data:
   name: next_char
   model:

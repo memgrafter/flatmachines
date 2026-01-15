@@ -1,12 +1,12 @@
 spec: flatagent
-spec_version: "1.0"
+spec_version: "0.6.0"
 data:
   name: task_agent
   model:
     name: gpt-4o-mini
     provider: openai
   system: "You are a task planning assistant. Generate a task plan based on the request."
-  user: "Request: {{ request }}\n\nGenerate a task plan:"
+  user: "Request: {{ input.request }}\n\nGenerate a task plan:"
   output:
     plan:
       type: json

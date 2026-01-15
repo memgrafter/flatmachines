@@ -1,12 +1,12 @@
 spec: flatagent
-spec_version: "1.0"
+spec_version: "0.6.0"
 data:
   name: worker
   model:
     name: gpt-4o-mini
     provider: openai
   system: "You are a worker processing data. Process your assigned task and return results."
-  user: "Task: {{ task }}, Data: {{ data }}\n\nYour result:"
+  user: "Task: {{ input.task }}, Data: {{ input.data }}\n\nYour result:"
   output:
     result:
       type: json
