@@ -1,11 +1,17 @@
 #!/usr/bin/env node
 import { FlatMachine } from 'flatagents';
-import { join } from 'path';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const rootDir = join(__dirname, '..', '..');
+const configDir = join(rootDir, 'config');
 
 async function main() {
   const machine = new FlatMachine({
-    config: join(process.cwd(), 'config/machine.yml'),
-    configDir: join(process.cwd(), 'config'),
+    config: join(configDir, 'machine.yml'),
+    configDir,
   });
 
   try {

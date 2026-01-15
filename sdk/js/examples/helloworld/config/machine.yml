@@ -1,5 +1,9 @@
+# Hello World Loop Machine
+# Builds a target string character by character
+
 spec: flatmachine
-spec_version: "0.3.0"
+spec_version: "0.4.0"
+
 data:
   name: hello-world-loop
   
@@ -8,7 +12,7 @@ data:
     current: ""
   
   agents:
-    builder: ./next_char.yml
+    builder: ./agent.yml
   
   states:
     start:
