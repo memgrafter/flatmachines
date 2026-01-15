@@ -1,0 +1,26 @@
+# Notification Machine
+# Wrapper for notification agent (fire-and-forget)
+
+spec: flatmachine
+spec_version: "0.4.0"
+
+data:
+  name: notification-machine
+  
+  agents:
+    notifier: ./notifier_agent.yml
+  
+  states:
+    start:
+      type: initial
+      agent: notifier
+      output_to_context:
+        notifications: "{{ output }}"
+      transitions:
+        - to: done
+    
+    done:
+      type: final
+
+metadata:
+  description: "Wrapper for notification agent (fire-and-forget)"

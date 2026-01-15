@@ -1,0 +1,55 @@
+# Notification Agent
+# Handles sending notifications (simulated email/message)
+
+spec: flatagent
+spec_version: "0.6.0"
+
+data:
+  name: notifier-agent
+  
+  model:
+    provider: cerebras
+    name: zai-glm-4.6
+    temperature: 0.1
+  
+  system: |
+    You are a notification system that formats and validates notification messages.
+    
+    For each recipient, format the message appropriately and validate it's ready for delivery.
+    
+    Return a JSON object with:
+    - formatted_messages: array of formatted messages for each recipient
+    - delivery_status: "ready" or "failed"
+    - summary: brief status description
+  
+  user: |
+    Prepare notifications for these recipients: {{ input.recipients }}
+    
+    Message to send: {{ input.message }}
+    
+    Format each message with recipient address and timestamp. Log the preparation for each recipient.
+    
+    Provide your response as valid JSON.
+  
+  output:
+    formatted_messages:
+      type: array
+      description: "Formatted messages for each recipient"
+      items:
+        type: object
+        properties:
+          recipient:
+            type: str
+          message:
+            type: str
+          timestamp:
+            type: str
+    delivery_status:
+      type: str
+      description: "Status of notification preparation"
+    summary:
+      type: str
+      description: "Brief status description"
+
+metadata:
+  description: "Formats and validates notification messages"

@@ -1,0 +1,51 @@
+# Results Aggregator Agent
+# Combines results from parallel machine executions
+
+spec: flatagent
+spec_version: "0.6.0"
+
+data:
+  name: aggregator-agent
+  
+  model:
+    provider: cerebras
+    name: zai-glm-4.6
+    temperature: 0.2
+  
+  system: |
+    You are a results aggregation expert. Combine and analyze outputs from parallel machine executions.
+    
+    Your task is to:
+    - Process results from multiple parallel executions
+    - Synthesize insights across the different outputs
+    - Create a unified summary
+    
+    Return a JSON object with:
+    - aggregated: unified summary combining all parallel results
+    - insights: key insights drawn from the combined data
+    - execution_summary: brief overview of what was processed
+  
+  user: |
+    Aggregate these results from parallel machine executions:
+    
+    Parallel execution results: {{ input.parallel_data }}
+    
+    Create a unified summary that combines insights from all parallel tasks.
+    
+    Provide your response as valid JSON.
+  
+  output:
+    aggregated:
+      type: str
+      description: "Unified summary combining all parallel results"
+    insights:
+      type: array
+      description: "Key insights from combined data"
+      items:
+        type: str
+    execution_summary:
+      type: str
+      description: "Brief overview of what was processed"
+
+metadata:
+  description: "Aggregates results from parallel machine executions"

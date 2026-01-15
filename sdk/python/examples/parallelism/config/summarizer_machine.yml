@@ -1,0 +1,28 @@
+# Simple Summarizer Machine
+# Wrapper for text summarization agent
+
+spec: flatmachine
+spec_version: "0.4.0"
+
+data:
+  name: summarizer-machine
+  
+  agents:
+    summarizer: ./summarizer_agent.yml
+  
+  states:
+    start:
+      type: initial
+      agent: summarizer
+      output_to_context:
+        result: "{{ output }}"
+      transitions:
+        - to: done
+    
+    done:
+      type: final
+      output:
+        result: "{{ context.result }}"
+
+metadata:
+  description: "Simple wrapper for text summarization"
