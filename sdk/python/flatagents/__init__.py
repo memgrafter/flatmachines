@@ -1,4 +1,4 @@
-__version__ = "0.3.4"
+__version__ = "0.4.0"
 
 from .baseagent import (
     # Base agent (abstract, for multi-step agents)
@@ -50,6 +50,22 @@ from .monitoring import (
     get_meter,
     AgentMonitor,
     track_operation,
+)
+from .backends import (
+    ResultBackend,
+    InMemoryResultBackend,
+    LaunchIntent,
+    make_uri,
+    parse_uri,
+    get_default_result_backend,
+    reset_default_result_backend,
+)
+from .persistence import (
+    PersistenceBackend,
+    LocalFileBackend,
+    MemoryBackend,
+    CheckpointManager,
+    MachineSnapshot,
 )
 
 __all__ = [
@@ -103,4 +119,18 @@ __all__ = [
     "get_meter",
     "AgentMonitor",
     "track_operation",
+    # Result Backends (v0.4.0)
+    "ResultBackend",
+    "InMemoryResultBackend",
+    "LaunchIntent",
+    "make_uri",
+    "parse_uri",
+    "get_default_result_backend",
+    "reset_default_result_backend",
+    # Persistence Backends
+    "PersistenceBackend",
+    "LocalFileBackend",
+    "MemoryBackend",
+    "CheckpointManager",
+    "MachineSnapshot",
 ]
