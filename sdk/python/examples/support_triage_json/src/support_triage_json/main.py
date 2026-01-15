@@ -3,7 +3,7 @@ Support Triage JSON Demo for FlatAgents.
 
 Demonstrates:
 - FlatMachine + FlatAgent configs written in JSON
-- Hierarchical state machine (parent -> child)
+- Machine peering (launcher -> peer)
 - Agent-only execution states (no custom hooks)
 
 Usage:

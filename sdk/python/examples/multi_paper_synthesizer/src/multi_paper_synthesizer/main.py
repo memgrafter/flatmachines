@@ -2,7 +2,7 @@
 Multi-Paper Research Synthesizer for FlatAgents.
 
 Meta-example demonstrating:
-- HSM referencing another HSM (paper_analyzer as child)
+- Machine composition (paper_analyzer as reusable peer)
 - Multi-document synthesis with comparison and gap analysis
 - Self-judging improvement loop for synthesis quality
 
@@ -183,7 +183,7 @@ def parse_paper_programmatically(text: str, paper_info: dict, pdf_path: Path = N
 
 
 async def analyze_single_paper(paper_id: str) -> dict:
-    """Analyze a single paper using the paper_analyzer child machine."""
+    """Analyze a single paper using the paper_analyzer peer machine."""
     paper_info = PAPER_REGISTRY[paper_id]
     
     # Download and parse paper
@@ -250,8 +250,8 @@ async def synthesize_papers(
     # Step 2: Run synthesis machine
     synthesis_config = CONFIG_DIR / 'machine.yml'
     
-    # For now, skip the child machine invocation and go straight to synthesis agents
-    # This is because the full HSM->HSM pattern needs more work
+    # For now, skip the peer machine invocation and go straight to synthesis agents
+    # This is because the full machine->machine pattern needs more work
     # Instead, we'll use the synthesis agents directly
     
     machine = FlatMachine(

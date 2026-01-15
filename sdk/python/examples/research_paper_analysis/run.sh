@@ -21,7 +21,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Script Logic ---
-echo "--- Research Paper Analysis Demo (HSM + Checkpoint) ---"
+echo "--- Research Paper Analysis Demo (Machine Topology + Checkpoint) ---"
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"

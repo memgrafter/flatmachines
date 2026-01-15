@@ -4,14 +4,14 @@ A minimal support triage workflow that uses JSON FlatMachine and FlatAgent confi
 
 This demo showcases:
 - JSON configs for both `flatmachine` and `flatagent`
-- A nested child machine for response drafting
+- A nested peer machine for response drafting
 - Agent-only execution states (no custom hooks)
 
 ## How It Works
 
 1. **Triage Agent**: Classifies the ticket and decides if a response is needed
-2. **Response Flow**: A child machine drafts and polishes a response
-3. **Final Output**: Parent machine emits the triage decision and response
+2. **Response Flow**: A peer machine drafts and polishes a response
+3. **Final Output**: Main machine emits the triage decision and response
 
 ## Prerequisites
 
@@ -53,7 +53,7 @@ chmod +x run.sh
 
 ## Input and Output
 
-The parent machine consumes an input object like:
+The main machine consumes an input object like:
 
 ```json
 {
@@ -83,8 +83,8 @@ The output includes the triage decision and, when needed, a drafted response:
 
 ## Files
 
-- `config/machine.json` - Parent machine (triage + nested response flow)
-- `config/response_machine.json` - Child machine for drafting and polishing
+- `config/machine.json` - Main machine (triage + nested response flow)
+- `config/response_machine.json` - Peer machine for drafting and polishing
 - `config/triage_agent.json` - Triage classifier
 - `config/response_drafter.json` - Draft generator
 - `config/response_polisher.json` - Response refiner

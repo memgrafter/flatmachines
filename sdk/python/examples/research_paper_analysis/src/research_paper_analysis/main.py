@@ -1,8 +1,8 @@
 """
-Research Paper Analysis Demo for FlatAgents (HSM + Checkpoint/Resume).
+Research Paper Analysis Demo for FlatAgents (Machine Topology + Checkpoint/Resume).
 
 Demonstrates:
-- Hierarchical State Machines: Parent machine calls child machines
+- Machine Peering: Main machine launches and coordinates peer machines
 - Checkpoint/Resume: Survives crashes, resumes from last state
 - Multi-stage Pipeline: Extract → Analyze Sections → Synthesize
 
@@ -200,7 +200,7 @@ async def run(resume_id: str = None):
     paper = parse_paper_programmatically(full_text, pdf_path=pdf_path)
     
     logger.info("=" * 60)
-    logger.info("Research Paper Analysis (HSM + Checkpoint)")
+    logger.info("Research Paper Analysis (Machine Topology + Checkpoint)")
     logger.info("=" * 60)
     logger.info(f"Title: {paper.title}")
     logger.info(f"Authors: {', '.join(paper.authors[:5])}")

@@ -1,6 +1,6 @@
-# Multi-Paper Research Synthesizer (Parent Machine)
+# Multi-Paper Research Synthesizer (Main Machine)
 # Meta-example: Orchestrates multiple paper analyses and synthesizes insights
-# Demonstrates: HSM with dynamic child invocations, cross-document synthesis
+# Demonstrates: Machine peering with dynamic launches, cross-document synthesis
 
 spec: flatmachine
 spec_version: "0.3.0"
@@ -29,7 +29,7 @@ data:
     critic: ./critic.yml
     formatter: ./formatter.yml
   
-  # Reference to the paper analyzer child machine
+  # Reference to the paper analyzer peer machine
   machines:
     paper_analyzer: ../paper_analyzer/config/machine.yml
   
@@ -39,7 +39,7 @@ data:
       transitions:
         - to: analyze_papers
 
-    # Step 1: Analyze each paper using the paper_analyzer child machine
+    # Step 1: Analyze each paper using the paper_analyzer peer machine
     # This will be called in a loop by the orchestrator
     analyze_papers:
       machine: paper_analyzer
@@ -159,5 +159,5 @@ data:
         quality_score: "{{ context.quality_score }}"
 
 metadata:
-  description: "Multi-paper research synthesizer with HSM orchestration"
-  tags: ["hsm", "multi-document", "synthesis", "meta-example"]
+  description: "Multi-paper research synthesizer with machine peering"
+  tags: ["machine-peering", "multi-document", "synthesis", "meta-example"]

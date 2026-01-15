@@ -69,7 +69,7 @@ Approved   Rejected ──────────────────┘
 
 | File | Purpose |
 |------|---------|
-| `config/machine.yml` | HSM orchestration with supervision flow |
+| `config/machine.yml` | Machine orchestration with supervision flow |
 | `config/generator.yml` | Agent that generates OTF agent specs |
 | `config/supervisor.yml` | Pre-execution validation of specs |
 | `src/dynamic_agent/hooks.py` | Human review + OTF execution logic |

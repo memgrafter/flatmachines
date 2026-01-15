@@ -1,4 +1,4 @@
-# Analyzer Child Machine
+# Analyzer Peer Machine
 # Extracts key information from paper abstract and sections
 # Contains 2 agents: abstract_analyzer and section_analyzer
 
@@ -71,4 +71,4 @@ data:
         results: "{{ context.results }}"
 
 metadata:
-  description: "Child machine for paper content analysis"
+  description: "Peer machine for paper content analysis"

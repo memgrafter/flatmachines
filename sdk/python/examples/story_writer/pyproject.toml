@@ -1,7 +1,7 @@
 [project]
 name = "story_writer"
 version = "0.1.0"
-description = "Multi-chapter story writing with HSM and checkpoint/resume for FlatAgents"
+description = "Multi-chapter story writing with machine peering and checkpoint/resume for FlatAgents"
 dependencies = ["flatagents[litellm]"]
 requires-python = ">=3.10"
 

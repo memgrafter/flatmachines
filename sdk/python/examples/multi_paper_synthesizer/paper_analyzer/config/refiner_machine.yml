@@ -1,4 +1,4 @@
-# Refiner Child Machine (Self-Judging Loop)
+# Refiner Peer Machine (Self-Judging Loop)
 # Creates and iteratively improves summary until quality threshold met
 # Contains 2 agents: synthesizer (creates summary) and critic (judges quality)
 # Loops up to 3 times until quality_score >= 8

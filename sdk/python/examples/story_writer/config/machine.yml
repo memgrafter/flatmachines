@@ -1,5 +1,5 @@
-# Multi-Chapter Story Orchestrator (Parent Machine)
-# Demonstrates HSM: outlines story, then calls chapter_writer child for each chapter
+# Multi-Chapter Story Orchestrator (Main Machine)
+# Demonstrates machine peering: outlines story, then launches chapter_writer peer for each chapter
 
 spec: flatmachine
 spec_version: "0.3.0"
@@ -24,7 +24,7 @@ data:
   agents:
     outliner: ./outliner.yml
   
-  # Child machine for writing individual chapters
+  # Peer machine for writing individual chapters
   machines:
     chapter_writer: ./chapter_machine.yml
   
@@ -51,7 +51,7 @@ data:
       transitions:
         - to: write_chapter
 
-    # Step 2: Write each chapter via child machine
+    # Step 2: Write each chapter via peer machine
     write_chapter:
       machine: chapter_writer
       input:
@@ -76,5 +76,5 @@ data:
         chapters_completed: "{{ context.chapters | length }}"
 
 metadata:
-  description: "Hierarchical multi-chapter story writer with checkpoint/resume"
-  tags: ["hsm", "checkpoint", "creative"]
+  description: "Multi-chapter story writer with machine peering and checkpoint/resume"
+  tags: ["machine-peering", "checkpoint", "creative"]

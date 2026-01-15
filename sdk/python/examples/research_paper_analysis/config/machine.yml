@@ -1,6 +1,6 @@
-# Research Paper Analysis Pipeline (Parent Machine)
-# Production-quality HSM demo: 2 child machines + multiple agents
-# Demonstrates: HSM, self-judging improvement loop, formatted output
+# Research Paper Analysis Pipeline (Main Machine)
+# Production-quality machine topology demo: 2 peer machines + multiple agents
+# Demonstrates: machine peering, self-judging improvement loop, formatted output
 
 spec: flatmachine
 spec_version: "0.3.0"
@@ -17,7 +17,7 @@ data:
     section_text: "{{ input.section_text }}"
     reference_count: "{{ input.reference_count }}"
     references_sample: "{{ input.references_sample | tojson }}"
-    # Analysis results (from child machines)
+    # Analysis results (from peer machines)
     key_findings: null
     methodology: null
     contributions: null
@@ -32,7 +32,7 @@ data:
   agents:
     formatter: ./formatter.yml
   
-  # Child machines (HSM)
+  # Peer machines
   machines:
     analyzer: ./analyzer_machine.yml
     refiner: ./refiner_machine.yml
@@ -43,7 +43,7 @@ data:
       transitions:
         - to: analyze
 
-    # Step 1: Call analyzer child machine
+    # Step 1: Launch analyzer peer machine
     analyze:
       machine: analyzer
       input:
@@ -60,7 +60,7 @@ data:
       transitions:
         - to: refine
 
-    # Step 2: Call refiner child machine (self-judging loop)
+    # Step 2: Launch refiner peer machine (self-judging loop)
     refine:
       machine: refiner
       input:
@@ -111,5 +111,5 @@ data:
         citation_count: "{{ context.reference_count }}"
 
 metadata:
-  description: "Production HSM demo: analyzer + refiner child machines"
-  tags: ["hsm", "self-judging", "production"]
+  description: "Production machine topology demo: analyzer + refiner peer machines"
+  tags: ["machine-peering", "self-judging", "production"]

@@ -101,6 +101,6 @@
   },
   "metadata": {
     "description": "Customer support triage with a nested response machine (JSON configs)",
-    "tags": ["json", "hsm", "support"]
+    "tags": ["json", "machine-peering", "support"]
   }
 }

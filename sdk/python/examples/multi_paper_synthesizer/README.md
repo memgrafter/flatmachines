@@ -4,7 +4,7 @@ A **meta-example** that orchestrates multiple paper analyses and synthesizes ins
 
 ## Features Demonstrated
 
-- **HSM Referencing HSM**: Uses `paper_analyzer` as a reusable child machine
+- **Machine Composition**: Uses `paper_analyzer` as a reusable peer machine
 - **Multi-Document Synthesis**: Compares findings, identifies gaps, creates unified narrative
 - **Self-Judging Loop**: Refines synthesis until quality score ≥ 8/10
 - **Cross-Paper Analysis**: Common themes, key differences, research gaps
@@ -14,10 +14,10 @@ A **meta-example** that orchestrates multiple paper analyses and synthesizes ins
 ```
 multi_paper_synthesizer/
 ├── config/
-│   └── machine.yml              # Parent orchestrator
+│   └── machine.yml              # Main orchestrator
 ├── paper_analyzer/
 │   └── config/                  # Reused from research_paper_analysis
-│       ├── machine.yml          # Child machine
+│       ├── machine.yml          # Peer machine
 │       └── *.yml                # Agents
 ├── data/
 │   ├── papers/                  # Downloaded PDFs

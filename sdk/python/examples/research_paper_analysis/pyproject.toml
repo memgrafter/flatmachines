@@ -1,7 +1,7 @@
 [project]
 name = "research_paper_analysis"
 version = "0.1.0"
-description = "Hierarchical paper analysis with checkpoint/resume for FlatAgents"
+description = "Paper analysis with machine peering and checkpoint/resume for FlatAgents"
 dependencies = ["flatagents[litellm]", "pypdf", "httpx"]
 requires-python = ">=3.10"
 

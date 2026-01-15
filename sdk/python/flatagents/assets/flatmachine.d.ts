@@ -212,7 +212,7 @@
  * MACHINE LAUNCHING:
  * ------------------
  * States can launch peer machines via `machine:` field
- * MachineReference   - {path: "./child.yml"} or {inline: {...}}
+ * MachineReference   - {path: "./peer.yml"} or {inline: {...}}
  */
 
 export const SPEC_VERSION = "0.4.0";

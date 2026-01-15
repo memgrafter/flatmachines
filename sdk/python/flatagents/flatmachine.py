@@ -557,7 +557,7 @@ class FlatMachine:
         """Launch a peer machine and write its result to the backend."""
         target_config = self._resolve_machine_config(machine_name)
 
-        child = FlatMachine(
+        peer = FlatMachine(
             config_dict=target_config,
             hooks=self._hooks,
             result_backend=self.result_backend,
@@ -567,7 +567,7 @@ class FlatMachine:
         )
 
         try:
-            result = await child.execute(input=input_data)
+            result = await peer.execute(input=input_data)
             # Write result to backend
             uri = make_uri(child_id, "result")
             await self.result_backend.write(uri, result)
