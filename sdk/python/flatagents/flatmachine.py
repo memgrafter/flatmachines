@@ -1047,6 +1047,10 @@ class FlatMachine:
             return final_output
 
         finally:
+            # Wait for any launched peer machines to complete
+            # This ensures peer equality - launched machines have equal right to finish
+            if self._background_tasks:
+                await asyncio.gather(*self._background_tasks, return_exceptions=True)
             await self.lock.release(self.execution_id)
 
     def execute_sync(
