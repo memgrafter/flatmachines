@@ -3,10 +3,19 @@ export interface AgentConfig {
   spec_version: string;
   data: {
     name?: string;
-    model: { name: string; provider?: string; temperature?: number; max_tokens?: number };
+    model: {
+      name: string;
+      provider?: string;
+      temperature?: number;
+      max_tokens?: number;
+      top_p?: number;
+      frequency_penalty?: number;
+      presence_penalty?: number;
+    };
     system: string;
     user: string;
-    output?: Record<string, { type: string; description?: string }>;
+    instruction_suffix?: string;
+    output?: Record<string, { type: string; description?: string; enum?: string[]; required?: boolean; items?: any; properties?: any }>;
     mcp?: { servers: Record<string, MCPServer>; tool_filter?: ToolFilter; tool_prompt?: string };
   };
 }
@@ -16,27 +25,36 @@ export interface MachineConfig {
   spec_version: string;
   data: {
     name?: string;
+    expression_engine?: "simple" | "cel";
     context?: Record<string, any>;
     agents?: Record<string, string>;
+    machines?: Record<string, string | MachineConfig | MachineWrapper | MachineReference>;
     states: Record<string, State>;
-    persistence?: { enabled: boolean; backend: "local" | "memory" };
+    settings?: { max_steps?: number; [key: string]: any };
+    persistence?: { enabled: boolean; backend: "local" | "memory" | "redis" | string; checkpoint_on?: string[]; [key: string]: any };
   };
 }
 
 export interface State {
   type?: "initial" | "final";
   agent?: string;
-  machine?: string | string[];
-  execution?: { type: "default" | "retry"; backoffs?: number[]; jitter?: number };
+  machine?: string | string[] | MachineInput[];
+  action?: string;
+  execution?: { type: "default" | "retry" | "parallel" | "mdap_voting"; backoffs?: number[]; jitter?: number; n_samples?: number; k_margin?: number; max_candidates?: number };
   input?: Record<string, any>;
   output_to_context?: Record<string, any>;
   output?: Record<string, any>;
   transitions?: { condition?: string; to: string }[];
-  on_error?: string;
+  on_error?: string | Record<string, string>;
   foreach?: string;
   as?: string;
+  key?: string;
+  mode?: "settled" | "any";
+  timeout?: number;
   launch?: string | string[];
   launch_input?: Record<string, any>;
+  tool_loop?: boolean;
+  sampling?: "single" | "multi";
 }
 
 export interface MachineSnapshot {
@@ -47,6 +65,8 @@ export interface MachineSnapshot {
   step: number;
   createdAt: string;
   parentExecutionId?: string;
+  event?: string;
+  output?: Record<string, any>;
 }
 
 export interface MCPServer {
@@ -61,9 +81,12 @@ export interface ToolFilter {
 }
 
 export interface ExecutionConfig {
-  type: "default" | "retry";
+  type: "default" | "retry" | "parallel" | "mdap_voting";
   backoffs?: number[];
   jitter?: number;
+  n_samples?: number;
+  k_margin?: number;
+  max_candidates?: number;
 }
 
 export interface ExecutionType {
@@ -77,6 +100,7 @@ export interface MachineHooks {
   onStateExit?(state: string, context: Record<string, any>, output: any): any | Promise<any>;
   onTransition?(from: string, to: string, context: Record<string, any>): string | Promise<string>;
   onError?(state: string, error: Error, context: Record<string, any>): string | null | Promise<string | null>;
+  onAction?(action: string, context: Record<string, any>): Record<string, any> | Promise<Record<string, any>>;
 }
 
 export interface PersistenceBackend {
@@ -99,4 +123,20 @@ export interface MachineOptions {
   persistence?: PersistenceBackend;
   resultBackend?: ResultBackend;
   configDir?: string;
+}
+
+export interface MachineInput {
+  name: string;
+  input?: Record<string, any>;
+}
+
+export interface MachineReference {
+  path?: string;
+  inline?: MachineConfig;
+}
+
+export interface MachineWrapper {
+  spec: "flatmachine";
+  spec_version: string;
+  data: MachineConfig["data"];
 }

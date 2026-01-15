@@ -26,11 +26,18 @@ export class FlatAgent {
 
     // Render prompts
     const tools = this.mcpProvider ? await this.mcpProvider.listTools(this.config.data.mcp?.tool_filter) : [];
-    const system = nunjucks.renderString(this.config.data.system, { input, tools });
-    let user = nunjucks.renderString(this.config.data.user, { input, tools });
+    const toolsPrompt = this.config.data.mcp?.tool_prompt
+      ? nunjucks.renderString(this.config.data.mcp.tool_prompt, { tools })
+      : "";
+    const templateVars = { input, tools, tools_prompt: toolsPrompt, model: this.config.data.model };
+    const system = nunjucks.renderString(this.config.data.system, templateVars);
+    let user = nunjucks.renderString(this.config.data.user, templateVars);
+    if (this.config.data.instruction_suffix) {
+      user = `${user}\n\n${this.config.data.instruction_suffix}`;
+    }
 
     // Add output instruction if we have a schema and no tools
-    if (this.config.data.output && !tools) {
+    if (this.config.data.output && tools.length === 0) {
       const outputInstruction = this.buildOutputInstruction();
       if (outputInstruction) {
         user = `${user}\n\n${outputInstruction}`;
@@ -38,14 +45,20 @@ export class FlatAgent {
     }
 
     // Call LLM
+    const modelConfig = this.config.data.model;
     const params: any = {
       model: this.getModel(),
       system,
       prompt: user,
+      temperature: modelConfig.temperature,
+      maxTokens: modelConfig.max_tokens,
+      topP: modelConfig.top_p,
+      frequencyPenalty: modelConfig.frequency_penalty,
+      presencePenalty: modelConfig.presence_penalty,
     };
 
     // Use JSON mode if we have an output schema and no tools
-    if (this.config.data.output && !tools) {
+    if (this.config.data.output && tools.length === 0) {
       // Note: @ai-sdk/openai doesn't directly support response_format, 
       // but we can achieve similar behavior through prompting
     }
@@ -76,6 +89,7 @@ export class FlatAgent {
       const desc = def.description || '';
       const parts = [`"${name}"`];
       if (desc) parts.push(`(${desc})`);
+      if (def.enum) parts.push(`- one of: ${JSON.stringify(def.enum)}`);
       fields.push(parts.join(" "));
     }
 

@@ -15,8 +15,8 @@ const rl = readline.createInterface({
 });
 
 class HumanInLoopHooks implements MachineHooks {
-  async onStateEnter(state: string, context: Record<string, any>): Promise<Record<string, any>> {
-    if (state !== 'await_human_review') {
+  async onAction(action: string, context: Record<string, any>): Promise<Record<string, any>> {
+    if (action !== 'human_review') {
       return context;
     }
 

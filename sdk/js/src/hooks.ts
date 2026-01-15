@@ -47,6 +47,11 @@ export class WebhookHooks implements MachineHooks {
     await this.send("state_exit", { state, context, output });
     return output;
   }
+
+  async onAction(action: string, context: Record<string, any>) {
+    await this.send("action", { action, context });
+    return context;
+  }
 }
 
 export class CompositeHooks implements MachineHooks {
@@ -129,6 +134,20 @@ export class CompositeHooks implements MachineHooks {
         try {
           const hookResult = await hook.onError(state, error, context);
           if (hookResult !== null) result = hookResult;
+        } catch {
+          // Continue with next hook on error
+        }
+      }
+    }
+    return result;
+  }
+
+  async onAction(action: string, context: Record<string, any>): Promise<Record<string, any>> {
+    let result = context;
+    for (const hook of this.hooks) {
+      if (hook.onAction) {
+        try {
+          result = await hook.onAction(action, result);
         } catch {
           // Continue with next hook on error
         }
