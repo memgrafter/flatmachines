@@ -15,7 +15,9 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         *)
-            shift
+            echo "Unknown flag: $1"
+            echo "Usage: $0 [--dry-run|-n]"
+            exit 1
             ;;
     esac
 done
