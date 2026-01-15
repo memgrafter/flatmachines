@@ -1,0 +1,50 @@
+# Text Summarizer Agent
+# Summarizes multiple texts into a concise summary
+
+spec: flatagent
+spec_version: "0.6.0"
+
+data:
+  name: summarizer-agent
+  
+  model:
+    provider: cerebras
+    name: zai-glm-4.6
+    temperature: 0.3
+  
+  system: |
+    You are a text summarization expert. Create a concise summary of the provided texts.
+    
+    Your summary should:
+    - Capture the main themes across all texts
+    - Be no more than 100 words
+    - Focus on key insights and common patterns
+    
+    Return a JSON object with:
+    - summary: the concise summary (max 100 words)
+    - key_topics: array of main topics (max 5 items)
+    - text_count: number of texts processed
+  
+  user: |
+    Summarize these texts:
+    {% for text in input.texts %}
+    {{ loop.index }}. {{ text }}
+    {% endfor %}
+    
+    Provide your response as valid JSON.
+  
+  output:
+    summary:
+      type: str
+      description: "Concise summary of all texts (max 100 words)"
+    key_topics:
+      type: array
+      description: "Main topics identified across texts"
+      items:
+        type: str
+    text_count:
+      type: int
+      description: "Number of texts processed"
+
+metadata:
+  description: "Creates concise summaries of multiple texts"

@@ -1,12 +1,12 @@
 # Research Paper Analysis Pipeline
 
-A **production-quality** HSM demo with **2 child machines**, **5 agents**, and a **self-judging improvement loop**.
+A **production-quality** machine topology demo with **2 peer machines**, **5 agents**, and a **self-judging improvement loop**.
 
 Analyzes the full "Attention Is All You Need" paper (40KB, 15 pages) without truncation.
 
 ## Features Demonstrated
 
-- **Hierarchical State Machines**: Parent orchestrates 2 child machines
+- **Machine Peering**: Main machine launches and coordinates 2 peer machines
 - **Self-Judging Loop**: Summary refined until quality score ≥ 8/10
 - **Multi-Agent Pipeline**: 5 specialized agents across machines
 - **Automatic PDF Download**: Downloads from arXiv if not present
@@ -16,16 +16,16 @@ Analyzes the full "Attention Is All You Need" paper (40KB, 15 pages) without tru
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│                    PARENT: research-pipeline                        │
+│                    MAIN: research-pipeline                          │
 │                                                                      │
 │   ┌─────────┐     ┌───────────────────┐     ┌──────────────────┐   │
 │   │  start  │ ──▶ │     analyze       │ ──▶ │      refine      │   │
-│   └─────────┘     │  (child machine)  │     │  (child machine) │   │
+│   └─────────┘     │  (peer machine)   │     │  (peer machine)  │   │
 │                   └───────────────────┘     └──────────────────┘   │
 │                           │                         │              │
 │                           ▼                         ▼              │
 │                   ┌───────────────────┐     ┌──────────────────┐   │
-│                   │ CHILD: analyzer   │     │ CHILD: refiner   │   │
+│                   │ PEER: analyzer    │     │ PEER: refiner    │   │
 │                   │                   │     │ (self-judging)   │   │
 │                   │ ├─ abstract_      │     │                  │   │
 │                   │ │  analyzer       │     │ ├─ synthesizer   │   │
@@ -54,11 +54,11 @@ Analyzes the full "Attention Is All You Need" paper (40KB, 15 pages) without tru
 | `section_analyzer` | Extracts technical details, results | analyzer |
 | `synthesizer` | Creates/improves executive summary | refiner |
 | `critic` | Judges quality, suggests improvements | refiner |
-| `formatter` | Creates markdown report | parent |
+| `formatter` | Creates markdown report | main |
 
 ## Self-Judging Loop
 
-The `refiner` child machine implements a quality improvement loop:
+The `refiner` peer machine implements a quality improvement loop:
 
 1. **Synthesize**: Create summary (or improve based on critique)
 2. **Critique**: Rate quality 1-10, identify weaknesses

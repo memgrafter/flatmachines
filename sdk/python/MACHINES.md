@@ -1,7 +1,5 @@
 # FlatAgents + FlatMachines Build Guide
 
-> **Token limit: 500-1000 tokens.** Keep this doc concise.
-
 ## What They Are
 
 **FlatAgent** (`flatagent.d.ts`): A single LLM call configured in YAML. Defines model, prompts, and output schema. No orchestration logic.
@@ -17,6 +15,9 @@
 | Conditional branching | FlatMachine transitions |
 | Retry with backoff | FlatMachine execution type |
 | Error recovery | FlatMachine `on_error` |
+| Parallel execution | FlatMachine `machine: [a, b, c]` |
+| Dynamic parallelism | FlatMachine `foreach` |
+| Background tasks | FlatMachine `launch` |
 
 ## Python SDK
 
@@ -25,26 +26,17 @@ pip install flatagents[litellm]
 ```
 
 ```python
-from flatagents import FlatAgent, FlatMachine, setup_logging, get_logger
-
-setup_logging(level="INFO")
-logger = get_logger(__name__)
+from flatagents import FlatAgent, FlatMachine
 
 # Single agent call
 agent = FlatAgent(config_file="agent.yml")
-result = await agent.call(text="Hello")
-
-# AgentResponse has .content, .output, .tool_calls, .raw_response
-# Access parsed output via .output (a dict, may be None)
-if result.output:
-    logger.info(f"Summary: {result.output.get('summary')}")
-else:
-    logger.info(f"Raw content: {result.content}")
+result = await agent.call(query="Hello")
+print(result.output)
 
 # State machine execution
 machine = FlatMachine(config_file="machine.yml")
 result = await machine.execute(input={"query": "Hello"})
-logger.info(f"Result: {result}")
+print(result)
 ```
 
 ## Key Patterns
@@ -84,6 +76,65 @@ transitions:
     to: finish
   - to: same_state
 ```
+
+## Parallel Execution (v0.4.0)
+
+### Parallel Machines
+Run multiple machines simultaneously:
+```yaml
+states:
+  parallel_review:
+    machine: [legal_review, tech_review, finance_review]
+    input:
+      document: "{{ context.document }}"
+    mode: settled         # Wait for all (default) or "any" for first
+    timeout: 120          # Seconds (0 = no timeout)
+    output_to_context:
+      reviews: "{{ output }}"
+    transitions:
+      - to: synthesize
+```
+
+Results are keyed by machine name: `{legal_review: {...}, tech_review: {...}, ...}`
+
+### Dynamic Parallelism (foreach)
+Iterate over a list and run machines in parallel:
+```yaml
+states:
+  process_all:
+    foreach: "{{ context.documents }}"
+    as: doc
+    key: "{{ doc.id }}"   # Optional: key results by expression
+    machine: doc_processor
+    input:
+      document: "{{ doc }}"
+    output_to_context:
+      results: "{{ output }}"
+    transitions:
+      - to: aggregate
+```
+
+- `foreach`: Jinja2 expression yielding array
+- `as`: Variable name for current item (default: `item`)
+- `key`: Expression for result key (results are array if omitted)
+
+### Fire-and-Forget (launch)
+Start machines without waiting for results:
+```yaml
+states:
+  kickoff:
+    launch: expensive_analysis
+    launch_input:
+      document: "{{ context.document }}"
+    transitions:
+      - to: continue_immediately
+```
+
+- `launch`: Machine name or array of names
+- `launch_input`: Input for launched machines
+- Results available via result backend, don't block execution
+
+**Note**: Only `machine` supports parallel arrays, not `agent`. Machines have checkpoint/resume and error recovery; agents are raw LLM calls. Wrap agents in machines for parallel execution.
 
 ## Hooks (Code Extensibility)
 
@@ -130,12 +181,20 @@ Use hooks for: Pareto selection, population sampling, external API calls, databa
 | Field | Purpose |
 |-------|---------|
 | `agent` | Agent to execute |
+| `machine` | Machine(s) to execute (string or array for parallel) |
 | `execution` | Execution type config |
 | `on_error` | Error recovery state |
-| `input` | Input mapping to agent |
-| `output_to_context` | Map agent output to context |
+| `input` | Input mapping to agent/machine |
+| `output_to_context` | Map output to context |
 | `transitions` | Where to go next |
 | `action` | Hook action name |
+| `foreach` | Array expression for dynamic parallelism |
+| `as` | Variable name in foreach (default: `item`) |
+| `key` | Result key expression for foreach |
+| `mode` | `settled` (all) or `any` (first) |
+| `timeout` | Seconds to wait (0 = forever) |
+| `launch` | Fire-and-forget machine(s) |
+| `launch_input` | Input for launched machines |
 
 ### Transition Fields
 | Field | Purpose |
@@ -152,85 +211,28 @@ Use hooks for: Pareto selection, population sampling, external API calls, databa
 | `context.last_error` | After error |
 | `context.last_error_type` | After error |
 
-### Jinja2 Filters
-| Filter | Usage | Description |
-|--------|-------|-------------|
-| `tojson` | `{{ context.items \| tojson }}` | Serialize to JSON string |
-| `fromjson` | `{% for i in context.items \| fromjson %}` | Parse JSON string to object |
+## Persistence
 
-**Note**: When iterating over context values stored as JSON strings, use `| fromjson`:
-```yaml
-# Context stores: sections: "[{\"title\": \"Intro\"}, ...]" (JSON string)
-# Use fromjson to iterate:
-user: |
-  {% for s in context.sections | fromjson %}
-  - {{ s.title }}
-  {% endfor %}
-```
-
-## Persistence (Checkpoint/Resume)
-
-Enable crash recovery:
+Enable checkpoint/resume:
 
 ```yaml
 persistence:
   enabled: true
-  backend: local  # local | memory
+  backend: local     # local | memory
 ```
 
-Resume from checkpoint:
+Resume after crash:
 ```python
-machine = FlatMachine(config_file="workflow.yml")
+machine = FlatMachine(config_file="machine.yml")
 execution_id = machine.execution_id  # Save this
+result = await machine.execute(...)
 
-try:
-    result = await machine.execute(input={...})
-except Exception:
-    print(f"Resume with: {execution_id}")
-
-# Later
-machine2 = FlatMachine(config_file="workflow.yml")
+# Later: Resume
+machine2 = FlatMachine(config_file="machine.yml")
 result = await machine2.execute(resume_from=execution_id)
 ```
 
-### Backends
-| Backend | Use Case |
-|---------|----------|
-| `local` | File-based, survives restarts |
-| `memory` | Ephemeral, tests only |
-
-### Hierarchical Machines (HSM)
-
-Call child machines from states using `machine:` field:
-```yaml
-machines:
-  child_workflow: ./child_machine.yml
-
-agents:
-  my_agent: ./agent.yml
-
-states:
-  call_child:
-    machine: child_workflow
-    input:
-      query: "{{ context.query }}"
-    output_to_context:
-      result: "{{ output.answer }}"
-    transitions:
-      - to: next_state
-```
-
-**Key points**:
-- Use `machines:` section to reference child machine configs
-- Child machines inherit parent's persistence/lock
-- Child API calls are aggregated into parent's `total_api_calls`
-
-## Manual Testing (for LLMs)
-
-Use an integration test venv (examples also have venvs following same pattern):
-
-```bash
-sdk/python/tests/integration/persistence/.venv/bin/python -c "from flatagents import FlatMachine; print('OK')"
-```
-
-**Note**: Run `run.sh --local` in any example/test first to create its `.venv` with local SDK.
+| Checkpoint Event | Purpose |
+|------------------|---------|
+| `execute` | Before LLM calls (default) |
+| `machine_end` | Mark completion |

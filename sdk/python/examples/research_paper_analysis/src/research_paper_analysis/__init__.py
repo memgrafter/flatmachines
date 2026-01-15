@@ -1,1 +1,1 @@
-"""Research Paper Analysis example for FlatAgents - demonstrates HSM + checkpoint/resume."""
+"""Research Paper Analysis example for FlatAgents - demonstrates machine peering + checkpoint/resume."""

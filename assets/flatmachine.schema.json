@@ -24,7 +24,8 @@
         "spec_version",
         "data"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "description": "URI Scheme for FlatAgents\n\nFormat: flatagents://{execution_id}[/{path}]\n\nPaths:   /checkpoint     - Machine state for resume   /result         - Final output after completion\n\nExamples:   flatagents://550e8400-e29b-41d4-a716-446655440000/checkpoint   flatagents://550e8400-e29b-41d4-a716-446655440000/result\n\nEach machine execution has a unique_id. Parent generates child's ID before launching, enabling parent to know where to read results without any child-to-parent messaging."
     },
     "MachineData": {
       "type": "object",
@@ -304,7 +305,23 @@
           "type": "string"
         },
         "machine": {
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/MachineInput"
+              }
+            }
+          ]
         },
         "action": {
           "type": "string"
@@ -349,9 +366,60 @@
             "single",
             "multi"
           ]
+        },
+        "foreach": {
+          "type": "string"
+        },
+        "as": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "settled",
+            "any"
+          ]
+        },
+        "timeout": {
+          "type": "number"
+        },
+        "launch": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "launch_input": {
+          "type": "object"
         }
       },
       "additionalProperties": false
+    },
+    "MachineInput": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "input": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false,
+      "description": "Per-machine input configuration for parallel execution. Use when different machines need different inputs."
     },
     "ExecutionConfig": {
       "type": "object",
@@ -412,6 +480,13 @@
         },
         "max_steps": {
           "type": "number"
+        },
+        "parallel_fallback": {
+          "type": "string",
+          "enum": [
+            "sequential",
+            "error"
+          ]
         }
       }
     },

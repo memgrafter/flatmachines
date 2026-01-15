@@ -1,0 +1,92 @@
+# Parallelism Demo Machine
+# Demonstrates different parallel execution patterns in FlatAgents v0.4.0
+
+spec: flatmachine
+spec_version: "0.4.0"
+
+data:
+  name: parallelism-demo
+  
+  context:
+    execution_type: "{{ input.type }}"
+    texts: "{{ input.texts }}"
+    message: "{{ input.message }}"
+  
+  agents:
+    aggregator: ./aggregator_agent.yml
+  
+  machines:
+    sentiment_machine: ./sentiment_machine.yml
+    summarizer_machine: ./summarizer_machine.yml
+    notification_machine: ./notification_machine.yml
+  
+  states:
+    start:
+      type: initial
+      transitions:
+        - condition: "context.execution_type == 'parallel_aggregation'"
+          to: parallel_aggregate
+        - condition: "context.execution_type == 'foreach_sentiment'"
+          to: foreach_analysis
+        - condition: "context.execution_type == 'background_notifications'"
+          to: launch_notifications
+        - to: done
+    
+    # Pattern 1: Parallel machine execution with machine: [a, b, c]
+    parallel_aggregate:
+      # Run summarization and sentiment analysis in parallel
+      machine: [summarizer_machine, sentiment_machine]
+      input:
+        texts: "{{ context.texts }}"
+      output_to_context:
+        parallel_results: "{{ output }}"
+      transitions:
+        - to: aggregate_results
+    
+    aggregate_results:
+      agent: aggregator
+      input:
+        parallel_data: "{{ context.parallel_results }}"
+      output_to_context:
+        final_result: "{{ output.aggregated }}"
+      transitions:
+        - to: done
+    
+    # Pattern 2: Dynamic parallelism with foreach
+    foreach_analysis:
+      foreach: "{{ context.texts }}"
+      as: text
+      machine: sentiment_machine
+      input:
+        text: "{{ text }}"
+      output_to_context:
+        sentiment_results: "{{ output }}"
+      transitions:
+        - to: done
+    
+    # Pattern 3: Fire-and-forget launches
+    launch_notifications:
+      launch: notification_machine
+      launch_input:
+        message: "{{ context.message }}"
+        recipients: ["admin@example.com", "user@example.com", "system@example.com"]
+      transitions:
+        - to: done
+    
+    done:
+      type: final
+      output:
+        result: |
+          {% if context.execution_type == 'parallel_aggregation' %}
+            {{ context.final_result }}
+          {% elif context.execution_type == 'foreach_sentiment' %}
+            {{ context.sentiment_results }}
+          {% elif context.execution_type == 'background_notifications' %}
+            Sent notifications in background
+          {% else %}
+            No execution type specified
+          {% endif %}
+
+metadata:
+  description: "Demonstrates parallel execution patterns in FlatAgents"
+  tags: ["parallelism", "foreach", "launch", "demo"]

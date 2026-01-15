@@ -15,7 +15,9 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         *)
-            shift
+            echo "Unknown flag: $1"
+            echo "Usage: $0 [--dry-run|-n]"
+            exit 1
             ;;
     esac
 done
@@ -110,8 +112,9 @@ fi
 # Copy root TypeScript specs to sdk assets
 cp "$REPO_ROOT/flatagent.d.ts" "$REPO_ROOT/flatmachine.d.ts" "$ASSETS_DIR/"
 
-# Copy root README for PyPI (hatchling requires readme in package dir)
+# Copy root README and MACHINES.md for PyPI (hatchling requires readme in package dir)
 cp "$REPO_ROOT/README.md" "$SDK_DIR/README.md"
+cp "$REPO_ROOT/MACHINES.md" "$SDK_DIR/MACHINES.md"
 
 # Validate README copy succeeded
 if ! diff -q "$REPO_ROOT/README.md" "$SDK_DIR/README.md" > /dev/null 2>&1; then
@@ -119,6 +122,13 @@ if ! diff -q "$REPO_ROOT/README.md" "$SDK_DIR/README.md" > /dev/null 2>&1; then
     exit 1
 fi
 echo "✓ README.md synced from root"
+
+# Validate MACHINES.md copy succeeded
+if ! diff -q "$REPO_ROOT/MACHINES.md" "$SDK_DIR/MACHINES.md" > /dev/null 2>&1; then
+    echo "RELEASE ABORTED: MACHINES.md does not match root. Ensure copy step is present."
+    exit 1
+fi
+echo "✓ MACHINES.md synced from root"
 
 # Extract versions from root TypeScript specs
 echo "Extracting spec versions from TypeScript files..."

@@ -1,4 +1,4 @@
-# Chapter Writer Child Machine
+# Chapter Writer Peer Machine
 # Draft → Critique → Revise loop for a single chapter
 
 spec: flatmachine
@@ -68,4 +68,4 @@ data:
         final_chapter: "{{ context.final_chapter }}"
 
 metadata:
-  description: "Child machine for draft-critique-revise chapter loop"
+  description: "Peer machine for draft-critique-revise chapter loop"

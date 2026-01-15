@@ -1,7 +1,7 @@
 [project]
-name = "story_writer"
+name = "parallelism"
 version = "0.1.0"
-description = "Multi-chapter story writing with machine peering and checkpoint/resume for FlatAgents"
+description = "Parallel machine execution demo for FlatAgents"
 dependencies = ["flatagents[litellm]"]
 requires-python = ">=3.10"
 
@@ -13,4 +13,4 @@ build-backend = "hatchling.build"
 allow-direct-references = true
 
 [project.scripts]
-story-writer-demo = "story_writer.main:main"
+parallelism-demo = "parallelism.main:main"

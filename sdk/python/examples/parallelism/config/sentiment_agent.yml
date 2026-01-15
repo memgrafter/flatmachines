@@ -1,0 +1,40 @@
+# Sentiment Analysis Agent
+# Analyzes sentiment of text (positive, negative, neutral)
+
+spec: flatagent
+spec_version: "0.6.0"
+
+data:
+  name: sentiment-agent
+  
+  model:
+    provider: cerebras
+    name: zai-glm-4.6
+    temperature: 0.1
+  
+  system: |
+    You are a sentiment analysis expert. Analyze the given text and determine its sentiment.
+    
+    Return a JSON object with:
+    - sentiment: "positive", "negative", or "neutral"
+    - confidence: a number from 0.0 to 1.0
+    - reasoning: brief explanation (max 50 words)
+  
+  user: |
+    Analyze the sentiment of this text: {{ input.text }}
+    
+    Provide your response as valid JSON.
+  
+  output:
+    sentiment:
+      type: str
+      description: "positive, negative, or neutral"
+    confidence:
+      type: float
+      description: "Confidence score from 0.0 to 1.0"
+    reasoning:
+      type: str
+      description: "Brief explanation of the sentiment analysis"
+
+metadata:
+  description: "Analyzes sentiment of text with confidence scoring"

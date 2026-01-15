@@ -37,6 +37,13 @@ from .persistence import (
     CheckpointManager,
     MachineSnapshot
 )
+from .backends import (
+    ResultBackend,
+    InMemoryResultBackend,
+    LaunchIntent,
+    make_uri,
+    get_default_result_backend,
+)
 from .locking import ExecutionLock, LocalFileLock, NoOpLock
 from .actions import (
     Action,
@@ -58,10 +65,10 @@ class FlatMachine:
     Supports:
     - Persistence (checkpoint/resume)
     - Concurrency control (locking)
-    - Hierarchical execution (machine calls)
+    - Machine launching (peer machine execution)
     """
 
-    SPEC_VERSION = "0.3.0"
+    SPEC_VERSION = "0.4.0"
 
     def __init__(
         self,
@@ -71,11 +78,12 @@ class FlatMachine:
         persistence: Optional[PersistenceBackend] = None,
         lock: Optional[ExecutionLock] = None,
         invoker: Optional[MachineInvoker] = None,
+        result_backend: Optional[ResultBackend] = None,
         **kwargs
     ):
         """
         Initialize the machine.
-        
+
         Args:
             config_file: Path to YAML/JSON config file
             config_dict: Configuration dictionary
@@ -83,19 +91,22 @@ class FlatMachine:
             persistence: Storage backend (overrides config)
             lock: Concurrency lock (overrides config)
             invoker: Strategy for invoking other machines
+            result_backend: Backend for inter-machine result storage
             **kwargs: Override config values
         """
         if Template is None:
             raise ImportError("jinja2 is required. Install with: pip install jinja2")
 
-        self.execution_id = str(uuid.uuid4())
+        # Extract execution_id if passed (for launched machines)
+        self.execution_id = kwargs.pop('_execution_id', None) or str(uuid.uuid4())
+        self.parent_execution_id = kwargs.pop('_parent_execution_id', None)
         
-        # Extract _config_dir override (used for child machines)
+        # Extract _config_dir override (used for launched machines)
         config_dir_override = kwargs.pop('_config_dir', None)
         
         self._load_config(config_file, config_dict)
         
-        # Allow parent to override config_dir for child machines
+        # Allow launcher to override config_dir for launched machines
         if config_dir_override:
             self._config_dir = config_dir_override
         
@@ -138,11 +149,20 @@ class FlatMachine:
         # Execution tracking
         self.total_api_calls = 0
         self.total_cost = 0.0
-        
+
         # Persistence & Locking
         self._initialize_persistence(persistence, lock)
-        
-        # Invoker (for child machines)
+
+        # Result backend for inter-machine communication
+        self.result_backend = result_backend or get_default_result_backend()
+
+        # Pending launches (outbox pattern)
+        self._pending_launches: list[LaunchIntent] = []
+
+        # Background tasks for fire-and-forget launches
+        self._background_tasks: set[asyncio.Task] = set()
+
+        # Invoker (for launching peer machines)
         self.invoker = invoker or InlineInvoker()
 
         logger.info(f"Initialized FlatMachine: {self.machine_name} (ID: {self.execution_id})")
@@ -469,6 +489,274 @@ class FlatMachine:
         
         raise ValueError(f"Invalid machine reference type: {type(ref)}")
 
+    # =========================================================================
+    # Pending Launches (Outbox Pattern) - v0.4.0
+    # =========================================================================
+
+    def _add_pending_launch(
+        self,
+        execution_id: str,
+        machine: str,
+        input_data: Dict[str, Any]
+    ) -> LaunchIntent:
+        """Add a launch intent to the pending list (outbox pattern)."""
+        intent = LaunchIntent(
+            execution_id=execution_id,
+            machine=machine,
+            input=input_data,
+            launched=False
+        )
+        self._pending_launches.append(intent)
+        return intent
+
+    def _mark_launched(self, execution_id: str) -> None:
+        """Mark a pending launch as launched."""
+        for intent in self._pending_launches:
+            if intent.execution_id == execution_id:
+                intent.launched = True
+                break
+
+    def _clear_pending_launch(self, execution_id: str) -> None:
+        """Remove a completed launch from pending list."""
+        self._pending_launches = [
+            i for i in self._pending_launches
+            if i.execution_id != execution_id
+        ]
+
+    def _get_pending_intents(self) -> list[Dict[str, Any]]:
+        """Get pending launches as dicts for snapshot."""
+        return [intent.to_dict() for intent in self._pending_launches]
+
+    async def _resume_pending_launches(self) -> None:
+        """Resume any pending launches that weren't completed."""
+        for intent in self._pending_launches:
+            if intent.launched:
+                continue
+            # Check if child already has a result
+            uri = make_uri(intent.execution_id, "result")
+            if await self.result_backend.exists(uri):
+                continue
+            # Re-launch
+            logger.info(f"Resuming launch: {intent.machine} (ID: {intent.execution_id})")
+            task = asyncio.create_task(
+                self._launch_and_write(intent.machine, intent.execution_id, intent.input)
+            )
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
+    # =========================================================================
+    # Machine Invocation - v0.4.0
+    # =========================================================================
+
+    async def _launch_and_write(
+        self,
+        machine_name: str,
+        child_id: str,
+        input_data: Dict[str, Any]
+    ) -> Any:
+        """Launch a peer machine and write its result to the backend."""
+        target_config = self._resolve_machine_config(machine_name)
+
+        peer = FlatMachine(
+            config_dict=target_config,
+            hooks=self._hooks,
+            result_backend=self.result_backend,
+            _config_dir=self._config_dir,
+            _execution_id=child_id,
+            _parent_execution_id=self.execution_id,
+        )
+
+        try:
+            result = await peer.execute(input=input_data)
+            # Write result to backend
+            uri = make_uri(child_id, "result")
+            await self.result_backend.write(uri, result)
+            return result
+        except Exception as e:
+            # Write error to backend so parent knows
+            uri = make_uri(child_id, "result")
+            await self.result_backend.write(uri, {"_error": str(e), "_error_type": type(e).__name__})
+            raise
+
+    async def _invoke_machine_single(
+        self,
+        machine_name: str,
+        input_data: Dict[str, Any],
+        timeout: Optional[float] = None
+    ) -> Any:
+        """Invoke a single peer machine with blocking read."""
+        child_id = str(uuid.uuid4())
+
+        # Checkpoint intent (outbox pattern)
+        self._add_pending_launch(child_id, machine_name, input_data)
+
+        # Launch and execute
+        result = await self._launch_and_write(machine_name, child_id, input_data)
+
+        # Mark completed and clear
+        self._mark_launched(child_id)
+        self._clear_pending_launch(child_id)
+
+        return result
+
+    async def _invoke_machines_parallel(
+        self,
+        machines: list[str],
+        input_data: Dict[str, Any],
+        mode: str = "settled",
+        timeout: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """Invoke multiple machines in parallel."""
+        child_ids = {m: str(uuid.uuid4()) for m in machines}
+
+        # Checkpoint all intents
+        for machine_name, child_id in child_ids.items():
+            self._add_pending_launch(child_id, machine_name, input_data)
+
+        # Launch all
+        tasks = {}
+        for machine_name, child_id in child_ids.items():
+            task = asyncio.create_task(
+                self._launch_and_write(machine_name, child_id, input_data)
+            )
+            tasks[machine_name] = task
+
+        results = {}
+        errors = {}
+
+        if mode == "settled":
+            # Wait for all to complete
+            gathered = await asyncio.gather(*tasks.values(), return_exceptions=True)
+            for machine_name, result in zip(tasks.keys(), gathered):
+                if isinstance(result, Exception):
+                    errors[machine_name] = result
+                    results[machine_name] = {"_error": str(result), "_error_type": type(result).__name__}
+                else:
+                    results[machine_name] = result
+
+        elif mode == "any":
+            # Wait for first to complete
+            done, pending = await asyncio.wait(
+                tasks.values(),
+                return_when=asyncio.FIRST_COMPLETED,
+                timeout=timeout
+            )
+            # Find which machine finished
+            for machine_name, task in tasks.items():
+                if task in done:
+                    try:
+                        results[machine_name] = task.result()
+                    except Exception as e:
+                        results[machine_name] = {"_error": str(e), "_error_type": type(e).__name__}
+                    break
+            # Let pending tasks continue in background
+            for task in pending:
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
+
+        # Clear pending launches
+        for child_id in child_ids.values():
+            self._mark_launched(child_id)
+            self._clear_pending_launch(child_id)
+
+        return results
+
+    async def _invoke_foreach(
+        self,
+        items: list,
+        as_var: str,
+        key_expr: Optional[str],
+        machine_name: str,
+        input_template: Dict[str, Any],
+        mode: str = "settled",
+        timeout: Optional[float] = None
+    ) -> Any:
+        """Invoke a machine for each item in a list."""
+        child_ids = {}
+        item_inputs = {}
+
+        for i, item in enumerate(items):
+            # Compute key
+            if key_expr:
+                variables = {as_var: item, "context": {}, "input": {}}
+                item_key = self._render_template(key_expr, variables)
+            else:
+                item_key = i
+
+            child_id = str(uuid.uuid4())
+            child_ids[item_key] = child_id
+
+            # Render input for this item
+            variables = {as_var: item, "context": {}, "input": {}}
+            item_input = self._render_dict(input_template, variables)
+            item_inputs[item_key] = item_input
+
+            self._add_pending_launch(child_id, machine_name, item_input)
+
+        # Launch all
+        tasks = {}
+        for item_key, child_id in child_ids.items():
+            task = asyncio.create_task(
+                self._launch_and_write(machine_name, child_id, item_inputs[item_key])
+            )
+            tasks[item_key] = task
+
+        results = {}
+
+        if mode == "settled":
+            gathered = await asyncio.gather(*tasks.values(), return_exceptions=True)
+            for item_key, result in zip(tasks.keys(), gathered):
+                if isinstance(result, Exception):
+                    results[item_key] = {"_error": str(result), "_error_type": type(result).__name__}
+                else:
+                    results[item_key] = result
+
+        elif mode == "any":
+            done, pending = await asyncio.wait(
+                tasks.values(),
+                return_when=asyncio.FIRST_COMPLETED,
+                timeout=timeout
+            )
+            for item_key, task in tasks.items():
+                if task in done:
+                    try:
+                        results[item_key] = task.result()
+                    except Exception as e:
+                        results[item_key] = {"_error": str(e), "_error_type": type(e).__name__}
+                    break
+            for task in pending:
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
+
+        # Clear pending launches
+        for child_id in child_ids.values():
+            self._mark_launched(child_id)
+            self._clear_pending_launch(child_id)
+
+        # Return dict if key_expr provided, else list
+        if key_expr:
+            return results
+        else:
+            return [results[i] for i in sorted(results.keys()) if isinstance(i, int)]
+
+    async def _launch_fire_and_forget(
+        self,
+        machines: list[str],
+        input_data: Dict[str, Any]
+    ) -> None:
+        """Launch machines without waiting for results (fire-and-forget)."""
+        for machine_name in machines:
+            child_id = str(uuid.uuid4())
+            self._add_pending_launch(child_id, machine_name, input_data)
+
+            task = asyncio.create_task(
+                self._launch_and_write(machine_name, child_id, input_data)
+            )
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
+            self._mark_launched(child_id)
+
     async def _run_hook(self, method_name: str, *args) -> Any:
         """Run a hook method, awaiting if it's a coroutine."""
         method = getattr(self._hooks, method_name)
@@ -497,15 +785,80 @@ class FlatMachine:
             action_impl = HookAction(self._hooks)
             context = await action_impl.execute(action_name, context, config={})
 
-        # 2. Handle 'machine' (child machine execution)
-        machine_name = state.get('machine')
-        if machine_name:
-            target_config = self._resolve_machine_config(machine_name)
+        # 2. Handle 'launch' (fire-and-forget machine execution)
+        launch_spec = state.get('launch')
+        if launch_spec:
+            launch_input_spec = state.get('launch_input', {})
+            variables = {"context": context, "input": context}
+            launch_input = self._render_dict(launch_input_spec, variables)
+
+            # Normalize to list
+            machines_to_launch = [launch_spec] if isinstance(launch_spec, str) else launch_spec
+            await self._launch_fire_and_forget(machines_to_launch, launch_input)
+
+        # 3. Handle 'machine' (peer machine execution with blocking read)
+        machine_spec = state.get('machine')
+        foreach_expr = state.get('foreach')
+
+        if machine_spec or foreach_expr:
             input_spec = state.get('input', {})
             variables = {"context": context, "input": context}
-            machine_input = self._render_dict(input_spec, variables)
-            output = await self.invoker.invoke(self, target_config, machine_input)
-            
+            mode = state.get('mode', 'settled')
+            timeout = state.get('timeout')
+
+            if foreach_expr:
+                # Dynamic parallelism: foreach
+                items = self._render_template(foreach_expr, variables)
+                if not isinstance(items, list):
+                    raise ValueError(f"foreach expression must yield a list, got {type(items)}")
+
+                as_var = state.get('as', 'item')
+                key_expr = state.get('key')
+                machine_name = machine_spec if isinstance(machine_spec, str) else machine_spec[0]
+
+                output = await self._invoke_foreach(
+                    items=items,
+                    as_var=as_var,
+                    key_expr=key_expr,
+                    machine_name=machine_name,
+                    input_template=input_spec,
+                    mode=mode,
+                    timeout=timeout
+                )
+
+            elif isinstance(machine_spec, list):
+                # Parallel execution: machine: [a, b, c]
+                machine_input = self._render_dict(input_spec, variables)
+
+                # Handle MachineInput objects (with per-machine inputs)
+                if machine_spec and isinstance(machine_spec[0], dict):
+                    # machine: [{name: a, input: {...}}, ...]
+                    machine_names = [m['name'] for m in machine_spec]
+                    # TODO: Support per-machine inputs
+                    output = await self._invoke_machines_parallel(
+                        machines=machine_names,
+                        input_data=machine_input,
+                        mode=mode,
+                        timeout=timeout
+                    )
+                else:
+                    # machine: [a, b, c]
+                    output = await self._invoke_machines_parallel(
+                        machines=machine_spec,
+                        input_data=machine_input,
+                        mode=mode,
+                        timeout=timeout
+                    )
+
+            else:
+                # Single machine: machine: child
+                machine_input = self._render_dict(input_spec, variables)
+                output = await self._invoke_machine_single(
+                    machine_name=machine_spec,
+                    input_data=machine_input,
+                    timeout=timeout
+                )
+
             output_mapping = state.get('output_to_context', {})
             if output_mapping:
                 safe_output = output or {}
@@ -513,7 +866,7 @@ class FlatMachine:
                 for ctx_key, template in output_mapping.items():
                     context[ctx_key] = self._render_template(template, variables)
 
-        # 3. Handle 'agent' (LLM execution)
+        # 4. Handle 'agent' (LLM execution)
         agent_name = state.get('agent')
         if agent_name:
             agent = self._get_agent(agent_name)
@@ -569,9 +922,13 @@ class FlatMachine:
             context=context,
             step=step,
             event=event,
-            output=output
+            output=output,
+            total_api_calls=self.total_api_calls,
+            total_cost=self.total_cost,
+            parent_execution_id=self.parent_execution_id,
+            pending_launches=self._get_pending_intents() if self._pending_launches else None,
         )
-        
+
         manager = CheckpointManager(self.persistence, self.execution_id)
         await manager.save_checkpoint(snapshot)
 
@@ -602,6 +959,16 @@ class FlatMachine:
                     context = snapshot.context
                     step = snapshot.step
                     current_state = snapshot.current_state
+                    # Restore execution metrics
+                    self.total_api_calls = snapshot.total_api_calls or 0
+                    self.total_cost = snapshot.total_cost or 0.0
+                    # Restore pending launches (outbox pattern)
+                    if snapshot.pending_launches:
+                        self._pending_launches = [
+                            LaunchIntent.from_dict(intent)
+                            for intent in snapshot.pending_launches
+                        ]
+                        await self._resume_pending_launches()
                     if snapshot.event == 'machine_end':
                         logger.info("Execution already completed.")
                         return snapshot.output or {}

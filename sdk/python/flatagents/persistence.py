@@ -23,6 +23,12 @@ class MachineSnapshot:
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     event: Optional[str] = None  # The event that triggered this checkpoint (machine_start, etc)
     output: Optional[Dict[str, Any]] = None  # Output if captured at state_exit/machine_end
+    total_api_calls: Optional[int] = None  # Cumulative API calls
+    total_cost: Optional[float] = None  # Cumulative cost
+    # Lineage (v0.4.0)
+    parent_execution_id: Optional[str] = None  # ID of launcher machine if this was launched
+    # Outbox pattern (v0.4.0)
+    pending_launches: Optional[List[Dict[str, Any]]] = None  # LaunchIntent dicts awaiting completion
 
 class PersistenceBackend(ABC):
     """Abstract storage backend for checkpoints."""

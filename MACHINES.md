@@ -15,6 +15,9 @@
 | Conditional branching | FlatMachine transitions |
 | Retry with backoff | FlatMachine execution type |
 | Error recovery | FlatMachine `on_error` |
+| Parallel execution | FlatMachine `machine: [a, b, c]` |
+| Dynamic parallelism | FlatMachine `foreach` |
+| Background tasks | FlatMachine `launch` |
 
 ## Python SDK
 
@@ -74,6 +77,65 @@ transitions:
   - to: same_state
 ```
 
+## Parallel Execution (v0.4.0)
+
+### Parallel Machines
+Run multiple machines simultaneously:
+```yaml
+states:
+  parallel_review:
+    machine: [legal_review, tech_review, finance_review]
+    input:
+      document: "{{ context.document }}"
+    mode: settled         # Wait for all (default) or "any" for first
+    timeout: 120          # Seconds (0 = no timeout)
+    output_to_context:
+      reviews: "{{ output }}"
+    transitions:
+      - to: synthesize
+```
+
+Results are keyed by machine name: `{legal_review: {...}, tech_review: {...}, ...}`
+
+### Dynamic Parallelism (foreach)
+Iterate over a list and run machines in parallel:
+```yaml
+states:
+  process_all:
+    foreach: "{{ context.documents }}"
+    as: doc
+    key: "{{ doc.id }}"   # Optional: key results by expression
+    machine: doc_processor
+    input:
+      document: "{{ doc }}"
+    output_to_context:
+      results: "{{ output }}"
+    transitions:
+      - to: aggregate
+```
+
+- `foreach`: Jinja2 expression yielding array
+- `as`: Variable name for current item (default: `item`)
+- `key`: Expression for result key (results are array if omitted)
+
+### Fire-and-Forget (launch)
+Start machines without waiting for results:
+```yaml
+states:
+  kickoff:
+    launch: expensive_analysis
+    launch_input:
+      document: "{{ context.document }}"
+    transitions:
+      - to: continue_immediately
+```
+
+- `launch`: Machine name or array of names
+- `launch_input`: Input for launched machines
+- Results available via result backend, don't block execution
+
+**Note**: Only `machine` supports parallel arrays, not `agent`. Machines have checkpoint/resume and error recovery; agents are raw LLM calls. Wrap agents in machines for parallel execution.
+
 ## Hooks (Code Extensibility)
 
 When declarative config isn't enough, use Python hooks for imperative logic:
@@ -119,12 +181,20 @@ Use hooks for: Pareto selection, population sampling, external API calls, databa
 | Field | Purpose |
 |-------|---------|
 | `agent` | Agent to execute |
+| `machine` | Machine(s) to execute (string or array for parallel) |
 | `execution` | Execution type config |
 | `on_error` | Error recovery state |
-| `input` | Input mapping to agent |
-| `output_to_context` | Map agent output to context |
+| `input` | Input mapping to agent/machine |
+| `output_to_context` | Map output to context |
 | `transitions` | Where to go next |
 | `action` | Hook action name |
+| `foreach` | Array expression for dynamic parallelism |
+| `as` | Variable name in foreach (default: `item`) |
+| `key` | Result key expression for foreach |
+| `mode` | `settled` (all) or `any` (first) |
+| `timeout` | Seconds to wait (0 = forever) |
+| `launch` | Fire-and-forget machine(s) |
+| `launch_input` | Input for launched machines |
 
 ### Transition Fields
 | Field | Purpose |

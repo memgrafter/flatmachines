@@ -1,8 +1,8 @@
 """
-Multi-Chapter Story Writer Demo for FlatAgents (HSM + Checkpoint/Resume).
+Multi-Chapter Story Writer Demo for FlatAgents (Machine Topology + Checkpoint/Resume).
 
 Demonstrates:
-- Hierarchical State Machines: Parent orchestrates chapter-writing child machines
+- Machine Peering: Main machine launches and coordinates chapter-writing peer machines
 - Checkpoint/Resume: Stop mid-story, resume days later
 - Iterative Refinement: Draft → Critique → Revise loop per chapter
 
@@ -37,7 +37,7 @@ async def run(
         resume_id: Optional execution ID to resume from checkpoint
     """
     logger.info("=" * 60)
-    logger.info("Multi-Chapter Story Writer (HSM + Checkpoint)")
+    logger.info("Multi-Chapter Story Writer (Machine Topology + Checkpoint)")
     logger.info("=" * 60)
 
     config_path = Path(__file__).parent.parent.parent / 'config' / 'machine.yml'

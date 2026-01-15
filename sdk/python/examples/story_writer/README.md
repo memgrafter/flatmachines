@@ -1,10 +1,10 @@
 # Multi-Chapter Story Writer
 
-A **long-running creative workflow** example demonstrating HSM + checkpoint/resume with `flatagents`.
+A **long-running creative workflow** example demonstrating machine topology + checkpoint/resume with `flatagents`.
 
 ## Features Demonstrated
 
-- **Hierarchical State Machines**: Parent orchestrates chapter-by-chapter writing
+- **Machine Peering**: Parent launches and coordinates chapter-by-chapter writing
 - **Checkpoint/Resume**: Stop mid-novel and resume days later
 - **Iterative Refinement**: Each chapter goes through draft → critique → revise loop
 

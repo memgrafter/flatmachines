@@ -1,4 +1,4 @@
-export const SPEC_VERSION = "0.3.0";
+export const SPEC_VERSION = "0.4.0";
 export interface MachineWrapper {
     spec: "flatmachine";
     spec_version: string;
@@ -18,12 +18,13 @@ export interface MachineData {
 export interface MachineSettings {
     hooks?: string;
     max_steps?: number;
+    parallel_fallback?: "sequential" | "error";
     [key: string]: any;
 }
 export interface StateDefinition {
     type?: "initial" | "final";
     agent?: string;
-    machine?: string;
+    machine?: string | string[] | MachineInput[];
     action?: string;
     execution?: ExecutionConfig;
     on_error?: string | Record<string, string>;
@@ -33,6 +34,17 @@ export interface StateDefinition {
     transitions?: Transition[];
     tool_loop?: boolean;
     sampling?: "single" | "multi";
+    foreach?: string;
+    as?: string;
+    key?: string;
+    mode?: "settled" | "any";
+    timeout?: number;
+    launch?: string | string[];
+    launch_input?: Record<string, any>;
+}
+export interface MachineInput {
+    name: string;
+    input?: Record<string, any>;
 }
 export interface ExecutionConfig {
     type: "default" | "retry" | "parallel" | "mdap_voting";
@@ -49,6 +61,12 @@ export interface Transition {
 import { AgentWrapper, OutputSchema, ModelConfig } from "./flatagent";
 export { AgentWrapper, OutputSchema };
 export type FlatmachineConfig = MachineWrapper;
+export interface LaunchIntent {
+    execution_id: string;
+    machine: string;
+    input: Record<string, any>;
+    launched: boolean;
+}
 export interface MachineSnapshot {
     execution_id: string;
     machine_name: string;
@@ -61,6 +79,8 @@ export interface MachineSnapshot {
     output?: Record<string, any>;
     total_api_calls?: number;
     total_cost?: number;
+    parent_execution_id?: string;
+    pending_launches?: LaunchIntent[];
 }
 export interface PersistenceConfig {
     enabled: boolean;
