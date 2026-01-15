@@ -52,14 +52,33 @@
  * key               - Jinja2 expression for result key (optional, results array if omitted)
  * mode              - Completion semantics: "settled" (default) or "any"
  * timeout           - Timeout in seconds (0 = never)
- * spawn             - Machine(s) to start fire-and-forget
- * spawn_input       - Input for spawned machines
+ * launch            - Machine(s) to start fire-and-forget
+ * launch_input      - Input for launched machines
  *
  * NOTE: Only `machine` supports parallel invocation (string[]), not `agent`.
  * Machines are self-healing with checkpoint/resume and error handling.
  * Agents are raw LLM calls that can fail without recovery. Wrap agents in
  * machines to get retry logic, checkpointing, and proper failure handling
  * before running them in parallel.
+ *
+ * RUNTIME MODEL (v0.4.0):
+ * -----------------------
+ * All machine invocations are launches. Communication via result backend.
+ *
+ *   machine: child      → launch + blocking read
+ *   machine: [a,b,c]    → launch all + wait for all
+ *   launch: child       → launch only, no read
+ *
+ * URI Scheme: flatagents://{execution_id}/[checkpoint|result]
+ *
+ * Parent generates child's execution_id, passes it to child. Child writes
+ * result to its URI. Parent reads from known URI. No direct messaging.
+ *
+ * Local SDKs may optimize blocking reads as function returns (in-memory backend).
+ * This decouples output from read, enabling both local and distributed execution.
+ *
+ * Launch intents are checkpointed before execution (outbox pattern).
+ * On resume, SDK checks if launched machine exists before re-launching.
  *
  * TRANSITION FIELDS:
  * ------------------
@@ -172,13 +191,13 @@
  *       transitions:
  *         - to: aggregate
  *
- * SPAWN (FIRE-AND-FORGET) EXAMPLE:
- * --------------------------------
+ * LAUNCH (FIRE-AND-FORGET) EXAMPLE:
+ * ---------------------------------
  *
  *   states:
  *     kickoff:
- *       spawn: expensive_analysis
- *       spawn_input:
+ *       launch: expensive_analysis
+ *       launch_input:
  *         document: "{{ context.document }}"
  *         result_address: "results/{{ context.job_id }}"
  *       transitions:
@@ -197,6 +216,24 @@
  */
 
 export const SPEC_VERSION = "0.4.0";
+
+/**
+ * URI Scheme for FlatAgents
+ *
+ * Format: flatagents://{execution_id}[/{path}]
+ *
+ * Paths:
+ *   /checkpoint     - Machine state for resume
+ *   /result         - Final output after completion
+ *
+ * Examples:
+ *   flatagents://550e8400-e29b-41d4-a716-446655440000/checkpoint
+ *   flatagents://550e8400-e29b-41d4-a716-446655440000/result
+ *
+ * Each machine execution has a unique_id. Parent generates child's ID
+ * before launching, enabling parent to know where to read results without
+ * any child-to-parent messaging.
+ */
 
 export interface MachineWrapper {
   spec: "flatmachine";
@@ -247,8 +284,8 @@ export interface StateDefinition {
   timeout?: number;
 
   // Fire-and-forget (v0.4.0)
-  spawn?: string | string[];
-  spawn_input?: Record<string, any>;
+  launch?: string | string[];
+  launch_input?: Record<string, any>;
 }
 
 /**
@@ -282,6 +319,17 @@ export { AgentWrapper, OutputSchema };
 
 export type FlatmachineConfig = MachineWrapper;
 
+/**
+ * Launch intent for outbox pattern.
+ * Recorded in checkpoint before launching to ensure exactly-once semantics.
+ */
+export interface LaunchIntent {
+  execution_id: string;
+  machine: string;
+  input: Record<string, any>;
+  launched: boolean;
+}
+
 export interface MachineSnapshot {
   execution_id: string;
   machine_name: string;
@@ -294,6 +342,12 @@ export interface MachineSnapshot {
   output?: Record<string, any>;
   total_api_calls?: number;
   total_cost?: number;
+
+  // Lineage (v0.4.0)
+  parent_execution_id?: string;
+
+  // Outbox pattern (v0.4.0)
+  pending_launches?: LaunchIntent[];
 }
 
 export interface PersistenceConfig {
