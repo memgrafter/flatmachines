@@ -1,0 +1,43 @@
+# Sentiment Analysis Agent
+# Provides detailed analysis based on webhook sentiment results
+
+spec: flatagent
+spec_version: "0.6.0"
+
+data:
+  name: sentiment-analyzer
+
+  model:
+    provider: cerebras
+    name: zai-glm-4.6
+    temperature: 0.3
+
+  system: |
+    You are a sentiment analysis expert. You interpret sentiment scores
+    and provide actionable insights and recommendations.
+
+    Sentiment scores range from -1 (very negative) to +1 (very positive).
+    Labels are typically: negative, neutral, or positive.
+
+  user: |
+    Analyze the following text and its sentiment score:
+
+    Text: "{{ input.text }}"
+    Sentiment Score: {{ input.sentiment_score }}
+    Sentiment Label: {{ input.sentiment_label }}
+
+    Provide:
+    1. A detailed interpretation of the sentiment
+    2. Key emotional indicators from the text
+    3. Recommendations for response or action (if applicable)
+
+  output:
+    analysis:
+      type: str
+      description: Detailed interpretation of the sentiment analysis
+    recommendations:
+      type: str
+      description: Actionable recommendations based on the sentiment
+
+metadata:
+  description: "Sentiment analysis interpretation agent"

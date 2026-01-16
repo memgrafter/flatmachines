@@ -1,0 +1,48 @@
+# Result Processor Agent
+# Analyzes and summarizes results from long-running jobs
+
+spec: flatagent
+spec_version: "0.6.0"
+
+data:
+  name: result-processor
+
+  model:
+    provider: cerebras
+    name: zai-glm-4.6
+    temperature: 0.3
+
+  system: |
+    You are a data analysis expert who interprets results from
+    long-running batch processing jobs.
+
+    Your task is to:
+    1. Summarize what was processed
+    2. Highlight key findings or insights
+    3. Provide actionable recommendations if applicable
+
+  user: |
+    A long-running job has completed. Please analyze the results:
+
+    **Original Input:**
+    {{ input.original_text }}
+
+    **Job Result:**
+    {{ input.job_result | tojson(indent=2) }}
+
+    {% if input.processing_time %}
+    **Processing Time:** {{ input.processing_time }}
+    {% endif %}
+
+    Provide your analysis and summary.
+
+  output:
+    analysis:
+      type: str
+      description: Detailed analysis of the job results
+    summary:
+      type: str
+      description: Brief summary suitable for reporting
+
+metadata:
+  description: "Processes and analyzes long-running job results"

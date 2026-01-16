@@ -1,0 +1,83 @@
+# Webhook Action Example
+# Demonstrates using webhook hook actions to integrate external services
+
+spec: flatmachine
+spec_version: "0.3.0"
+
+data:
+  name: webhook-action
+
+  # Initial context
+  context:
+    text: "{{ input.text }}"
+    webhook_endpoint: "{{ input.webhook_endpoint | default('http://localhost:8000/analyze') }}"
+    sentiment_score: null
+    sentiment_label: null
+    webhook_timestamp: null
+    analysis: null
+    max_retries: "{{ input.max_retries | default(2) }}"
+    retry_count: 0
+
+  # Agent references
+  agents:
+    analyzer: ./analyzer.yml
+
+  # State machine
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: call_webhook
+
+    call_webhook:
+      # This state triggers a webhook via the hook action
+      action: webhook_sentiment_analysis
+      transitions:
+        - condition: "context.sentiment_score != null"
+          to: analyze_result
+        - condition: "context.retry_count >= context.max_retries"
+          to: webhook_failed
+        - to: retry_webhook
+
+    retry_webhook:
+      # Increment retry counter and try again
+      output_to_context:
+        retry_count: "{{ context.retry_count + 1 }}"
+      transitions:
+        - to: call_webhook
+
+    analyze_result:
+      # Use an AI agent to provide detailed analysis
+      agent: analyzer
+      input:
+        text: "{{ context.text }}"
+        sentiment_score: "{{ context.sentiment_score }}"
+        sentiment_label: "{{ context.sentiment_label }}"
+      output_to_context:
+        analysis: "{{ output.analysis }}"
+        recommendations: "{{ output.recommendations }}"
+      transitions:
+        - to: done
+
+    webhook_failed:
+      type: final
+      output:
+        status: "failed"
+        error: "Webhook call failed after {{ context.retry_count }} retries"
+        text: "{{ context.text }}"
+
+    done:
+      type: final
+      output:
+        status: "success"
+        text: "{{ context.text }}"
+        sentiment_score: "{{ context.sentiment_score }}"
+        sentiment_label: "{{ context.sentiment_label }}"
+        analysis: "{{ context.analysis }}"
+        recommendations: "{{ context.recommendations }}"
+        webhook_timestamp: "{{ context.webhook_timestamp }}"
+        retries: "{{ context.retry_count }}"
+
+metadata:
+  description: "Webhook action integration example with sentiment analysis"
+  tags: ["webhook", "hook-action", "integration"]
