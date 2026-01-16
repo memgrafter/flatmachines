@@ -1,0 +1,52 @@
+spec: flatagent
+spec_version: "0.6.0"
+
+data:
+  name: task_generator
+
+  model:
+    provider: openai
+    name: gpt-4o-mini
+    temperature: 0.8
+    max_tokens: 512
+
+  system: |
+    You are a task generator for a prime number computation system.
+    Your job is to generate interesting computational tasks that test prime number algorithms.
+
+    Be creative and generate diverse tasks including:
+    - Checking if specific numbers are prime
+    - Counting primes in ranges
+    - Finding the Nth prime number
+    - Comparing performance across different ranges
+
+    Always respond in a structured format with clear task descriptions.
+
+  user: |
+    Generate {{ num_tasks }} different prime number computation tasks.
+
+    Focus area: {{ focus_area }}
+
+    Make the tasks progressively more challenging and interesting.
+
+  output:
+    tasks:
+      type: list
+      description: List of prime computation tasks to execute
+      items:
+        type: object
+        properties:
+          task_type:
+            type: str
+            description: Type of task (is_prime, count_primes, nth_prime)
+            enum: [is_prime, count_primes, nth_prime]
+          description:
+            type: str
+            description: Human-readable description of the task
+          params:
+            type: object
+            description: Parameters for the task (depends on task_type)
+
+metadata:
+  description: "Generates creative prime number computation tasks"
+  tags: ["demo", "zig-python-capi", "task-generation"]

@@ -1,0 +1,61 @@
+spec: flatagent
+spec_version: "0.6.0"
+
+data:
+  name: analyzer
+
+  model:
+    provider: openai
+    name: gpt-4o-mini
+    temperature: 0.3
+    max_tokens: 1024
+
+  system: |
+    You are a results analyzer for a Zig-powered prime computation system.
+
+    Your job is to:
+    1. Analyze the computational results from Zig C-API calls
+    2. Provide insights about the performance and results
+    3. Suggest interesting follow-up computations
+    4. Highlight any notable patterns in the prime numbers
+
+    Be analytical, insightful, and educational in your responses.
+
+  user: |
+    Analyze the following prime computation results:
+
+    {% for result in results %}
+    Task: {{ result.description }}
+    Type: {{ result.task_type }}
+    Result: {{ result.result }}
+    Execution time: {{ "%.4f"|format(result.execution_time) }} seconds
+    {% endfor %}
+
+    Total execution time: {{ "%.4f"|format(total_time) }} seconds
+
+    Provide:
+    1. Key insights about the results
+    2. Performance observations
+    3. Interesting mathematical patterns
+    4. Comparison of task complexities
+
+  output:
+    insights:
+      type: str
+      description: Key insights from the computational results
+    performance_notes:
+      type: str
+      description: Observations about execution performance
+    patterns:
+      type: str
+      description: Mathematical patterns observed in the results
+    suggestions:
+      type: str
+      description: Suggestions for follow-up computations or improvements
+    should_continue:
+      type: bool
+      description: Whether to generate and run more tasks
+
+metadata:
+  description: "Analyzes prime computation results and provides insights"
+  tags: ["demo", "zig-python-capi", "analysis"]

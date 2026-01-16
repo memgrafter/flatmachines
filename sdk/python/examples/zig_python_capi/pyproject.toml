@@ -1,0 +1,16 @@
+[project]
+name = "zig-python-capi"
+version = "0.1.0"
+description = "Demo of Zig + Python C-API integration with FlatAgents"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flatagents[litellm]>=0.6.0",
+]
+
+[project.scripts]
+zig-capi-demo = "zig_python_capi.main:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

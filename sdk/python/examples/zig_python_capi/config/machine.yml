@@ -1,0 +1,69 @@
+spec: flatmachine
+spec_version: "0.3.0"
+
+data:
+  name: zig_prime_computer
+
+  context:
+    num_tasks: "{{ input.num_tasks }}"
+    focus_area: "{{ input.focus_area }}"
+    max_iterations: "{{ input.max_iterations }}"
+    iteration: 0
+    all_results: []
+
+  agents:
+    task_generator: ./task_generator.yml
+    analyzer: ./analyzer.yml
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: generate_tasks
+
+    generate_tasks:
+      agent: task_generator
+      input:
+        num_tasks: "{{ context.num_tasks }}"
+        focus_area: "{{ context.focus_area }}"
+      output_to_context:
+        tasks: "{{ output.tasks }}"
+      transitions:
+        - to: execute_tasks
+
+    execute_tasks:
+      action: execute_zig_tasks
+      transitions:
+        - to: analyze_results
+
+    analyze_results:
+      agent: analyzer
+      input:
+        results: "{{ context.task_results }}"
+        total_time: "{{ context.total_execution_time }}"
+      output_to_context:
+        insights: "{{ output.insights }}"
+        performance_notes: "{{ output.performance_notes }}"
+        patterns: "{{ output.patterns }}"
+        suggestions: "{{ output.suggestions }}"
+        should_continue: "{{ output.should_continue }}"
+      transitions:
+        - to: increment_iteration
+
+    increment_iteration:
+      action: increment_iteration
+      transitions:
+        - condition: "context.should_continue == true && context.iteration < context.max_iterations"
+          to: generate_tasks
+        - to: done
+
+    done:
+      type: final
+      output:
+        total_iterations: "{{ context.iteration }}"
+        all_results: "{{ context.all_results }}"
+        final_insights: "{{ context.insights }}"
+
+metadata:
+  description: "Orchestrates Zig-powered prime computation with LLM task generation and analysis"
+  tags: ["demo", "zig-python-capi", "flatmachine"]
