@@ -619,27 +619,6 @@ class FlatAgent:
             prompt = f"{prompt}\n\n{self._instruction_suffix}"
         return prompt
 
-    def _build_output_instruction(self) -> str:
-        """Build instruction for JSON output based on schema."""
-        if not self.output_schema:
-            return ""
-
-        fields = []
-        for name, field_def in self.output_schema.items():
-            desc = field_def.get('description', '')
-            field_type = field_def.get('type', 'str')
-            enum_vals = field_def.get('enum')
-
-            parts = [f'"{name}"']
-            if desc:
-                parts.append(f"({desc})")
-            if enum_vals:
-                parts.append(f"- one of: {enum_vals}")
-
-            fields.append(" ".join(parts))
-
-        return "Respond with JSON containing: " + ", ".join(fields)
-
     # ─────────────────────────────────────────────────────────────────────────
     # Execution
     # ─────────────────────────────────────────────────────────────────────────
@@ -675,13 +654,6 @@ class FlatAgent:
         # Render prompts
         system_prompt = self._render_system_prompt(input_data, tools_prompt=tools_prompt, tools=tools)
         user_prompt = self._render_user_prompt(input_data, tools_prompt=tools_prompt, tools=tools)
-
-        # Add output instruction if we have a schema and no tools
-        # (with tools, the LLM may call tools instead of returning JSON)
-        if self.output_schema and not tools:
-            output_instruction = self._build_output_instruction()
-            if output_instruction:
-                user_prompt = f"{user_prompt}\n\n{output_instruction}"
 
         # Build messages
         if messages:
