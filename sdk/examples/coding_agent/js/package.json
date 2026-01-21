@@ -1,0 +1,27 @@
+{
+  "name": "flatagents-coding-agent",
+  "version": "0.1.0",
+  "description": "Coding agent demo for FlatAgents.",
+  "type": "module",
+  "main": "src/coding_agent/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/coding_agent/main.ts",
+    "start": "node dist/coding_agent/main.js"
+  },
+  "dependencies": {
+    "flatagents": "file:../../../js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0"
+  },
+  "keywords": [
+    "flatagents",
+    "demo",
+    "coding-agent"
+  ],
+  "author": "",
+  "license": "MIT"
+}

@@ -9,7 +9,7 @@ data:
   
   model:
     provider: cerebras
-    name: zai-glm-4.6
+    name: zai-glm-4.7
     temperature: 0.7
     max_tokens: 20000
   
@@ -56,11 +56,10 @@ data:
     
     {% if input.file_contents %}
     ## File Contents
-    {% for path, content in input.file_contents.items() %}
+    {% for path in input.file_contents %}
     ### {{ path }}
     ```
-    {{ content[:3000] }}{% if content|length > 3000 %}
-    ... (truncated){% endif %}
+    {{ input.file_contents[path] }}
     ```
     {% endfor %}
     {% endif %}

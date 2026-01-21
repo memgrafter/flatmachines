@@ -1,5 +1,6 @@
 import * as yaml from "yaml";
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
+import { dirname, resolve } from "path";
 import { randomUUID } from "node:crypto";
 import {
   MachineConfig,
@@ -46,7 +47,7 @@ export class FlatMachine {
       : options.config;
     this.hooks = options.hooks;
     this.configDir = options.configDir ?? process.cwd();
-    this.profilesFile = options.profilesFile;
+    this.profilesFile = this.resolveProfilesFile(options.profilesFile);
     this.executionId = options.executionId ?? this.executionId;
     this.parentExecutionId = options.parentExecutionId;
 
@@ -394,7 +395,7 @@ export class FlatMachine {
     machineRef: any,
     overrides?: { executionId?: string; parentExecutionId?: string }
   ): FlatMachine {
-    const resolved = this.resolveMachineRef(machineRef);
+    const resolved = this.resolveMachineConfig(machineRef);
     return new FlatMachine({
       config: resolved.config,
       configDir: resolved.configDir,
@@ -406,26 +407,26 @@ export class FlatMachine {
     });
   }
 
-  private resolveMachineRef(machineRef: any): { config: MachineConfig | string; configDir: string } {
+  private resolveMachineConfig(machineRef: any): { config: MachineConfig | string; configDir: string } {
     if (typeof machineRef === "object" && machineRef) {
       if ("spec" in machineRef && "data" in machineRef) {
         return { config: machineRef as MachineConfig, configDir: this.configDir };
       }
       if ("path" in machineRef && machineRef.path) {
-        return { config: `${this.configDir}/${machineRef.path}`, configDir: this.configDir };
+        return this.resolveMachinePath(String(machineRef.path));
       }
       if ("inline" in machineRef && machineRef.inline) {
         return { config: machineRef.inline as MachineConfig, configDir: this.configDir };
       }
       if ("name" in machineRef) {
-        return this.resolveMachineRef(machineRef.name);
+        return this.resolveMachineConfig(machineRef.name);
       }
     }
     const name = String(machineRef);
     const entry = this.config.data.machines?.[name];
     if (entry && typeof entry === "object") {
       if ("path" in entry && entry.path) {
-        return { config: `${this.configDir}/${entry.path}`, configDir: this.configDir };
+        return this.resolveMachinePath(String(entry.path));
       }
       if ("inline" in entry && entry.inline) {
         return { config: entry.inline as MachineConfig, configDir: this.configDir };
@@ -435,9 +436,27 @@ export class FlatMachine {
       }
     }
     if (typeof entry === "string") {
-      return { config: `${this.configDir}/${entry}`, configDir: this.configDir };
+      return this.resolveMachinePath(entry);
     }
-    return { config: `${this.configDir}/${name}`, configDir: this.configDir };
+    return this.resolveMachinePath(name);
+  }
+
+  private resolveMachinePath(pathRef: string): { config: string; configDir: string } {
+    // Align with Python SDK: child machine config_dir is the directory containing its config file.
+    const resolved = resolve(this.configDir, pathRef);
+    return { config: resolved, configDir: dirname(resolved) };
+  }
+
+  private resolveProfilesFile(explicitPath?: string): string | undefined {
+    const configProfiles = (this.config as any)?.data?.profiles;
+    if (typeof configProfiles === "string" && configProfiles.trim().length > 0) {
+      return resolve(this.configDir, configProfiles);
+    }
+
+    const discovered = resolve(this.configDir, "profiles.yml");
+    if (existsSync(discovered)) return discovered;
+
+    return explicitPath;
   }
 
   private getMachineName(machineRef: any): string {

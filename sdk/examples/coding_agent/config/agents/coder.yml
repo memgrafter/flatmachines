@@ -9,7 +9,7 @@ data:
   
   model:
     provider: cerebras
-    name: zai-glm-4.6
+    name: zai-glm-4.7
     temperature: 1.0
     max_tokens: 20000
   
@@ -73,11 +73,11 @@ data:
     {% if input.file_contents %}
     ## File Contents
     The following files have been read for you. Use their exact content for SEARCH sections:
-    {% for path, content in input.file_contents.items() %}
+    {% for path in input.file_contents %}
     
     ### {{ path }}
     ```
-    {{ content }}
+    {{ input.file_contents[path] }}
     ```
     {% endfor %}
     {% endif %}

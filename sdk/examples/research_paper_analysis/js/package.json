@@ -1,0 +1,28 @@
+{
+  "name": "flatagents-research-paper-analysis",
+  "version": "0.1.0",
+  "description": "Research paper analysis demo for FlatAgents.",
+  "type": "module",
+  "main": "src/research_paper_analysis/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/research_paper_analysis/main.ts",
+    "start": "node dist/research_paper_analysis/main.js"
+  },
+  "dependencies": {
+    "flatagents": "file:../../../js",
+    "pdfjs-dist": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0"
+  },
+  "keywords": [
+    "flatagents",
+    "demo",
+    "research-paper"
+  ],
+  "author": "",
+  "license": "MIT"
+}

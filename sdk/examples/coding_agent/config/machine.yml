@@ -82,7 +82,12 @@ data:
         previous_plans: "{{ context.plan_history }}"
         feedback: "{{ context.human_feedback }}"
       output_to_context:
-        plan: "{{ output }}"
+        plan: |-
+          {%- if output.content is defined -%}
+          {{ output.content }}
+          {%- else -%}
+          {{ output }}
+          {%- endif -%}
       transitions:
         - to: review_plan
     
