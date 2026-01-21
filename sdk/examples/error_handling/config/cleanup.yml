@@ -9,6 +9,8 @@ data:
     An error occurred. Summarize what happened in one sentence:
     Error type: {{ input.error_type }}
     State: {{ input.state }}
+
+    Respond with JSON: {"summary": "your summary here"}
   output:
     summary:
       type: str

@@ -1,0 +1,27 @@
+{
+  "name": "flatagents-error-handling",
+  "version": "0.1.0",
+  "description": "Error handling demo for FlatAgents.",
+  "type": "module",
+  "main": "src/error_handling/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/error_handling/main.ts",
+    "start": "node dist/error_handling/main.js"
+  },
+  "dependencies": {
+    "flatagents": "file:../../../js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0"
+  },
+  "keywords": [
+    "flatagents",
+    "demo",
+    "error-handling"
+  ],
+  "author": "",
+  "license": "MIT"
+}

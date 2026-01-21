@@ -1,0 +1,27 @@
+{
+  "name": "flatagents-writer-critic",
+  "version": "0.1.0",
+  "description": "Writer-Critic demo for FlatAgents.",
+  "type": "module",
+  "main": "src/writer_critic/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/writer_critic/main.ts",
+    "start": "node dist/writer_critic/main.js"
+  },
+  "dependencies": {
+    "flatagents": "file:../../../js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0"
+  },
+  "keywords": [
+    "flatagents",
+    "demo",
+    "writer-critic"
+  ],
+  "author": "",
+  "license": "MIT"
+}

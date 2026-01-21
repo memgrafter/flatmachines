@@ -7,6 +7,8 @@ data:
   system: You analyze requests and provide responses.
   user: |
     Analyze: {{ input.task }}
+
+    Respond with JSON: {"result": "your analysis here"}
   output:
     result:
       type: str

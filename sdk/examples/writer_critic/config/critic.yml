@@ -16,6 +16,8 @@ data:
     - Clarity of message
     - Emotional appeal
     - Relevance to the product
+
+    Respond with JSON: {"feedback": "your feedback here", "score": 1-10}
   output:
     feedback:
       type: str
