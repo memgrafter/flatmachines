@@ -225,6 +225,17 @@ export interface MachineHooks {
 
     /** Called for custom actions defined in state config. */
     onAction?(action: string, context: Record<string, any>): Record<string, any> | Promise<Record<string, any>>;
+
+    /**
+     * Called when an agent requests a tool call during tool_loop execution.
+     * Must return the tool result which will be sent back to the agent.
+     *
+     * @param toolName - Name of the tool to execute
+     * @param arguments - Arguments passed to the tool (parsed from JSON)
+     * @param context - Current machine context
+     * @returns Tool execution result (will be JSON serialized for the agent)
+     */
+    onToolCall?(toolName: string, arguments: Record<string, any>, context: Record<string, any>): any | Promise<any>;
 }
 
 export interface LLMBackend {
@@ -260,17 +271,48 @@ export interface ToolCall {
 export interface LLMOptions {
     temperature?: number;
     max_tokens?: number;
+    top_p?: number;
+    top_k?: number;
+    frequency_penalty?: number;
+    presence_penalty?: number;
+    repetition_penalty?: number;
+    seed?: number;
+    stop?: string | string[];
+    logit_bias?: Record<string, number>;
     tools?: ToolDefinition[];
-    response_format?: { type: "json_object" } | { type: "text" };
+    tool_choice?: ToolChoice;
+    parallel_tool_calls?: boolean;
+    response_format?: ResponseFormat;
+}
+
+export type ToolChoice =
+    | "none"
+    | "auto"
+    | "required"
+    | { type: "function"; function: { name: string } };
+
+export type ResponseFormat =
+    | { type: "text" }
+    | { type: "json_object" }
+    | { type: "json_schema"; json_schema: JsonSchemaResponseFormat };
+
+export interface JsonSchemaResponseFormat {
+    name: string;
+    description?: string;
+    schema: Record<string, any>;
+    strict?: boolean;
 }
 
 export interface ToolDefinition {
     type: "function";
-    function: {
-        name: string;
-        description?: string;
-        parameters?: Record<string, any>;  // JSON Schema
-    };
+    function: ToolFunction;
+}
+
+export interface ToolFunction {
+    name: string;
+    description?: string;
+    parameters?: Record<string, any>;  // JSON Schema
+    strict?: boolean;  // For strict structured outputs
 }
 
 export interface MachineInvoker {

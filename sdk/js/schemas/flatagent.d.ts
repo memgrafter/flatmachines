@@ -36,16 +36,32 @@
  *
  * MODEL FIELDS:
  * -------------
- * name              - Model name (e.g., "gpt-4", "zai-glm-4.6")
- * provider          - Provider name (e.g., "openai", "anthropic", "cerebras")
- * temperature       - Sampling temperature (0.0 to 2.0)
- * max_tokens        - Maximum tokens to generate
- * top_p             - Nucleus sampling parameter
- * top_k             - Top-k sampling parameter
- * frequency_penalty - Frequency penalty (-2.0 to 2.0)
- * presence_penalty  - Presence penalty (-2.0 to 2.0)
- * seed              - Random seed for reproducibility
- * base_url          - Custom API base URL (for local models/proxies)
+ * name               - Model name (e.g., "gpt-4", "zai-glm-4.6")
+ * provider           - Provider name (e.g., "openai", "anthropic", "cerebras")
+ * temperature        - Sampling temperature (0.0 to 2.0)
+ * max_tokens         - Maximum tokens to generate
+ * top_p              - Nucleus sampling parameter
+ * top_k              - Top-k sampling parameter
+ * frequency_penalty  - Frequency penalty (-2.0 to 2.0)
+ * presence_penalty   - Presence penalty (-2.0 to 2.0)
+ * repetition_penalty - Alternative repetition penalty (some providers)
+ * seed               - Random seed for reproducibility
+ * base_url           - Custom API base URL (for local models/proxies)
+ * stop               - Stop sequence(s) to end generation
+ * logit_bias         - Token bias map (token_id -> bias value)
+ *
+ * TOOL CALLING FIELDS:
+ * --------------------
+ * tools              - Array of tool definitions for function calling
+ * tool_choice        - Control tool usage: "none", "auto", "required", or specific tool
+ * parallel_tool_calls - Allow multiple tool calls in single response (default: true)
+ *
+ * RESPONSE FORMAT FIELDS:
+ * -----------------------
+ * response_format    - Control output format:
+ *   - { type: "text" }         - Plain text output (default)
+ *   - { type: "json_object" }  - Valid JSON output
+ *   - { type: "json_schema", json_schema: {...} } - Structured output with schema
  *
  * MODEL PROFILES:
  * ---------------
@@ -197,8 +213,45 @@ export interface ModelConfig {
   top_k?: number;
   frequency_penalty?: number;
   presence_penalty?: number;
+  repetition_penalty?: number;
   seed?: number;
   base_url?: string;
+  stop?: string | string[];
+  logit_bias?: Record<string, number>;
+  tools?: ToolDefinition[];
+  tool_choice?: ToolChoice;
+  parallel_tool_calls?: boolean;
+  response_format?: ResponseFormat;
+}
+
+export type ToolChoice =
+  | "none"
+  | "auto"
+  | "required"
+  | { type: "function"; function: { name: string } };
+
+export type ResponseFormat =
+  | { type: "text" }
+  | { type: "json_object" }
+  | { type: "json_schema"; json_schema: JsonSchemaResponseFormat };
+
+export interface JsonSchemaResponseFormat {
+  name: string;
+  description?: string;
+  schema: Record<string, any>;
+  strict?: boolean;
+}
+
+export interface ToolDefinition {
+  type: "function";
+  function: ToolFunction;
+}
+
+export interface ToolFunction {
+  name: string;
+  description?: string;
+  parameters?: Record<string, any>;
+  strict?: boolean;
 }
 
 export interface ProfiledModelConfig extends Partial<ModelConfig> {

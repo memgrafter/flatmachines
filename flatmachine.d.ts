@@ -43,6 +43,9 @@
  * output_to_context - Map agent output to context (Jinja2 templates)
  * output            - Final output (for final states)
  * transitions       - Ordered list of transitions
+ * tool_loop         - Enable multi-round tool calling (boolean or ToolLoopConfig)
+ * tools             - Tool definitions for this state (OpenAI function format)
+ * tool_choice       - Control tool usage: "none", "auto", "required", or specific
  *
  * PARALLEL EXECUTION (v0.4.0):
  * ----------------------------
@@ -203,6 +206,45 @@
  *       transitions:
  *         - to: continue_immediately
  *
+ * TOOL LOOP EXAMPLE:
+ * ------------------
+ * Multi-round tool calling allows an agent to call tools repeatedly until
+ * it has enough information to produce a final response.
+ *
+ *   states:
+ *     research:
+ *       agent: researcher
+ *       tool_loop:
+ *         max_rounds: 10
+ *       tools:
+ *         - type: function
+ *           function:
+ *             name: search_web
+ *             description: Search the web for information
+ *             parameters:
+ *               type: object
+ *               properties:
+ *                 query: { type: string, description: "Search query" }
+ *               required: [query]
+ *         - type: function
+ *           function:
+ *             name: read_url
+ *             description: Read content from a URL
+ *             parameters:
+ *               type: object
+ *               properties:
+ *                 url: { type: string, description: "URL to read" }
+ *               required: [url]
+ *       input:
+ *         question: "{{ context.question }}"
+ *       output_to_context:
+ *         answer: "{{ output.answer }}"
+ *       transitions:
+ *         - to: done
+ *
+ * The machine will call hooks.on_tool_call(tool_name, arguments) for each
+ * tool call. Hooks must implement this method to execute tools and return results.
+ *
  * PERSISTENCE (v0.2.0):
  * --------------------
  * MachineSnapshot    - Wire format for checkpoints (execution_id, state, context, step)
@@ -324,7 +366,9 @@ export interface StateDefinition {
   output_to_context?: Record<string, any>;
   output?: Record<string, any>;
   transitions?: Transition[];
-  tool_loop?: boolean;
+  tool_loop?: boolean | ToolLoopConfig;
+  tools?: ToolDefinition[];
+  tool_choice?: ToolChoice;
   sampling?: "single" | "multi";
   foreach?: string;
   as?: string;
@@ -333,6 +377,62 @@ export interface StateDefinition {
   timeout?: number;
   launch?: string | string[];
   launch_input?: Record<string, any>;
+}
+
+/**
+ * Configuration for multi-round tool calling loops.
+ *
+ * When tool_loop is enabled on a state with an agent, the machine will:
+ * 1. Call the agent with available tools
+ * 2. If the agent returns tool calls, execute them
+ * 3. Send tool results back to the agent
+ * 4. Repeat until agent returns final response (no tool calls) or max_rounds reached
+ *
+ * Example:
+ *   states:
+ *     process:
+ *       agent: assistant
+ *       tool_loop:
+ *         max_rounds: 10
+ *         tools:
+ *           - type: function
+ *             function:
+ *               name: search
+ *               description: Search the knowledge base
+ *               parameters:
+ *                 type: object
+ *                 properties:
+ *                   query: { type: string }
+ *       input:
+ *         question: "{{ context.question }}"
+ */
+export interface ToolLoopConfig {
+  /** Maximum number of tool call rounds (default: 10) */
+  max_rounds?: number;
+  /** Tool definitions (OpenAI function calling format) */
+  tools?: ToolDefinition[];
+  /** Control tool usage: "none", "auto", "required", or specific tool */
+  tool_choice?: ToolChoice;
+  /** Allow parallel tool calls in single response (default: true) */
+  parallel_tool_calls?: boolean;
+}
+
+export type ToolChoice =
+  | "none"
+  | "auto"
+  | "required"
+  | { type: "function"; function: { name: string } };
+
+export interface ToolDefinition {
+  type: "function";
+  function: ToolFunction;
+}
+
+export interface ToolFunction {
+  name: string;
+  description?: string;
+  parameters?: Record<string, any>;
+  strict?: boolean;
 }
 
 export interface MachineInput {

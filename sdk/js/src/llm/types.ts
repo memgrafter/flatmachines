@@ -28,18 +28,44 @@ export interface LLMOptions {
   top_k?: number;
   frequency_penalty?: number;
   presence_penalty?: number;
+  repetition_penalty?: number;
   seed?: number;
+  stop?: string | string[];
+  logit_bias?: Record<string, number>;
   tools?: ToolDefinition[];
-  response_format?: { type: 'json_object' } | { type: 'text' };
+  tool_choice?: ToolChoice;
+  parallel_tool_calls?: boolean;
+  response_format?: ResponseFormat;
+}
+
+export type ToolChoice =
+  | 'none'
+  | 'auto'
+  | 'required'
+  | { type: 'function'; function: { name: string } };
+
+export type ResponseFormat =
+  | { type: 'text' }
+  | { type: 'json_object' }
+  | { type: 'json_schema'; json_schema: JsonSchemaResponseFormat };
+
+export interface JsonSchemaResponseFormat {
+  name: string;
+  description?: string;
+  schema: Record<string, any>;
+  strict?: boolean;
 }
 
 export interface ToolDefinition {
   type: 'function';
-  function: {
-    name: string;
-    description?: string;
-    parameters?: Record<string, any>; // JSON Schema
-  };
+  function: ToolFunction;
+}
+
+export interface ToolFunction {
+  name: string;
+  description?: string;
+  parameters?: Record<string, any>; // JSON Schema
+  strict?: boolean;
 }
 
 /**

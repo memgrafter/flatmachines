@@ -149,16 +149,54 @@ class MachineHooks(ABC):
     ) -> Dict[str, Any]:
         """
         Called for custom hook actions defined in states.
-        
+
         Args:
             action_name: Name of the action to execute
             context: Current context
-            
+
         Returns:
             Modified context
         """
         logger.warning(f"Unhandled action: {action_name}")
         return context
+
+    def on_tool_call(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        context: Dict[str, Any]
+    ) -> Any:
+        """
+        Called when an agent requests a tool call during tool_loop execution.
+
+        Must be implemented to execute tools and return results.
+        The result will be sent back to the agent for continued processing.
+
+        Args:
+            tool_name: Name of the tool to execute
+            arguments: Arguments passed to the tool (parsed from JSON)
+            context: Current machine context (read-only, for reference)
+
+        Returns:
+            Tool execution result (will be JSON serialized for the agent)
+
+        Raises:
+            NotImplementedError: If tool_loop is used without implementing this method
+
+        Example:
+            def on_tool_call(self, tool_name, arguments, context):
+                if tool_name == "search":
+                    return self.search_engine.search(arguments["query"])
+                elif tool_name == "read_file":
+                    with open(arguments["path"]) as f:
+                        return f.read()
+                else:
+                    raise ValueError(f"Unknown tool: {tool_name}")
+        """
+        raise NotImplementedError(
+            f"on_tool_call not implemented. Cannot execute tool '{tool_name}'. "
+            "Implement on_tool_call in your hooks class to use tool_loop."
+        )
 
 
 class LoggingHooks(MachineHooks):
@@ -274,6 +312,23 @@ class CompositeHooks(MachineHooks):
             context = hook.on_action(action_name, context)
         return context
 
+    def on_tool_call(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        context: Dict[str, Any]
+    ) -> Any:
+        # Try each hook until one handles the tool call
+        for hook in self.hooks:
+            try:
+                return hook.on_tool_call(tool_name, arguments, context)
+            except NotImplementedError:
+                continue
+        # No hook handled it
+        raise NotImplementedError(
+            f"No hook in composite handles tool '{tool_name}'"
+        )
+
 
 class WebhookHooks(MachineHooks):
     """
@@ -370,6 +425,23 @@ class WebhookHooks(MachineHooks):
         if resp and "context" in resp:
             return resp["context"]
         return context
+
+    async def on_tool_call(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        context: Dict[str, Any]
+    ) -> Any:
+        resp = await self._send("tool_call", {
+            "tool": tool_name,
+            "arguments": arguments,
+            "context": context
+        })
+        if resp and "result" in resp:
+            return resp["result"]
+        raise NotImplementedError(
+            f"Webhook did not return result for tool '{tool_name}'"
+        )
 
 
 __all__ = [

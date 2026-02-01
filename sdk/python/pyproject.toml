@@ -36,6 +36,7 @@ metrics = [
     "opentelemetry-sdk>=1.20.0",
     "opentelemetry-exporter-otlp>=1.20.0",
 ]
+dev = ["pytest", "pytest-asyncio", "aiohttp"]
 # Local development (no cloud dependencies)
 local = ["litellm", "aisuite[all]", "cel-python", "jsonschema>=4.0", "opentelemetry-api>=1.20.0", "opentelemetry-sdk>=1.20.0", "opentelemetry-exporter-otlp>=1.20.0"]
 # Alias for local

@@ -629,6 +629,8 @@ class FlatAgent:
         self,
         tool_provider: Optional["MCPToolProvider"] = None,
         messages: Optional[List[Dict[str, Any]]] = None,
+        _tools: Optional[List[Dict[str, Any]]] = None,
+        _tool_choice: Optional[str] = None,
         **input_data
     ) -> "AgentResponse":
         """
@@ -637,6 +639,8 @@ class FlatAgent:
         Args:
             tool_provider: Optional MCPToolProvider (overrides constructor value)
             messages: Optional conversation history (for tool call continuations)
+            _tools: Optional tool definitions (OpenAI format) - used by tool_loop
+            _tool_choice: Optional tool choice - used by tool_loop
             **input_data: Input values available as {{ input.* }} in templates
 
         Returns:
@@ -649,8 +653,14 @@ class FlatAgent:
             self._tool_provider = tool_provider
             self._tools_cache = None  # Clear cache
 
-        # Discover tools if MCP is configured
-        tools = self._discover_tools()
+        # Use explicit tools if provided, otherwise discover from MCP
+        if _tools:
+            tools = []  # Don't use MCP tools when explicit tools provided
+            llm_tools = _tools  # Already in OpenAI format
+        else:
+            tools = self._discover_tools()
+            llm_tools = self._convert_tools_for_llm(tools) if tools else None
+
         tools_prompt = self._render_tool_prompt(tools)
 
         # Render prompts
@@ -695,11 +705,13 @@ class FlatAgent:
             params["api_base"] = self.base_url  # litellm uses api_base
 
         # Add tools if available
-        if tools:
-            params["tools"] = self._convert_tools_for_llm(tools)
+        if llm_tools:
+            params["tools"] = llm_tools
+            if _tool_choice:
+                params["tool_choice"] = _tool_choice
 
         # Use JSON mode if we have an output schema and no tools
-        if self.output_schema and not tools:
+        if self.output_schema and not llm_tools:
             params["response_format"] = {"type": "json_object"}
 
         # Call LLM via selected backend with metrics tracking
@@ -729,7 +741,7 @@ class FlatAgent:
 
         # Parse output schema if applicable
         output = None
-        if self.output_schema and content and not tools:
+        if self.output_schema and content and not llm_tools:
             try:
                 # Strip markdown fences - LLMs sometimes wrap JSON in ```json blocks
                 output = json.loads(strip_markdown_json(content))
@@ -743,7 +755,8 @@ class FlatAgent:
             tool_calls = []
             for tc in message.tool_calls:
                 tool_name = tc.function.name
-                server = self._find_tool_server(tool_name, tools)
+                # Only look up server for MCP tools, not explicit tools
+                server = self._find_tool_server(tool_name, tools) if tools else ""
 
                 try:
                     arguments = json.loads(tc.function.arguments)

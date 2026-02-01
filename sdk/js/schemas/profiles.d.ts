@@ -95,16 +95,19 @@
  * MODELPROFILECONFIG FIELDS:
  * --------------------------
  * Defines all parameters for an LLM model.
- * name              - Model name (e.g., "gpt-4", "zai-glm-4.6", "claude-3-opus-20240229")
- * provider          - Provider name (e.g., "openai", "anthropic", "cerebras", "ollama")
- * temperature       - Sampling temperature (0.0 to 2.0)
- * max_tokens        - Maximum tokens to generate
- * top_p             - Nucleus sampling parameter (0.0 to 1.0)
- * top_k             - Top-k sampling parameter
- * frequency_penalty - Frequency penalty (-2.0 to 2.0)
- * presence_penalty  - Presence penalty (-2.0 to 2.0)
- * seed              - Random seed for reproducibility
- * base_url          - Custom base URL for the API (e.g., for local models or proxies)
+ * name               - Model name (e.g., "gpt-4", "zai-glm-4.6", "claude-3-opus-20240229")
+ * provider           - Provider name (e.g., "openai", "anthropic", "cerebras", "ollama")
+ * temperature        - Sampling temperature (0.0 to 2.0)
+ * max_tokens         - Maximum tokens to generate
+ * top_p              - Nucleus sampling parameter (0.0 to 1.0)
+ * top_k              - Top-k sampling parameter
+ * frequency_penalty  - Frequency penalty (-2.0 to 2.0)
+ * presence_penalty   - Presence penalty (-2.0 to 2.0)
+ * repetition_penalty - Alternative repetition penalty (some providers)
+ * seed               - Random seed for reproducibility
+ * base_url           - Custom base URL for the API (e.g., for local models or proxies)
+ * stop               - Stop sequence(s) to end generation
+ * logit_bias         - Token bias map (token_id -> bias value)
  */
 
 export const SPEC_VERSION = "0.9.0";
@@ -131,8 +134,11 @@ export interface ModelProfileConfig {
   top_k?: number;
   frequency_penalty?: number;
   presence_penalty?: number;
+  repetition_penalty?: number;
   seed?: number;
   base_url?: string;
+  stop?: string | string[];
+  logit_bias?: Record<string, number>;
 }
 
 export type FlatprofilesConfig = ProfilesWrapper;

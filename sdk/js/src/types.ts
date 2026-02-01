@@ -11,8 +11,59 @@ export interface ModelConfig {
   top_k?: number;
   frequency_penalty?: number;
   presence_penalty?: number;
+  repetition_penalty?: number;
   seed?: number;
   base_url?: string;
+  stop?: string | string[];
+  logit_bias?: Record<string, number>;
+  tools?: ToolDefinition[];
+  tool_choice?: ToolChoice;
+  parallel_tool_calls?: boolean;
+  response_format?: ResponseFormat;
+}
+
+export type ToolChoice =
+  | "none"
+  | "auto"
+  | "required"
+  | { type: "function"; function: { name: string } };
+
+export type ResponseFormat =
+  | { type: "text" }
+  | { type: "json_object" }
+  | { type: "json_schema"; json_schema: JsonSchemaResponseFormat };
+
+export interface JsonSchemaResponseFormat {
+  name: string;
+  description?: string;
+  schema: Record<string, any>;
+  strict?: boolean;
+}
+
+export interface ToolDefinition {
+  type: "function";
+  function: ToolFunction;
+}
+
+export interface ToolFunction {
+  name: string;
+  description?: string;
+  parameters?: Record<string, any>;
+  strict?: boolean;
+}
+
+/**
+ * Configuration for multi-round tool calling loops.
+ */
+export interface ToolLoopConfig {
+  /** Maximum number of tool call rounds (default: 10) */
+  max_rounds?: number;
+  /** Tool definitions (OpenAI function calling format) */
+  tools?: ToolDefinition[];
+  /** Control tool usage */
+  tool_choice?: ToolChoice;
+  /** Allow parallel tool calls in single response (default: true) */
+  parallel_tool_calls?: boolean;
 }
 
 /**
@@ -34,8 +85,11 @@ export interface ModelProfileConfig {
   top_k?: number;
   frequency_penalty?: number;
   presence_penalty?: number;
+  repetition_penalty?: number;
   seed?: number;
   base_url?: string;
+  stop?: string | string[];
+  logit_bias?: Record<string, number>;
 }
 
 /**
@@ -97,6 +151,8 @@ export interface State {
   output_to_context?: Record<string, any>;
   output?: Record<string, any>;
   transitions?: { condition?: string; to: string }[];
+  tool_loop?: boolean | ToolLoopConfig;
+  tools?: ToolDefinition[];
   on_error?: string | Record<string, string>;
   foreach?: string;
   as?: string;
@@ -105,7 +161,6 @@ export interface State {
   timeout?: number;
   launch?: string | string[];
   launch_input?: Record<string, any>;
-  tool_loop?: boolean;
   sampling?: "single" | "multi";
 }
 

@@ -131,7 +131,14 @@ export class FlatAgent {
       top_k: this.resolvedModelConfig.top_k,
       frequency_penalty: this.resolvedModelConfig.frequency_penalty,
       presence_penalty: this.resolvedModelConfig.presence_penalty,
+      repetition_penalty: this.resolvedModelConfig.repetition_penalty,
       seed: this.resolvedModelConfig.seed,
+      stop: this.resolvedModelConfig.stop,
+      logit_bias: this.resolvedModelConfig.logit_bias,
+      tools: this.resolvedModelConfig.tools,
+      tool_choice: this.resolvedModelConfig.tool_choice,
+      parallel_tool_calls: this.resolvedModelConfig.parallel_tool_calls,
+      response_format: this.resolvedModelConfig.response_format,
     });
 
     // Extract structured output

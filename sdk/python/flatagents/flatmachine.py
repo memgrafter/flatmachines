@@ -1020,9 +1020,26 @@ class FlatMachine:
             pre_calls = agent.total_api_calls
             pre_cost = agent.total_cost
 
-            execution_config = state.get('execution')
-            execution_type = get_execution_type(execution_config)
-            output = await execution_type.execute(agent, agent_input)
+            # Check for tool_loop configuration
+            tool_loop_config = state.get('tool_loop')
+            state_tools = state.get('tools')
+            state_tool_choice = state.get('tool_choice')
+
+            if tool_loop_config or state_tools:
+                # Execute with tool loop
+                output = await self._execute_tool_loop(
+                    agent=agent,
+                    agent_input=agent_input,
+                    tool_loop_config=tool_loop_config,
+                    state_tools=state_tools,
+                    state_tool_choice=state_tool_choice,
+                    context=context,
+                )
+            else:
+                # Standard execution without tools
+                execution_config = state.get('execution')
+                execution_type = get_execution_type(execution_config)
+                output = await execution_type.execute(agent, agent_input)
 
             self.total_api_calls += agent.total_api_calls - pre_calls
             self.total_cost += agent.total_cost - pre_cost
@@ -1044,6 +1061,162 @@ class FlatMachine:
                 output = self._render_dict(output_spec, variables)
 
         return context, output
+
+    async def _execute_tool_loop(
+        self,
+        agent: FlatAgent,
+        agent_input: Dict[str, Any],
+        tool_loop_config: Any,
+        state_tools: Optional[list],
+        state_tool_choice: Optional[str],
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Execute an agent with multi-round tool calling.
+
+        The loop continues until:
+        - The agent returns a response without tool calls
+        - max_rounds is reached
+        - An error occurs
+
+        Args:
+            agent: The FlatAgent to execute
+            agent_input: Input for the agent
+            tool_loop_config: Tool loop configuration (bool or dict)
+            state_tools: Tool definitions from state config
+            state_tool_choice: Tool choice from state config
+            context: Current machine context
+
+        Returns:
+            Final agent output after tool loop completes
+        """
+        # Parse tool_loop config
+        if isinstance(tool_loop_config, dict):
+            max_rounds = tool_loop_config.get('max_rounds', 10)
+            config_tools = tool_loop_config.get('tools')
+            config_tool_choice = tool_loop_config.get('tool_choice')
+        else:
+            max_rounds = 10
+            config_tools = None
+            config_tool_choice = None
+
+        # Tools priority: state.tools > tool_loop.tools
+        tools = state_tools or config_tools or []
+        tool_choice = state_tool_choice or config_tool_choice or 'auto'
+
+        if not tools:
+            logger.warning("tool_loop enabled but no tools defined")
+            # Fall back to standard execution
+            response = await agent.call(**agent_input)
+            return response.output or {"content": response.content}
+
+        # Build conversation history
+        messages = []
+        current_round = 0
+
+        logger.info(f"Starting tool loop with {len(tools)} tools, max_rounds={max_rounds}")
+
+        while current_round < max_rounds:
+            current_round += 1
+
+            # Call agent with tools
+            # Note: We pass tools via the LLM params, not MCP
+            # The agent.call method needs to support passing tools
+            response = await self._call_agent_with_tools(
+                agent=agent,
+                agent_input=agent_input if current_round == 1 else {},
+                messages=messages if messages else None,
+                tools=tools,
+                tool_choice=tool_choice,
+            )
+
+            # Check for tool calls
+            if not response.tool_calls:
+                # No tool calls - we're done
+                logger.info(f"Tool loop completed after {current_round} round(s)")
+                return response.output or {"content": response.content}
+
+            # Add assistant message with tool calls to history
+            messages.append({
+                "role": "assistant",
+                "content": response.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.tool,
+                            "arguments": json.dumps(tc.arguments),
+                        }
+                    }
+                    for tc in response.tool_calls
+                ]
+            })
+
+            # Execute each tool call
+            for tc in response.tool_calls:
+                logger.debug(f"Executing tool: {tc.tool}({tc.arguments})")
+
+                try:
+                    # Call the hook to execute the tool
+                    result = await self._run_hook(
+                        'on_tool_call',
+                        tc.tool,
+                        tc.arguments,
+                        context
+                    )
+
+                    # Serialize result
+                    if isinstance(result, (dict, list)):
+                        result_str = json.dumps(result)
+                    else:
+                        result_str = str(result)
+
+                except Exception as e:
+                    logger.error(f"Tool execution failed: {tc.tool} - {e}")
+                    result_str = json.dumps({"error": str(e)})
+
+                # Add tool result to messages
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": result_str,
+                })
+
+            logger.debug(f"Round {current_round}: {len(response.tool_calls)} tool call(s) executed")
+
+        # Max rounds reached
+        logger.warning(f"Tool loop hit max_rounds limit ({max_rounds})")
+        # Return the last response we got
+        return response.output or {"content": response.content}
+
+    async def _call_agent_with_tools(
+        self,
+        agent: FlatAgent,
+        agent_input: Dict[str, Any],
+        messages: Optional[list],
+        tools: list,
+        tool_choice: str,
+    ):
+        """
+        Call agent with tools parameter.
+
+        This method adapts the agent.call() to pass tools directly
+        to the LLM rather than through MCP.
+        """
+        # Build LLM params with tools
+        # We need to temporarily modify the agent's model config to include tools
+        # or call the LLM directly
+
+        # For now, we'll call the agent and pass tools through messages context
+        # The agent.call supports a messages parameter for continuations
+
+        return await agent.call(
+            messages=messages,
+            _tools=tools,
+            _tool_choice=tool_choice,
+            **agent_input
+        )
 
     async def _save_checkpoint(
         self,
