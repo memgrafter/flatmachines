@@ -1,10 +1,11 @@
 """
-Integration tests for FlatMachine lifecycle helpers.
+Integration tests for FlatMachine lifecycle features.
 
 Tests:
-1. resilient_run()       — auto-retry with checkpoint resume
-2. list_executions()     — load snapshots by execution ID
-3. cleanup_executions()  — remove old checkpoint data
+1. Machine-level on_error   — default error handler for all states
+2. persistence.resume       — auto-retry from checkpoint on unhandled errors
+3. list_executions()        — load snapshots by execution ID
+4. cleanup_executions()     — remove old checkpoint data
 """
 
 import asyncio
@@ -20,7 +21,6 @@ from flatmachines import (
     MemoryBackend,
 )
 from flatmachines.lifecycle import (
-    resilient_run,
     list_executions,
     cleanup_executions,
 )
@@ -49,12 +49,14 @@ class CounterHooks(MachineHooks):
             ):
                 self._crashes += 1
                 raise RuntimeError(f"Simulated crash at count {self.crash_at}")
+        elif action_name == "handle_error":
+            context["error_handled"] = True
         return context
 
 
-def counter_config():
-    """Simple counter machine config with persistence enabled."""
-    return {
+def counter_config(**overrides):
+    """Simple counter machine config. Pass overrides to merge into data."""
+    config = {
         "spec": "flatmachine",
         "spec_version": "0.1.0",
         "data": {
@@ -80,6 +82,8 @@ def counter_config():
             },
         },
     }
+    config["data"].update(overrides)
+    return config
 
 
 @pytest.fixture(autouse=True)
@@ -95,73 +99,274 @@ def cleanup():
 
 
 # ---------------------------------------------------------------------------
-# resilient_run tests
+# Machine-level on_error tests
 # ---------------------------------------------------------------------------
 
-class TestResilientRun:
+class TestMachineLevelOnError:
 
     @pytest.mark.asyncio
-    async def test_success_no_retries(self):
-        result = await resilient_run(
-            config_dict=counter_config(),
-            hooks=CounterHooks(),
-            input={},
+    async def test_machine_on_error_catches_state_without_own_handler(self):
+        """Machine-level on_error handles errors from states with no on_error."""
+        config = counter_config(
+            on_error="error_handler",
+            states={
+                "start": {
+                    "type": "initial",
+                    "transitions": [{"to": "count_up"}],
+                },
+                "count_up": {
+                    "action": "increment",
+                    # No state-level on_error — machine-level catches it
+                    "transitions": [
+                        {"condition": "context.count >= 5", "to": "end"},
+                        {"to": "count_up"},
+                    ],
+                },
+                "error_handler": {
+                    "action": "handle_error",
+                    "transitions": [{"to": "error_end"}],
+                },
+                "error_end": {
+                    "type": "final",
+                    "output": {
+                        "error": "{{ context.last_error }}",
+                        "handled": "{{ context.error_handled }}",
+                    },
+                },
+                "end": {
+                    "type": "final",
+                    "output": {"final_count": "{{ context.count }}"},
+                },
+            },
         )
-        assert int(result["final_count"]) == 5
+
+        hooks = CounterHooks(crash_at=3, crash_count=999)
+        machine = FlatMachine(config_dict=config, hooks=hooks)
+        result = await machine.execute(input={})
+
+        assert "Simulated crash" in result["error"]
+        assert result["handled"] == "True"
 
     @pytest.mark.asyncio
-    async def test_retry_recovers_from_transient_failure(self):
-        # Shared hooks: crash once at count 3, then succeed on retry
-        hooks = CounterHooks(crash_at=3, crash_count=1)
-        result = await resilient_run(
-            config_dict=counter_config(),
-            hooks=hooks,
-            input={},
-            max_retries=2,
-            retry_delay=0.01,
+    async def test_state_on_error_overrides_machine_level(self):
+        """State-level on_error takes precedence over machine-level."""
+        config = counter_config(
+            on_error="machine_handler",
+            states={
+                "start": {
+                    "type": "initial",
+                    "transitions": [{"to": "count_up"}],
+                },
+                "count_up": {
+                    "action": "increment",
+                    "on_error": "state_handler",  # overrides machine-level
+                    "transitions": [
+                        {"condition": "context.count >= 5", "to": "end"},
+                        {"to": "count_up"},
+                    ],
+                },
+                "state_handler": {
+                    "type": "final",
+                    "output": {"handler": "state"},
+                },
+                "machine_handler": {
+                    "type": "final",
+                    "output": {"handler": "machine"},
+                },
+                "end": {
+                    "type": "final",
+                    "output": {"final_count": "{{ context.count }}"},
+                },
+            },
         )
-        assert int(result["final_count"]) == 5
+
+        hooks = CounterHooks(crash_at=3, crash_count=999)
+        machine = FlatMachine(config_dict=config, hooks=hooks)
+        result = await machine.execute(input={})
+
+        assert result["handler"] == "state"
 
     @pytest.mark.asyncio
-    async def test_exhausts_retries_then_raises(self):
-        with pytest.raises(RuntimeError, match="Simulated crash"):
-            await resilient_run(
-                config_dict=counter_config(),
-                # crash_count=10 → always crashes
-                hooks_factory=lambda: CounterHooks(crash_at=3, crash_count=10),
-                input={},
-                max_retries=1,
-                retry_delay=0.01,
-            )
-
-    @pytest.mark.asyncio
-    async def test_hooks_factory_gets_fresh_hooks(self):
-        call_count = 0
-
-        def factory():
-            nonlocal call_count
-            call_count += 1
-            return CounterHooks()
-
-        await resilient_run(
-            config_dict=counter_config(),
-            hooks_factory=factory,
-            input={},
-            max_retries=0,
+    async def test_machine_on_error_granular_format(self):
+        """Machine-level on_error with {ErrorType: state} format."""
+        config = counter_config(
+            on_error={"RuntimeError": "runtime_handler", "default": "generic_handler"},
+            states={
+                "start": {
+                    "type": "initial",
+                    "transitions": [{"to": "count_up"}],
+                },
+                "count_up": {
+                    "action": "increment",
+                    "transitions": [
+                        {"condition": "context.count >= 5", "to": "end"},
+                        {"to": "count_up"},
+                    ],
+                },
+                "runtime_handler": {
+                    "type": "final",
+                    "output": {"handler": "runtime"},
+                },
+                "generic_handler": {
+                    "type": "final",
+                    "output": {"handler": "generic"},
+                },
+                "end": {
+                    "type": "final",
+                    "output": {"final_count": "{{ context.count }}"},
+                },
+            },
         )
-        assert call_count == 1
+
+        hooks = CounterHooks(crash_at=3, crash_count=999)
+        machine = FlatMachine(config_dict=config, hooks=hooks)
+        result = await machine.execute(input={})
+
+        assert result["handler"] == "runtime"
 
     @pytest.mark.asyncio
-    async def test_with_memory_backend(self):
+    async def test_no_machine_on_error_propagates(self):
+        """Without machine-level on_error, exceptions propagate as before."""
         config = counter_config()
-        config["data"]["persistence"]["backend"] = "memory"
-        result = await resilient_run(
-            config_dict=config,
-            hooks=CounterHooks(),
-            input={},
-            backend=MemoryBackend(),
-        )
+        hooks = CounterHooks(crash_at=3, crash_count=999)
+        machine = FlatMachine(config_dict=config, hooks=hooks)
+
+        with pytest.raises(RuntimeError, match="Simulated crash"):
+            await machine.execute(input={})
+
+    @pytest.mark.asyncio
+    async def test_machine_on_error_no_effect_when_no_errors(self):
+        """Machine-level on_error doesn't interfere with normal execution."""
+        config = counter_config(on_error="error_handler")
+        # Add the error_handler state just in case
+        config["data"]["states"]["error_handler"] = {
+            "type": "final",
+            "output": {"handler": "error"},
+        }
+
+        hooks = CounterHooks()  # no crashes
+        machine = FlatMachine(config_dict=config, hooks=hooks)
+        result = await machine.execute(input={})
+
         assert int(result["final_count"]) == 5
+
+
+# ---------------------------------------------------------------------------
+# persistence.resume tests
+# ---------------------------------------------------------------------------
+
+class TestPersistenceResume:
+
+    @pytest.mark.asyncio
+    async def test_resume_retries_from_checkpoint(self):
+        """persistence.resume auto-retries and resumes from checkpoint."""
+        config = counter_config(
+            persistence={
+                "enabled": True,
+                "backend": "local",
+                "resume": {
+                    "max_retries": 2,
+                    "backoffs": [0.01],
+                    "jitter": 0.0,
+                },
+            },
+        )
+
+        # crash_count=1: crash once at count 3, then succeed on retry
+        hooks = CounterHooks(crash_at=3, crash_count=1)
+        machine = FlatMachine(config_dict=config, hooks=hooks)
+        result = await machine.execute(input={})
+
+        assert int(result["final_count"]) == 5
+
+    @pytest.mark.asyncio
+    async def test_resume_exhausts_retries(self):
+        """All retries exhausted raises the last error."""
+        config = counter_config(
+            persistence={
+                "enabled": True,
+                "backend": "local",
+                "resume": {
+                    "max_retries": 1,
+                    "backoffs": [0.01],
+                    "jitter": 0.0,
+                },
+            },
+        )
+
+        # crash_count=10: always crashes
+        hooks = CounterHooks(crash_at=3, crash_count=10)
+        machine = FlatMachine(config_dict=config, hooks=hooks)
+
+        with pytest.raises(RuntimeError, match="Simulated crash"):
+            await machine.execute(input={})
+
+    @pytest.mark.asyncio
+    async def test_resume_disabled_by_default(self):
+        """Without persistence.resume, errors propagate immediately."""
+        config = counter_config()
+        hooks = CounterHooks(crash_at=3, crash_count=1)
+        machine = FlatMachine(config_dict=config, hooks=hooks)
+
+        # Should crash without retry even though crash_count=1
+        with pytest.raises(RuntimeError, match="Simulated crash"):
+            await machine.execute(input={})
+
+    @pytest.mark.asyncio
+    async def test_resume_with_machine_on_error(self):
+        """persistence.resume and machine-level on_error work together.
+
+        on_error handles application errors (routes to recovery state).
+        resume handles infrastructure errors that escape the state graph.
+        """
+        config = counter_config(
+            on_error="error_handler",
+            persistence={
+                "enabled": True,
+                "backend": "local",
+                "resume": {
+                    "max_retries": 2,
+                    "backoffs": [0.01],
+                    "jitter": 0.0,
+                },
+            },
+            states={
+                "start": {
+                    "type": "initial",
+                    "transitions": [{"to": "count_up"}],
+                },
+                "count_up": {
+                    "action": "increment",
+                    # State has NO on_error → machine-level catches it
+                    "transitions": [
+                        {"condition": "context.count >= 5", "to": "end"},
+                        {"to": "count_up"},
+                    ],
+                },
+                "error_handler": {
+                    "action": "handle_error",
+                    "transitions": [{"to": "error_end"}],
+                },
+                "error_end": {
+                    "type": "final",
+                    "output": {
+                        "error": "{{ context.last_error }}",
+                        "handled": "{{ context.error_handled }}",
+                    },
+                },
+                "end": {
+                    "type": "final",
+                    "output": {"final_count": "{{ context.count }}"},
+                },
+            },
+        )
+
+        # Machine-level on_error should catch this — resume not needed
+        hooks = CounterHooks(crash_at=3, crash_count=999)
+        machine = FlatMachine(config_dict=config, hooks=hooks)
+        result = await machine.execute(input={})
+
+        assert result["handled"] == "True"
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +378,6 @@ class TestListExecutions:
     @pytest.mark.asyncio
     async def test_returns_snapshots_for_completed_runs(self):
         backend = LocalFileBackend()
-        # Run two machines
         m1 = FlatMachine(
             config_dict=counter_config(), hooks=CounterHooks(), persistence=backend,
         )
@@ -206,7 +410,6 @@ class TestListExecutions:
     @pytest.mark.asyncio
     async def test_sorted_newest_first(self):
         backend = MemoryBackend()
-        # Manually save two snapshots with known timestamps
         snap_old = MachineSnapshot(
             execution_id="old", machine_name="counter",
             spec_version="0.1.0", current_state="end", context={},
@@ -250,7 +453,6 @@ class TestCleanupExecutions:
         removed = await cleanup_executions(backend, [m.execution_id])
         assert m.execution_id in removed
 
-        # Snapshot should be gone
         snap = await CheckpointManager(backend, m.execution_id).load_latest()
         assert snap is None
 
@@ -262,13 +464,11 @@ class TestCleanupExecutions:
         )
         await m.execute(input={})
 
-        # Just ran — should NOT be removed with a 1-day cutoff
         removed = await cleanup_executions(
             backend, [m.execution_id], older_than=timedelta(days=1),
         )
         assert removed == []
 
-        # Snapshot should still exist
         snap = await CheckpointManager(backend, m.execution_id).load_latest()
         assert snap is not None
 
@@ -301,7 +501,6 @@ class TestCleanupExecutions:
         removed = await cleanup_executions(backend, ["mem-1"])
         assert "mem-1" in removed
 
-        # All keys for this execution should be gone
         remaining = [k for k in backend._store if k.startswith("mem-1/")]
         assert remaining == []
 

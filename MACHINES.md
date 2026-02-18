@@ -67,6 +67,22 @@ Resolution: default → profile → overrides → override
 **Loops**: Transition `to: same_state`. Machine has `max_steps` safety.
 
 **Errors**: `on_error: state` or per-type. Context gets `last_error`, `last_error_type`.
+Machine-level `on_error` acts as default for states without their own:
+```yaml
+data:
+  on_error: error_handler  # catches errors from any state without on_error
+```
+
+**Auto-resume**: `persistence.resume` retries the execution loop from the last checkpoint on unhandled errors:
+```yaml
+persistence:
+  enabled: true
+  backend: local
+  resume:
+    max_retries: 3
+    backoffs: [2, 8, 16]
+    jitter: 0.1
+```
 
 **Parallel machines**:
 ```yaml

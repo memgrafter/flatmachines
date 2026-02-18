@@ -11,6 +11,7 @@ import asyncio
 import importlib
 import json
 import os
+import random
 import re
 from typing import Any, Dict, Optional
 
@@ -245,6 +246,12 @@ class FlatMachine:
         default_events = ['machine_start', 'state_enter', 'execute', 'state_exit', 'machine_end']
         self.checkpoint_events = set(p_config.get('checkpoint_on', default_events))
 
+        # Auto-resume config
+        resume_config = p_config.get('resume', {})
+        self._resume_max_retries = int(resume_config.get('max_retries', 0))
+        self._resume_backoffs = resume_config.get('backoffs', [1.0])
+        self._resume_jitter = float(resume_config.get('jitter', 0.0))
+
 
     def _load_config(
         self,
@@ -308,6 +315,7 @@ class FlatMachine:
         self.machine_refs = self.data.get('machines', {})
         self.states = self.data.get('states', {})
         self.settings = self.data.get('settings', {})
+        self._machine_on_error = self.data.get('on_error')
 
         # Find initial and final states
         self._initial_state = None
@@ -534,21 +542,30 @@ class FlatMachine:
         """
         Get recovery state from on_error config.
         
-        Supports two formats:
+        Resolution order:
+        1. State-level on_error (from state_config)
+        2. Machine-level on_error (from data.on_error)
+        
+        Supports two formats at each level:
         - Simple: on_error: "error_state"
         - Granular: on_error: {default: "error_state", RateLimitError: "retry_state"}
         """
-        on_error = state_config.get('on_error')
-        if not on_error:
-            return None
-        
-        # Simple format: on_error: "state_name"
-        if isinstance(on_error, str):
-            return on_error
-        
-        # Granular format: on_error: {error_type: state_name, default: fallback}
-        error_type = type(error).__name__
-        return on_error.get(error_type) or on_error.get('default')
+        # Try state-level first, then machine-level
+        for on_error in (state_config.get('on_error'), self._machine_on_error):
+            if not on_error:
+                continue
+
+            # Simple format: on_error: "state_name"
+            if isinstance(on_error, str):
+                return on_error
+
+            # Granular format: on_error: {error_type: state_name, default: fallback}
+            error_type = type(error).__name__
+            result = on_error.get(error_type) or on_error.get('default')
+            if result:
+                return result
+
+        return None
 
     def _find_next_state(
         self,
@@ -1126,6 +1143,124 @@ class FlatMachine:
         manager = CheckpointManager(self.persistence, self.execution_id)
         await manager.save_checkpoint(snapshot)
 
+    async def _execute_inner(
+        self,
+        input: Optional[Dict[str, Any]] = None,
+        max_steps: int = 1000,
+        max_agent_calls: Optional[int] = None,
+        resume_from: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Core execution loop. Called by execute(), which handles auto-resume retry."""
+        context = {}
+        current_state = None
+        step = 0
+        final_output = {}
+        hit_agent_limit = False
+        manager = CheckpointManager(self.persistence, self.execution_id)
+
+        if resume_from:
+            snapshot = await manager.load_latest()
+            if snapshot:
+                context = snapshot.context
+                step = snapshot.step
+                current_state = snapshot.current_state
+                # Restore execution metrics
+                self.total_api_calls = snapshot.total_api_calls or 0
+                self.total_cost = snapshot.total_cost or 0.0
+                # Restore pending launches (outbox pattern)
+                if snapshot.pending_launches:
+                    self._pending_launches = [
+                        LaunchIntent.from_dict(intent)
+                        for intent in snapshot.pending_launches
+                    ]
+                    await self._resume_pending_launches()
+                if snapshot.event == 'machine_end':
+                    logger.info("Execution already completed.")
+                    return snapshot.output or {}
+                logger.info(f"Restored from snapshot: step={step}, state={current_state}")
+            else:
+                logger.warning(f"No snapshot found for {resume_from}, starting fresh.")
+
+        if not current_state:
+            current_state = self._initial_state
+            input = input or {}
+            variables = {"input": input}
+            context = self._render_dict(self.initial_context, variables)
+
+
+            await self._save_checkpoint('machine_start', 'start', step, context)
+            context = await self._run_hook('on_machine_start', context)
+
+        logger.info(f"Starting execution loop at: {current_state}")
+
+        while current_state and step < max_steps:
+            if max_agent_calls is not None and self.total_api_calls >= max_agent_calls:
+                hit_agent_limit = True
+                break
+            step += 1
+            is_final = current_state in self._final_states
+
+            await self._save_checkpoint('state_enter', current_state, step, context)
+            context = await self._run_hook('on_state_enter', current_state, context)
+
+            await self._save_checkpoint('execute', current_state, step, context)
+
+            try:
+                context, output = await self._execute_state(current_state, context)
+                if output and is_final:
+                    final_output = output
+            except Exception as e:
+                context['last_error'] = str(e)
+                context['last_error_type'] = type(e).__name__
+                
+                state_config = self.states.get(current_state, {})
+                recovery_state = self._get_error_recovery_state(state_config, e)
+                
+                if not recovery_state:
+                     recovery_state = await self._run_hook('on_error', current_state, e, context)
+                
+                if recovery_state:
+                    logger.warning(f"Error in {current_state}, transitioning to {recovery_state}: {e}")
+                    current_state = recovery_state
+                    continue
+                raise
+
+            await self._save_checkpoint(
+                'state_exit', 
+                current_state, 
+                step, 
+                context, 
+                output=output if is_final else None
+            )
+
+            output = await self._run_hook('on_state_exit', current_state, context, output)
+
+            if max_agent_calls is not None and self.total_api_calls >= max_agent_calls:
+                hit_agent_limit = True
+                break
+
+            if is_final:
+                logger.info(f"Reached final state: {current_state}")
+                break
+
+            next_state = self._find_next_state(current_state, context)
+            
+            if next_state:
+                next_state = await self._run_hook('on_transition', current_state, next_state, context)
+
+            logger.debug(f"Transition: {current_state} -> {next_state}")
+            current_state = next_state
+
+        if step >= max_steps:
+            logger.warning(f"Machine hit max_steps limit ({max_steps})")
+        if hit_agent_limit and max_agent_calls is not None:
+            logger.warning(f"Machine hit max_agent_calls limit ({max_agent_calls})")
+
+        await self._save_checkpoint('machine_end', 'end', step, context, output=final_output)
+        final_output = await self._run_hook('on_machine_end', context, final_output)
+
+        return final_output
+
     async def execute(
         self,
         input: Optional[Dict[str, Any]] = None,
@@ -1133,7 +1268,12 @@ class FlatMachine:
         max_agent_calls: Optional[int] = None,
         resume_from: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Execute the machine."""
+        """Execute the machine.
+
+        If ``persistence.resume`` is configured, unhandled exceptions trigger
+        automatic retry from the latest checkpoint. Otherwise exceptions
+        propagate directly to the caller.
+        """
         if resume_from:
             self.execution_id = resume_from
             logger.info(f"Resuming execution: {self.execution_id}")
@@ -1142,115 +1282,45 @@ class FlatMachine:
             raise RuntimeError(f"Could not acquire lock for execution {self.execution_id}")
 
         try:
-            context = {}
-            current_state = None
-            step = 0
-            final_output = {}
-            hit_agent_limit = False
-            manager = CheckpointManager(self.persistence, self.execution_id)
+            last_error: Optional[Exception] = None
 
-            if resume_from:
-                snapshot = await manager.load_latest()
-                if snapshot:
-                    context = snapshot.context
-                    step = snapshot.step
-                    current_state = snapshot.current_state
-                    # Restore execution metrics
-                    self.total_api_calls = snapshot.total_api_calls or 0
-                    self.total_cost = snapshot.total_cost or 0.0
-                    # Restore pending launches (outbox pattern)
-                    if snapshot.pending_launches:
-                        self._pending_launches = [
-                            LaunchIntent.from_dict(intent)
-                            for intent in snapshot.pending_launches
-                        ]
-                        await self._resume_pending_launches()
-                    if snapshot.event == 'machine_end':
-                        logger.info("Execution already completed.")
-                        return snapshot.output or {}
-                    logger.info(f"Restored from snapshot: step={step}, state={current_state}")
-                else:
-                    logger.warning(f"No snapshot found for {resume_from}, starting fresh.")
-
-            if not current_state:
-                current_state = self._initial_state
-                input = input or {}
-                variables = {"input": input}
-                context = self._render_dict(self.initial_context, variables)
-
-
-                await self._save_checkpoint('machine_start', 'start', step, context)
-                context = await self._run_hook('on_machine_start', context)
-
-            logger.info(f"Starting execution loop at: {current_state}")
-
-            while current_state and step < max_steps:
-                if max_agent_calls is not None and self.total_api_calls >= max_agent_calls:
-                    hit_agent_limit = True
-                    break
-                step += 1
-                is_final = current_state in self._final_states
-
-                await self._save_checkpoint('state_enter', current_state, step, context)
-                context = await self._run_hook('on_state_enter', current_state, context)
-
-                await self._save_checkpoint('execute', current_state, step, context)
-
+            for attempt in range(1 + self._resume_max_retries):
                 try:
-                    context, output = await self._execute_state(current_state, context)
-                    if output and is_final:
-                        final_output = output
-                except Exception as e:
-                    context['last_error'] = str(e)
-                    context['last_error_type'] = type(e).__name__
-                    
-                    state_config = self.states.get(current_state, {})
-                    recovery_state = self._get_error_recovery_state(state_config, e)
-                    
-                    if not recovery_state:
-                         recovery_state = await self._run_hook('on_error', current_state, e, context)
-                    
-                    if recovery_state:
-                        logger.warning(f"Error in {current_state}, transitioning to {recovery_state}: {e}")
-                        current_state = recovery_state
-                        continue
-                    raise
+                    # First attempt uses caller's resume_from; retries always
+                    # resume from our own execution_id (the last checkpoint).
+                    effective_resume = resume_from if attempt == 0 else self.execution_id
+                    return await self._execute_inner(
+                        input=input,
+                        max_steps=max_steps,
+                        max_agent_calls=max_agent_calls,
+                        resume_from=effective_resume,
+                    )
+                except Exception as exc:
+                    last_error = exc
+                    if attempt >= self._resume_max_retries:
+                        raise
 
-                await self._save_checkpoint(
-                    'state_exit', 
-                    current_state, 
-                    step, 
-                    context, 
-                    output=output if is_final else None
-                )
+                    backoffs = self._resume_backoffs
+                    delay = backoffs[min(attempt, len(backoffs) - 1)]
+                    if self._resume_jitter > 0:
+                        delay += random.uniform(0, self._resume_jitter)
 
-                output = await self._run_hook('on_state_exit', current_state, context, output)
+                    logger.warning(
+                        "Execution %s attempt %d/%d failed, resuming in %.1fs: %s",
+                        self.execution_id, attempt + 1,
+                        1 + self._resume_max_retries, delay, exc,
+                    )
 
-                if max_agent_calls is not None and self.total_api_calls >= max_agent_calls:
-                    hit_agent_limit = True
-                    break
+                    # Release and re-acquire lock around the delay so we don't
+                    # hold it while sleeping.
+                    await self.lock.release(self.execution_id)
+                    await asyncio.sleep(delay)
+                    if not await self.lock.acquire(self.execution_id):
+                        raise RuntimeError(
+                            f"Could not re-acquire lock for execution {self.execution_id}"
+                        ) from exc
 
-                if is_final:
-                    logger.info(f"Reached final state: {current_state}")
-                    break
-
-                next_state = self._find_next_state(current_state, context)
-                
-                if next_state:
-                    next_state = await self._run_hook('on_transition', current_state, next_state, context)
-
-                logger.debug(f"Transition: {current_state} -> {next_state}")
-                current_state = next_state
-
-            if step >= max_steps:
-                logger.warning(f"Machine hit max_steps limit ({max_steps})")
-            if hit_agent_limit and max_agent_calls is not None:
-                logger.warning(f"Machine hit max_agent_calls limit ({max_agent_calls})")
-
-            await self._save_checkpoint('machine_end', 'end', step, context, output=final_output)
-            final_output = await self._run_hook('on_machine_end', context, final_output)
-
-            return final_output
+            raise last_error  # type: ignore[misc]
 
         finally:
             # Wait for any launched peer machines to complete

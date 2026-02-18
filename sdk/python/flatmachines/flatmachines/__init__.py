@@ -71,7 +71,7 @@ from .distributed import (
     create_work_backend,
 )
 from .distributed_hooks import DistributedWorkerHooks
-from .lifecycle import resilient_run, list_executions, cleanup_executions
+from .lifecycle import list_executions, cleanup_executions
 
 __all__ = [
     "__version__",
@@ -139,7 +139,6 @@ __all__ = [
     "SubprocessInvoker",
     "launch_machine",
     "DistributedWorkerHooks",
-    "resilient_run",
     "list_executions",
     "cleanup_executions",
 ]

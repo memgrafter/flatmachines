@@ -30,6 +30,7 @@
  * machines           - Map of machine name to config file path or inline config
  * states             - Map of state name to state definition
  * settings           - Optional settings (hooks, etc.)
+ * on_error           - Machine-level default error handler for all states
  *
  * STATE FIELDS:
  * -------------
@@ -208,6 +209,10 @@
  * MachineSnapshot    - Wire format for checkpoints (execution_id, state, context, step)
  * PersistenceConfig  - Backend config: {enabled: true, backend: "local"|"memory"}
  * checkpoint_on      - Events to checkpoint: ["machine_start", "execute", "machine_end"]
+ * resume             - Auto-resume config for unhandled execution-loop errors
+ *   max_retries      - Retry attempts after initial failure
+ *   backoffs         - Seconds between auto-resume attempts
+ *   jitter           - Random delay factor added to backoffs
  *
  * MACHINE LAUNCHING:
  * ------------------
@@ -275,6 +280,7 @@ export interface MachineData {
   settings?: MachineSettings;
   persistence?: PersistenceConfig;
   hooks?: HooksConfig;
+  on_error?: string | Record<string, string>;
 }
 
 export interface AgentRefConfig {
@@ -394,7 +400,14 @@ export interface PersistenceConfig {
   enabled: boolean;
   backend: "local" | "redis" | "memory" | string;
   checkpoint_on?: string[];
+  resume?: ResumeConfig;
   [key: string]: any;
+}
+
+export interface ResumeConfig {
+  max_retries: number;
+  backoffs?: number[];
+  jitter?: number;
 }
 
 export interface MachineReference {
