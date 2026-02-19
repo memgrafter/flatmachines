@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -140,3 +141,75 @@ async def test_max_iterations_terminal_state() -> None:
     assert result["reason"] == "max_iterations"
     assert result["iteration"] == 2
     assert "still working" in str(result["answer"])
+
+
+@pytest.mark.asyncio
+async def test_inspect_mode_writes_trace_events(tmp_path: Path) -> None:
+    def script(input_data: Dict[str, Any], context: Dict[str, Any]) -> str:
+        return "```repl\nFinal = 'done'\nprint('ok')\n```"
+
+    payload = _base_input()
+    payload.update(
+        {
+            "inspect": True,
+            "inspect_level": "summary",
+            "trace_dir": str(tmp_path),
+            "root_run_id": "inspect-root-1",
+            "print_iterations": False,
+            "experiment": "int-test",
+            "tags": {"suite": "integration"},
+        }
+    )
+
+    machine = _build_machine(script)
+    result = await machine.execute(input=payload, max_steps=80)
+
+    assert result["reason"] == "final"
+
+    events_file = tmp_path / "inspect-root-1" / "events.jsonl"
+    assert events_file.exists()
+
+    events = [json.loads(line) for line in events_file.read_text().splitlines() if line.strip()]
+    event_names = {e["event"] for e in events}
+
+    assert "run_start" in event_names
+    assert "iteration_start" in event_names
+    assert "llm_response" in event_names
+    assert "code_blocks_extracted" in event_names
+    assert "repl_exec" in event_names
+    assert "final_detected" in event_names
+    assert "run_end" in event_names
+
+
+@pytest.mark.asyncio
+async def test_inspect_mode_records_subcall_start_and_end(tmp_path: Path) -> None:
+    def script(input_data: Dict[str, Any], context: Dict[str, Any]) -> str:
+        return "```repl\nsub = llm_query('nested request')\nFinal = sub\n```"
+
+    payload = _base_input()
+    payload.update(
+        {
+            "inspect": True,
+            "inspect_level": "summary",
+            "trace_dir": str(tmp_path),
+            "root_run_id": "inspect-root-2",
+            "machine_config_path": "/tmp/does-not-exist-machine.yml",
+        }
+    )
+
+    machine = _build_machine(script)
+    result = await machine.execute(input=payload, max_steps=80)
+
+    assert result["reason"] == "final"
+    assert result["answer"] == "SUBCALL_CONFIG_NOT_FOUND"
+
+    events_file = tmp_path / "inspect-root-2" / "events.jsonl"
+    events = [json.loads(line) for line in events_file.read_text().splitlines() if line.strip()]
+
+    starts = [e for e in events if e.get("event") == "subcall_start"]
+    ends = [e for e in events if e.get("event") == "subcall_end"]
+
+    assert len(starts) == 1
+    assert len(ends) == 1
+    assert starts[0]["call_id"] == ends[0]["call_id"]
+    assert ends[0]["status"] == "config_not_found"

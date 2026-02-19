@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from pathlib import Path
 from typing import Any, Protocol
@@ -11,8 +13,10 @@ from flatmachines import FlatMachine, MachineHooks, get_logger
 
 try:
     from .repl import REPLRegistry, extract_repl_blocks, truncate_text
+    from .trace import TraceRecorder, normalize_inspect_level
 except ImportError:  # pragma: no cover
     from repl import REPLRegistry, extract_repl_blocks, truncate_text
+    from trace import TraceRecorder, normalize_inspect_level
 
 logger = get_logger(__name__)
 
@@ -52,29 +56,95 @@ class RecursionInvoker:
             ivalue = min_value
         return ivalue
 
+    @staticmethod
+    def _as_bool(value: Any, default: bool = False) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value != 0
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+        return default
+
+    @staticmethod
+    def _preview(value: Any, inspect_level: str, max_chars: int = 240) -> str:
+        if value is None:
+            return ""
+        text = str(value)
+        if inspect_level == "full":
+            return text
+        return truncate_text(text, max_chars)
+
+    @staticmethod
+    def _trace_recorder(parent_context: dict[str, Any]) -> TraceRecorder | None:
+        inspect_enabled = RecursionInvoker._as_bool(parent_context.get("inspect"), False)
+        if not inspect_enabled:
+            return None
+
+        run_id = parent_context.get("root_run_id")
+        if not run_id:
+            return None
+
+        trace_dir = parent_context.get("trace_dir") or "./traces"
+        return TraceRecorder(trace_dir=trace_dir, run_id=str(run_id))
+
     def invoke(self, *, prompt: Any, parent_context: dict[str, Any], model: Any = None) -> str:
         sub_prompt = "" if prompt is None else str(prompt)
 
-        machine_config_path = parent_context.get("machine_config_path")
-        if not machine_config_path:
-            return "SUBCALL_NOT_CONFIGURED"
-
-        if not Path(str(machine_config_path)).exists():
-            return "SUBCALL_CONFIG_NOT_FOUND"
+        inspect_level = normalize_inspect_level(str(parent_context.get("inspect_level") or "summary"))
+        trace_recorder = self._trace_recorder(parent_context)
 
         current_depth = self._as_int(parent_context.get("current_depth"), 0, min_value=0)
+        next_depth = current_depth + 1
         max_depth = self._as_int(parent_context.get("max_depth"), 5, min_value=1)
-        if current_depth + 1 > max_depth:
-            return "SUBCALL_DEPTH_LIMIT"
-
         timeout_seconds = self._as_int(parent_context.get("timeout_seconds"), 300, min_value=1)
         max_iterations = self._as_int(parent_context.get("max_iterations"), 20, min_value=1)
         max_steps = self._as_int(parent_context.get("max_steps"), 80, min_value=1)
 
+        call_id = str(uuid.uuid4())
+        parent_call_id = parent_context.get("parent_call_id")
+
+        start_time = time.perf_counter()
+
+        def emit(event_type: str, **fields: Any) -> None:
+            if trace_recorder is None:
+                return
+            trace_recorder.append_event(
+                event_type,
+                depth=current_depth,
+                next_depth=next_depth,
+                call_id=call_id,
+                parent_call_id=parent_call_id,
+                **fields,
+            )
+
+        emit(
+            "subcall_start",
+            prompt_length=len(sub_prompt),
+            prompt_preview=self._preview(sub_prompt, inspect_level),
+            model_override=(str(model) if model is not None else None),
+        )
+
+        machine_config_path = parent_context.get("machine_config_path")
+        if not machine_config_path:
+            duration_ms = (time.perf_counter() - start_time) * 1000.0
+            emit("subcall_end", status="not_configured", duration_ms=duration_ms)
+            return "SUBCALL_NOT_CONFIGURED"
+
+        if not Path(str(machine_config_path)).exists():
+            duration_ms = (time.perf_counter() - start_time) * 1000.0
+            emit("subcall_end", status="config_not_found", duration_ms=duration_ms)
+            return "SUBCALL_CONFIG_NOT_FOUND"
+
+        if next_depth > max_depth:
+            duration_ms = (time.perf_counter() - start_time) * 1000.0
+            emit("subcall_end", status="depth_limit", duration_ms=duration_ms)
+            return "SUBCALL_DEPTH_LIMIT"
+
         sub_input: dict[str, Any] = {
             "task": "Answer the request encoded in REPL variable context. Set Final when complete.",
             "long_context": sub_prompt,
-            "current_depth": current_depth + 1,
+            "current_depth": next_depth,
             "max_depth": max_depth,
             "timeout_seconds": timeout_seconds,
             "max_iterations": max_iterations,
@@ -82,6 +152,14 @@ class RecursionInvoker:
             "machine_config_path": str(machine_config_path),
             "sub_model_profile": parent_context.get("sub_model_profile"),
             "model_override": parent_context.get("model_override"),
+            "inspect": self._as_bool(parent_context.get("inspect"), False),
+            "inspect_level": inspect_level,
+            "trace_dir": parent_context.get("trace_dir") or "./traces",
+            "root_run_id": parent_context.get("root_run_id"),
+            "parent_call_id": call_id,
+            "print_iterations": self._as_bool(parent_context.get("print_iterations"), False),
+            "experiment": parent_context.get("experiment"),
+            "tags": parent_context.get("tags"),
         }
 
         if model is not None:
@@ -98,12 +176,32 @@ class RecursionInvoker:
         try:
             with ThreadPoolExecutor(max_workers=1) as pool:
                 future = pool.submit(_run_submachine)
-                return future.result(timeout=timeout_seconds)
+                answer = future.result(timeout=timeout_seconds)
+
+            duration_ms = (time.perf_counter() - start_time) * 1000.0
+            emit(
+                "subcall_end",
+                status="success",
+                duration_ms=duration_ms,
+                answer_length=len(answer),
+                answer_preview=self._preview(answer, inspect_level),
+            )
+            return answer
         except FuturesTimeoutError:
-            logger.warning("Subcall timed out at depth=%s", current_depth + 1)
+            duration_ms = (time.perf_counter() - start_time) * 1000.0
+            logger.warning("Subcall timed out at depth=%s", next_depth)
+            emit("subcall_end", status="timeout", duration_ms=duration_ms)
             return "SUBCALL_TIMEOUT"
         except Exception as exc:
-            logger.warning("Subcall error at depth=%s: %s", current_depth + 1, exc)
+            duration_ms = (time.perf_counter() - start_time) * 1000.0
+            logger.warning("Subcall error at depth=%s: %s", next_depth, exc)
+            emit(
+                "subcall_end",
+                status="error",
+                duration_ms=duration_ms,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
             return f"SUBCALL_ERROR: {type(exc).__name__}: {exc}"
 
 
@@ -129,7 +227,30 @@ class RLMV2Hooks(MachineHooks):
             return context
         return handler(context)
 
+    def on_error(self, state_name: str, error: Exception, context: dict[str, Any]) -> str | None:
+        self._trace_event(
+            context,
+            "error",
+            state=state_name,
+            depth=self._coerce_int(context.get("current_depth"), 0, min_value=0),
+            iteration=self._coerce_int(context.get("iteration"), 0, min_value=0),
+            error_type=type(error).__name__,
+            error_message=str(error),
+        )
+        return None
+
     def on_machine_end(self, context: dict[str, Any], final_output: dict[str, Any]) -> dict[str, Any]:
+        self._trace_event(
+            context,
+            "run_end",
+            depth=self._coerce_int(context.get("current_depth"), 0, min_value=0),
+            iteration=self._coerce_int(context.get("iteration"), 0, min_value=0),
+            reason=final_output.get("reason"),
+            answer_preview=self._preview(context, final_output.get("answer"), 400),
+            answer_length=len(str(final_output.get("answer"))) if final_output.get("answer") is not None else 0,
+            error=final_output.get("error"),
+        )
+
         REPLRegistry.delete_session(context.get("session_id"))
         return final_output
 
@@ -148,6 +269,33 @@ class RLMV2Hooks(MachineHooks):
         if min_value is not None and out < min_value:
             out = min_value
         return out
+
+    @staticmethod
+    def _coerce_bool(value: Any, default: bool = False) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value != 0
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"1", "true", "yes", "y", "on"}:
+                return True
+            if lowered in {"0", "false", "no", "n", "off"}:
+                return False
+        return default
+
+    @staticmethod
+    def _normalize_tags(value: Any) -> dict[str, str]:
+        if isinstance(value, dict):
+            return {str(k): str(v) for k, v in value.items()}
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, dict):
+                    return {str(k): str(v) for k, v in parsed.items()}
+            except json.JSONDecodeError:
+                return {}
+        return {}
 
     def _normalize_context(self, context: dict[str, Any]) -> None:
         context["task"] = "" if context.get("task") is None else str(context.get("task"))
@@ -179,6 +327,50 @@ class RLMV2Hooks(MachineHooks):
 
         context["iteration"] = self._coerce_int(context.get("iteration"), 0, min_value=0)
 
+        context["inspect"] = self._coerce_bool(context.get("inspect"), False)
+        context["inspect_level"] = normalize_inspect_level(str(context.get("inspect_level") or "summary"))
+        context["trace_dir"] = str(context.get("trace_dir") or "./traces")
+        context["print_iterations"] = self._coerce_bool(context.get("print_iterations"), False)
+
+        if context["inspect"] and not context.get("root_run_id"):
+            context["root_run_id"] = str(uuid.uuid4())
+
+        if context.get("parent_call_id") is not None:
+            context["parent_call_id"] = str(context.get("parent_call_id"))
+
+        context["experiment"] = None if context.get("experiment") is None else str(context.get("experiment"))
+        context["tags"] = self._normalize_tags(context.get("tags"))
+
+    def _trace_recorder(self, context: dict[str, Any]) -> TraceRecorder | None:
+        if not self._coerce_bool(context.get("inspect"), False):
+            return None
+
+        run_id = context.get("root_run_id")
+        if not run_id:
+            return None
+
+        trace_dir = context.get("trace_dir") or "./traces"
+        return TraceRecorder(trace_dir=trace_dir, run_id=str(run_id))
+
+    def _preview(self, context: dict[str, Any], value: Any, max_chars: int = 240) -> str:
+        if value is None:
+            return ""
+
+        text = str(value)
+        if context.get("inspect_level") == "full":
+            return text
+        return truncate_text(text, max_chars)
+
+    def _trace_event(self, context: dict[str, Any], event_type: str, **fields: Any) -> None:
+        recorder = self._trace_recorder(context)
+        if recorder is None:
+            return
+
+        try:
+            recorder.append_event(event_type, **fields)
+        except Exception as exc:  # pragma: no cover - trace errors must never break execution
+            logger.warning("Failed to write trace event %s: %s", event_type, exc)
+
     def _init_session(self, context: dict[str, Any]) -> dict[str, Any]:
         self._normalize_context(context)
 
@@ -202,6 +394,22 @@ class RLMV2Hooks(MachineHooks):
         context["context_length"] = len(long_context)
         context["context_prefix"] = truncate_text(long_context, 240)
 
+        self._trace_event(
+            context,
+            "run_start",
+            depth=context.get("current_depth"),
+            parent_call_id=context.get("parent_call_id"),
+            task_preview=self._preview(context, context.get("task"), 300),
+            task_length=len(context.get("task", "")),
+            context_length=context.get("context_length", 0),
+            context_prefix=context.get("context_prefix", ""),
+            max_iterations=context.get("max_iterations"),
+            max_depth=context.get("max_depth"),
+            timeout_seconds=context.get("timeout_seconds"),
+            experiment=context.get("experiment"),
+            tags=context.get("tags"),
+        )
+
         return context
 
     def _require_session(self, context: dict[str, Any]):
@@ -219,15 +427,43 @@ class RLMV2Hooks(MachineHooks):
         if not isinstance(raw_response, str):
             raw_response = str(raw_response)
 
+        next_iteration = self._coerce_int(context.get("iteration"), 0, min_value=0) + 1
+        self._trace_event(
+            context,
+            "iteration_start",
+            depth=context.get("current_depth"),
+            iteration=next_iteration,
+            max_iterations=context.get("max_iterations"),
+        )
+
+        self._trace_event(
+            context,
+            "llm_response",
+            depth=context.get("current_depth"),
+            iteration=next_iteration,
+            response_length=len(raw_response),
+            response_preview=self._preview(context, raw_response, 400),
+        )
+
         code_blocks = extract_repl_blocks(raw_response)
+        self._trace_event(
+            context,
+            "code_blocks_extracted",
+            depth=context.get("current_depth"),
+            iteration=next_iteration,
+            block_count=len(code_blocks),
+        )
 
         all_stdout: list[str] = []
         all_stderr: list[str] = []
         changed_vars: set[str] = set()
         had_error = False
 
-        for block in code_blocks:
+        for idx, block in enumerate(code_blocks):
+            start = time.perf_counter()
             result = session.execute(block)
+            duration_ms = (time.perf_counter() - start) * 1000.0
+
             if result.stdout:
                 all_stdout.append(result.stdout)
             if result.stderr:
@@ -235,14 +471,38 @@ class RLMV2Hooks(MachineHooks):
             changed_vars.update(result.changed_vars)
             had_error = had_error or result.had_error
 
+            self._trace_event(
+                context,
+                "repl_exec",
+                depth=context.get("current_depth"),
+                iteration=next_iteration,
+                block_index=idx,
+                block_count=len(code_blocks),
+                duration_ms=duration_ms,
+                code_preview=self._preview(context, block, 320),
+                stdout_length=len(result.stdout),
+                stdout_preview=self._preview(context, result.stdout, 320),
+                stderr_length=len(result.stderr),
+                stderr_preview=self._preview(context, result.stderr, 240),
+                had_error=result.had_error,
+                changed_vars=result.changed_vars,
+            )
+
         if not code_blocks:
-            # No REPL action provided in this turn; treat as no-op.
             had_error = False
+            self._trace_event(
+                context,
+                "repl_exec",
+                depth=context.get("current_depth"),
+                iteration=next_iteration,
+                block_count=0,
+                no_code_blocks=True,
+            )
 
         stdout_text = "\n".join(s.strip("\n") for s in all_stdout if s)
         stderr_text = "\n".join(s.strip("\n") for s in all_stderr if s)
 
-        context["iteration"] = self._coerce_int(context.get("iteration"), 0, min_value=0) + 1
+        context["iteration"] = next_iteration
 
         code_prefix_source = "\n\n".join(code_blocks) if code_blocks else raw_response
         meta_entry = {
@@ -267,6 +527,17 @@ class RLMV2Hooks(MachineHooks):
 
         self._update_best_partial(context, session, stdout_text)
 
+        final_exists = session.has_variable("Final") and session.get_variable("Final") is not None
+        if context.get("print_iterations"):
+            print(
+                "[rlm_v2] "
+                f"depth={context.get('current_depth')} "
+                f"iter={context.get('iteration')}/{context.get('max_iterations')} "
+                f"blocks={len(code_blocks)} "
+                f"error={had_error} "
+                f"final={final_exists}"
+            )
+
         return context
 
     @staticmethod
@@ -289,6 +560,21 @@ class RLMV2Hooks(MachineHooks):
         if is_final:
             context["final_answer"] = final_value
             context["best_partial"] = truncate_text(final_value, 400)
+            self._trace_event(
+                context,
+                "final_detected",
+                depth=context.get("current_depth"),
+                iteration=context.get("iteration"),
+                final_length=len(str(final_value)),
+                final_preview=self._preview(context, final_value, 400),
+            )
+            if context.get("print_iterations"):
+                print(
+                    "[rlm_v2] "
+                    f"depth={context.get('current_depth')} "
+                    f"iter={context.get('iteration')} "
+                    "final=true"
+                )
 
         return context
 

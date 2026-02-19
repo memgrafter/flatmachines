@@ -5,6 +5,9 @@
 #   ./run.sh --demo
 #   ./run.sh --local --demo
 #   ./run.sh --file doc.txt --task "Question"
+#
+# By default this runner enables maximum information mode:
+#   --inspect --inspect-level full --print-iterations --trace-dir ./traces
 
 set -e
 
@@ -77,8 +80,34 @@ fi
 echo "  - Installing rlm_v2 package..."
 uv pip install --python "$VENV_PATH/bin/python" -e "$SCRIPT_DIR"
 
-if [ ${#PASSTHROUGH_ARGS[@]} -eq 0 ]; then
-    "$VENV_PATH/bin/python" -m rlm_v2.main --demo
+# Maximum information mode by default (unless caller already specifies these flags)
+USER_ARGS_COUNT=${#PASSTHROUGH_ARGS[@]}
+
+has_arg() {
+    local needle="$1"
+    for arg in "${PASSTHROUGH_ARGS[@]}"; do
+        if [[ "$arg" == "$needle" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+if ! has_arg "--inspect"; then
+    PASSTHROUGH_ARGS+=("--inspect")
+fi
+if ! has_arg "--inspect-level"; then
+    PASSTHROUGH_ARGS+=("--inspect-level" "full")
+fi
+if ! has_arg "--print-iterations"; then
+    PASSTHROUGH_ARGS+=("--print-iterations")
+fi
+if ! has_arg "--trace-dir"; then
+    PASSTHROUGH_ARGS+=("--trace-dir" "./traces")
+fi
+
+if [ "$USER_ARGS_COUNT" -eq 0 ]; then
+    "$VENV_PATH/bin/python" -m rlm_v2.main --demo "${PASSTHROUGH_ARGS[@]}"
 else
     "$VENV_PATH/bin/python" -m rlm_v2.main "${PASSTHROUGH_ARGS[@]}"
 fi

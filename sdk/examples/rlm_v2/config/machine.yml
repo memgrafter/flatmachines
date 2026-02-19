@@ -3,7 +3,6 @@ spec_version: "1.0.0"
 
 data:
   name: rlm-v2
-  profiles: ./profiles.yml
 
   persistence:
     enabled: false
@@ -23,6 +22,15 @@ data:
     sub_model_profile: input.sub_model_profile
     model_override: input.model_override
 
+    inspect: input.inspect
+    inspect_level: input.inspect_level
+    trace_dir: input.trace_dir
+    root_run_id: input.root_run_id
+    parent_call_id: input.parent_call_id
+    print_iterations: input.print_iterations
+    experiment: input.experiment
+    tags: input.tags
+
     session_id: null
     context_length: 0
     context_prefix: ""
@@ -41,12 +49,11 @@ data:
   agents:
     coder: ./coder.yml
 
-  on_error: error_done
-
   states:
     start:
       type: initial
       action: init_session
+      on_error: error_done
       transitions:
         - to: generate_code
 
