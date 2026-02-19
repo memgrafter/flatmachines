@@ -30,44 +30,7 @@ def truncate_text(value: Any, max_chars: int) -> str:
     return text[:max_chars] + f"... [+{len(text) - max_chars} chars]"
 
 
-_SAFE_BUILTINS: dict[str, Any] = {
-    "print": print,
-    "len": len,
-    "str": str,
-    "int": int,
-    "float": float,
-    "bool": bool,
-    "list": list,
-    "dict": dict,
-    "set": set,
-    "tuple": tuple,
-    "range": range,
-    "enumerate": enumerate,
-    "zip": zip,
-    "map": map,
-    "filter": filter,
-    "sorted": sorted,
-    "sum": sum,
-    "min": min,
-    "max": max,
-    "abs": abs,
-    "round": round,
-    "any": any,
-    "all": all,
-    "repr": repr,
-    "isinstance": isinstance,
-    "type": type,
-    "dir": dir,
-    "hasattr": hasattr,
-    "getattr": getattr,
-    "Exception": Exception,
-    "ValueError": ValueError,
-    "TypeError": TypeError,
-    "KeyError": KeyError,
-    "IndexError": IndexError,
-    "NameError": NameError,
-    "RuntimeError": RuntimeError,
-}
+
 
 
 @dataclass
@@ -92,7 +55,6 @@ class REPLSession:
     ):
         self.session_id = session_id
         self.globals: dict[str, Any] = {
-            "__builtins__": _SAFE_BUILTINS.copy(),
             "__name__": "__main__",
             "llm_query": llm_query_fn,
         }

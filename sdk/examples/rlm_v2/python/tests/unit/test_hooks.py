@@ -97,6 +97,43 @@ def test_loop_hint_sets_after_repeated_near_identical_code() -> None:
     assert "repeating near-identical REPL actions" in context["loop_hint"]
 
 
+def test_loop_hint_detects_repeat_with_comment_variation() -> None:
+    hooks = RLMV2Hooks()
+    context = {
+        "task": "test",
+        "long_context": "abcdef",
+        "machine_config_path": _machine_config_path(),
+    }
+    context = hooks.on_action("init_session", context)
+
+    first = """```repl
+# first pass
+print(context)
+```"""
+    second = """```repl
+# second pass with changed comment
+print(context)
+```"""
+    third = """```repl
+# third pass, same code again
+print(context)
+```"""
+
+    context["raw_response"] = first
+    context = hooks.on_action("execute_response_code", context)
+    assert context["repeat_streak"] == 0
+
+    context["raw_response"] = second
+    context = hooks.on_action("execute_response_code", context)
+    assert context["repeat_streak"] == 1
+
+    context["raw_response"] = third
+    context = hooks.on_action("execute_response_code", context)
+    assert context["repeat_streak"] == 2
+    assert "repeating near-identical REPL actions" in context["loop_hint"]
+
+
+
 def test_recursion_invoker_depth_limit() -> None:
     invoker = RecursionInvoker()
     response = invoker.invoke(

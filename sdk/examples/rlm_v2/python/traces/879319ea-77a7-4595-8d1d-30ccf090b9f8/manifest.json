@@ -1,0 +1,35 @@
+{
+  "run_id": "879319ea-77a7-4595-8d1d-30ccf090b9f8",
+  "created_at": "2026-02-19T03:14:36.265346+00:00",
+  "mode": "rlm_v2_inspect",
+  "python_version": "3.12.12",
+  "platform": "macOS-15.6.1-arm64-arm-64bit",
+  "sdk_versions": {
+    "flatmachines": "1.1.1",
+    "flatagents": "1.1.1",
+    "rlm_v2_example": "0.1.0"
+  },
+  "config": {
+    "machine_config_path": "/Users/trentrobbins/code/flatagents/sdk/examples/rlm_v2/config/machine.yml",
+    "machine_config_sha256": "9701b2a3218eb44c99c476da4228193506e37bb57be4218ed6a9d4e03f90412a",
+    "inspect_level": "full",
+    "trace_dir": "/Users/trentrobbins/code/flatagents/sdk/examples/rlm_v2/python/traces"
+  },
+  "input": {
+    "task": "For each chapter, extract the primary argument and one supporting detail, then produce a cross-chapter thesis. Set Final when done.",
+    "task_length": 131,
+    "task_preview": "For each chapter, extract the primary argument and one supporting detail, then produce a cross-chapter thesis. Set Final when done.",
+    "long_context_length": 2232,
+    "long_context_sha256": "3156d08775237e725223cb44005662892dee0a30714ea283928d1eef14008e81",
+    "long_context_prefix": "### Chapter 1: Position A\n\nMain claim: Chapter 1 argues a distinct thesis around theme 1.\nEvidence A: Example detail 11.\nEvidence B: Counterpoint 7 with caveat 3.\nLong-form narrative paragraph: This chapter contains nuanced semantic information that often needs summarization\nrather than direct lexic"
+  },
+  "limits": {
+    "current_depth": 0,
+    "max_depth": 5,
+    "timeout_seconds": 300,
+    "max_iterations": 20,
+    "max_steps": 80
+  },
+  "experiment": null,
+  "tags": {}
+}

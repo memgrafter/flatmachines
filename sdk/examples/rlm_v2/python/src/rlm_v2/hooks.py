@@ -297,6 +297,21 @@ class RLMV2Hooks(MachineHooks):
                 return {}
         return {}
 
+    @staticmethod
+    def _canonicalize_code_for_fingerprint(code_text: str) -> str:
+        """Strip comments and normalize whitespace before repeat fingerprinting."""
+        if not code_text:
+            return ""
+
+        cleaned_lines: list[str] = []
+        for raw_line in str(code_text).splitlines():
+            stripped = raw_line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            cleaned_lines.append(stripped)
+
+        return " ".join(cleaned_lines)
+
     def _normalize_context(self, context: dict[str, Any]) -> None:
         context["task"] = "" if context.get("task") is None else str(context.get("task"))
 
@@ -510,12 +525,12 @@ class RLMV2Hooks(MachineHooks):
 
         code_prefix_source = "\n\n".join(code_blocks) if code_blocks else raw_response
 
-        normalized = " ".join(code_prefix_source.split())
-        current_fp = str(hash(normalized))
+        canonical = self._canonicalize_code_for_fingerprint(code_prefix_source)
+        current_fp = str(hash(canonical))
         last_fp = str(context.get("last_code_fingerprint") or "")
         streak = self._coerce_int(context.get("repeat_streak"), 0, min_value=0)
 
-        if current_fp == last_fp and normalized:
+        if current_fp == last_fp and canonical:
             streak += 1
         else:
             streak = 0
