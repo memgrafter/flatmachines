@@ -71,6 +71,32 @@ def test_history_meta_is_bounded_to_five_entries() -> None:
     assert context["history_meta"][-1]["iteration"] == 7
 
 
+def test_loop_hint_sets_after_repeated_near_identical_code() -> None:
+    hooks = RLMV2Hooks()
+    context = {
+        "task": "test",
+        "long_context": "abcdef",
+        "machine_config_path": _machine_config_path(),
+    }
+    context = hooks.on_action("init_session", context)
+
+    repeated = "```repl\nprint(context)\n```"
+    context["raw_response"] = repeated
+    context = hooks.on_action("execute_response_code", context)
+    assert context["repeat_streak"] == 0
+    assert context["loop_hint"] == ""
+
+    context["raw_response"] = repeated
+    context = hooks.on_action("execute_response_code", context)
+    assert context["repeat_streak"] == 1
+    assert context["loop_hint"] == ""
+
+    context["raw_response"] = repeated
+    context = hooks.on_action("execute_response_code", context)
+    assert context["repeat_streak"] == 2
+    assert "repeating near-identical REPL actions" in context["loop_hint"]
+
+
 def test_recursion_invoker_depth_limit() -> None:
     invoker = RecursionInvoker()
     response = invoker.invoke(

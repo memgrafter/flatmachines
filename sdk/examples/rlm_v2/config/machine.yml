@@ -42,6 +42,10 @@ data:
     history_meta: []
     history_meta_text: "[]"
 
+    last_code_fingerprint: ""
+    repeat_streak: 0
+    loop_hint: ""
+
     best_partial: "No answer produced"
     final_answer: null
     is_final: false
@@ -71,6 +75,8 @@ data:
         max_depth: context.max_depth
         iteration: context.iteration
         history_meta_text: context.history_meta_text
+        loop_hint: context.loop_hint
+        repeat_streak: context.repeat_streak
       output_to_context:
         raw_response: output.content
       on_error: error_done

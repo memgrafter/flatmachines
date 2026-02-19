@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from rlm_v2 import repl as repl_module
 from rlm_v2.repl import REPLRegistry, extract_repl_blocks
 
 
@@ -60,3 +61,12 @@ def test_registry_delete_session() -> None:
     assert REPLRegistry.has_session(sid)
     REPLRegistry.delete_session(sid)
     assert not REPLRegistry.has_session(sid)
+
+
+def test_safe_builtins_include_repl_introspection_and_exclude_import() -> None:
+    builtins = repl_module._SAFE_BUILTINS
+
+    assert "dir" in builtins
+    assert "hasattr" in builtins
+    assert "getattr" in builtins
+    assert "__import__" not in builtins

@@ -19,6 +19,9 @@ data:
     4. You only see bounded metadata of REPL outputs, not full outputs.
     5. When complete, set the REPL variable Final = <answer> in code.
     6. Do NOT output FINAL(...) or FINAL_VAR(...). Finalization is by setting variable `Final` only.
+    7. Do not repeatedly print the full `context`.
+    8. After one structural inspection, switch to targeted slices/search/chunking,
+       and use llm_query for semantic sub-analysis when repetitive outputs appear.
 
     Keep code concise and executable.
 
@@ -35,6 +38,10 @@ data:
 
     Recent execution metadata (bounded, JSON string):
     {{ input.history_meta_text }}
+
+    {% if input.loop_hint %}
+    Loop hint: {{ input.loop_hint }} (repeat_streak={{ input.repeat_streak }})
+    {% endif %}
 
     Produce the next action now.
 

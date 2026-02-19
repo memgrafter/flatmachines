@@ -322,6 +322,10 @@ class RLMV2Hooks(MachineHooks):
         context["history_meta"] = history_meta[-self.HISTORY_MAX_ITEMS :]
         context["history_meta_text"] = json.dumps(context["history_meta"], ensure_ascii=False)
 
+        context["last_code_fingerprint"] = str(context.get("last_code_fingerprint") or "")
+        context["repeat_streak"] = self._coerce_int(context.get("repeat_streak"), 0, min_value=0)
+        context["loop_hint"] = "" if context.get("loop_hint") is None else str(context.get("loop_hint"))
+
         if context.get("best_partial") is None:
             context["best_partial"] = "No answer produced"
 
@@ -505,6 +509,28 @@ class RLMV2Hooks(MachineHooks):
         context["iteration"] = next_iteration
 
         code_prefix_source = "\n\n".join(code_blocks) if code_blocks else raw_response
+
+        normalized = " ".join(code_prefix_source.split())
+        current_fp = str(hash(normalized))
+        last_fp = str(context.get("last_code_fingerprint") or "")
+        streak = self._coerce_int(context.get("repeat_streak"), 0, min_value=0)
+
+        if current_fp == last_fp and normalized:
+            streak += 1
+        else:
+            streak = 0
+
+        context["last_code_fingerprint"] = current_fp
+        context["repeat_streak"] = streak
+
+        if streak >= 2:
+            context["loop_hint"] = (
+                "You are repeating near-identical REPL actions. "
+                "Do not print full context again; switch strategy and use targeted chunking/llm_query."
+            )
+        else:
+            context["loop_hint"] = ""
+
         meta_entry = {
             "iteration": context["iteration"],
             "code_prefix": truncate_text(code_prefix_source, 240),

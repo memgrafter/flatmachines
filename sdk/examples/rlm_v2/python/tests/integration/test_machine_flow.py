@@ -113,6 +113,26 @@ async def test_strict_final_accepts_falsy_boolean() -> None:
 
 
 @pytest.mark.asyncio
+async def test_loop_hint_is_propagated_into_coder_input_after_repetition() -> None:
+    seen_inputs: list[dict[str, Any]] = []
+
+    def script(input_data: Dict[str, Any], context: Dict[str, Any]) -> str:
+        seen_inputs.append(dict(input_data))
+        if int(context.get("iteration", 0)) < 3:
+            return "```repl\nprint(context)\n```"
+        return "```repl\nFinal = 'done'\n```"
+
+    machine = _build_machine(script)
+    result = await machine.execute(input=_base_input(), max_steps=80)
+
+    assert result["reason"] == "final"
+    assert result["answer"] == "done"
+
+    assert any(int(payload.get("repeat_streak", 0)) >= 2 for payload in seen_inputs)
+    assert any("repeating near-identical REPL actions" in str(payload.get("loop_hint", "")) for payload in seen_inputs)
+
+
+@pytest.mark.asyncio
 async def test_llm_query_path_returns_config_sentinel_when_subcall_machine_missing() -> None:
     def script(input_data: Dict[str, Any], context: Dict[str, Any]) -> str:
         return "```repl\ntmp = llm_query('nested request')\nFinal = tmp\n```"

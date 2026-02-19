@@ -57,6 +57,9 @@ _SAFE_BUILTINS: dict[str, Any] = {
     "repr": repr,
     "isinstance": isinstance,
     "type": type,
+    "dir": dir,
+    "hasattr": hasattr,
+    "getattr": getattr,
     "Exception": Exception,
     "ValueError": ValueError,
     "TypeError": TypeError,
@@ -64,7 +67,6 @@ _SAFE_BUILTINS: dict[str, Any] = {
     "IndexError": IndexError,
     "NameError": NameError,
     "RuntimeError": RuntimeError,
-    "__import__": __import__,
 }
 
 
