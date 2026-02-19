@@ -1,0 +1,123 @@
+spec: flatmachine
+spec_version: "1.0.0"
+
+data:
+  name: rlm-v2
+  profiles: ./profiles.yml
+
+  persistence:
+    enabled: false
+    backend: memory
+
+  context:
+    task: input.task
+    long_context: input.long_context
+
+    current_depth: input.current_depth
+    max_depth: input.max_depth
+    timeout_seconds: input.timeout_seconds
+    max_iterations: input.max_iterations
+    max_steps: input.max_steps
+
+    machine_config_path: input.machine_config_path
+    sub_model_profile: input.sub_model_profile
+    model_override: input.model_override
+
+    session_id: null
+    context_length: 0
+    context_prefix: ""
+
+    iteration: 0
+    raw_response: null
+
+    last_exec_metadata: {}
+    history_meta: []
+    history_meta_text: "[]"
+
+    best_partial: "No answer produced"
+    final_answer: null
+    is_final: false
+
+  agents:
+    coder: ./coder.yml
+
+  on_error: error_done
+
+  states:
+    start:
+      type: initial
+      action: init_session
+      transitions:
+        - to: generate_code
+
+    generate_code:
+      agent: coder
+      execution:
+        type: retry
+        backoffs: [2, 8, 16]
+        jitter: 0.1
+      input:
+        task: context.task
+        context_length: context.context_length
+        context_prefix: context.context_prefix
+        depth: context.current_depth
+        max_depth: context.max_depth
+        iteration: context.iteration
+        history_meta_text: context.history_meta_text
+      output_to_context:
+        raw_response: output.content
+      on_error: error_done
+      transitions:
+        - to: execute_code
+
+    execute_code:
+      action: execute_response_code
+      on_error: error_done
+      transitions:
+        - to: check_final
+
+    check_final:
+      action: check_final
+      on_error: error_done
+      transitions:
+        - condition: "context.is_final == true"
+          to: done
+        - condition: "context.iteration >= context.max_iterations"
+          to: max_iter_done
+        - to: generate_code
+
+    done:
+      type: final
+      output:
+        answer: context.final_answer
+        reason: "final"
+        iteration: context.iteration
+        depth: context.current_depth
+
+    max_iter_done:
+      type: final
+      output:
+        answer: context.best_partial
+        reason: "max_iterations"
+        iteration: context.iteration
+        depth: context.current_depth
+
+    error_done:
+      type: final
+      output:
+        answer: context.best_partial
+        reason: "error"
+        error: context.last_error
+        iteration: context.iteration
+        depth: context.current_depth
+
+  settings:
+    max_steps: 80
+
+  hooks:
+    file: "../python/src/rlm_v2/hooks.py"
+    class: "RLMV2Hooks"
+
+metadata:
+  description: "RLM v2 minimal recursive loop"
+  tags: ["rlm", "recursive", "repl"]
