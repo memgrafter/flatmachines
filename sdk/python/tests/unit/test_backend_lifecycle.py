@@ -8,7 +8,7 @@ import os
 import shutil
 import pytest
 
-from flatmachines import LocalFileBackend, MemoryBackend
+from flatmachines import LocalFileBackend, MemoryBackend, SQLiteCheckpointBackend
 
 
 @pytest.fixture(autouse=True)
@@ -30,10 +30,12 @@ async def _write_checkpoint(backend, execution_id: str, step: int = 1, event: st
     await backend.save(f"{execution_id}/latest", key.encode())
 
 
-@pytest.fixture(params=["local", "memory"])
-def backend(request):
+@pytest.fixture(params=["local", "memory", "sqlite"])
+def backend(request, tmp_path):
     if request.param == "local":
         return LocalFileBackend()
+    elif request.param == "sqlite":
+        return SQLiteCheckpointBackend(db_path=str(tmp_path / "test.sqlite"))
     return MemoryBackend()
 
 

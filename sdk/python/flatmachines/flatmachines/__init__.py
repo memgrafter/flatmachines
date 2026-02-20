@@ -38,10 +38,11 @@ from .persistence import (
     PersistenceBackend,
     LocalFileBackend,
     MemoryBackend,
+    SQLiteCheckpointBackend,
     CheckpointManager,
     MachineSnapshot,
 )
-from .locking import ExecutionLock, LocalFileLock, NoOpLock
+from .locking import ExecutionLock, LocalFileLock, NoOpLock, SQLiteLeaseLock
 from .agents import (
     AgentExecutor,
     AgentResult,
@@ -109,9 +110,11 @@ __all__ = [
     "MemoryBackend",
     "CheckpointManager",
     "MachineSnapshot",
+    "SQLiteCheckpointBackend",
     "ExecutionLock",
     "LocalFileLock",
     "NoOpLock",
+    "SQLiteLeaseLock",
     "AgentExecutor",
     "AgentResult",
     "AgentRef",

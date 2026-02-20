@@ -3,6 +3,7 @@ import fcntl
 import asyncio
 import logging
 import shutil
+import sqlite3
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, List
 from dataclasses import dataclass, asdict, field
@@ -244,3 +245,189 @@ class CheckpointManager:
             
         data = json.loads(data_bytes.decode('utf-8'))
         return MachineSnapshot(**data)
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class SQLiteCheckpointBackend(PersistenceBackend):
+    """SQLite-backed checkpoint persistence.
+
+    Stores snapshot blobs in a ``machine_checkpoints`` table and latest
+    pointers in a ``machine_latest`` table.  Keys follow the standard
+    FlatMachine conventions:
+
+        "<execution_id>/step_000001_state_exit.json"
+        "<execution_id>/latest"
+
+    The backend uses WAL mode and a busy timeout for safe concurrent access
+    from a single process with multiple async tasks.
+    """
+
+    def __init__(self, db_path: str):
+        self.db_path = str(Path(db_path).resolve())
+        self._conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30.0)
+        self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA journal_mode = WAL")
+        self._conn.execute("PRAGMA synchronous = NORMAL")
+        self._conn.execute("PRAGMA busy_timeout = 10000")
+        self._ensure_schema()
+        self._op_lock = asyncio.Lock()
+
+    def _ensure_schema(self) -> None:
+        self._conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS machine_checkpoints (
+                checkpoint_key TEXT PRIMARY KEY,
+                execution_id   TEXT NOT NULL,
+                machine_name   TEXT,
+                event          TEXT,
+                current_state  TEXT,
+                snapshot_json  BLOB NOT NULL,
+                created_at     TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_mc_execution_created
+              ON machine_checkpoints(execution_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS machine_latest (
+                execution_id TEXT PRIMARY KEY,
+                latest_key   TEXT NOT NULL,
+                updated_at   TEXT NOT NULL
+            );
+            """
+        )
+        self._conn.commit()
+
+    @staticmethod
+    def _validate_key(key: str) -> None:
+        if not key or ".." in key or key.startswith("/"):
+            raise ValueError(f"Invalid checkpoint key: {key}")
+
+    @staticmethod
+    def _execution_id_from_key(key: str) -> str:
+        return key.split("/", 1)[0]
+
+    async def save(self, key: str, value: bytes) -> None:
+        self._validate_key(key)
+        if not isinstance(value, (bytes, bytearray)):
+            raise TypeError("Checkpoint value must be bytes")
+
+        execution_id = self._execution_id_from_key(key)
+        now = _utc_now_iso()
+
+        async with self._op_lock:
+            if key.endswith("/latest"):
+                latest_key = bytes(value).decode("utf-8").strip()
+                self._validate_key(latest_key)
+                self._conn.execute(
+                    """
+                    INSERT INTO machine_latest (execution_id, latest_key, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(execution_id) DO UPDATE SET
+                        latest_key = excluded.latest_key,
+                        updated_at = excluded.updated_at
+                    """,
+                    (execution_id, latest_key, now),
+                )
+                self._conn.commit()
+                return
+
+            # Parse snapshot metadata for indexed columns
+            machine_name = None
+            event = None
+            current_state = None
+            try:
+                snapshot = json.loads(bytes(value).decode("utf-8"))
+                if isinstance(snapshot, dict):
+                    machine_name = snapshot.get("machine_name")
+                    event = snapshot.get("event")
+                    current_state = snapshot.get("current_state")
+            except Exception:
+                pass
+
+            self._conn.execute(
+                """
+                INSERT INTO machine_checkpoints (
+                    checkpoint_key, execution_id, machine_name,
+                    event, current_state, snapshot_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(checkpoint_key) DO UPDATE SET
+                    execution_id = excluded.execution_id,
+                    machine_name = excluded.machine_name,
+                    event = excluded.event,
+                    current_state = excluded.current_state,
+                    snapshot_json = excluded.snapshot_json,
+                    created_at = excluded.created_at
+                """,
+                (key, execution_id, machine_name, event, current_state,
+                 sqlite3.Binary(bytes(value)), now),
+            )
+            self._conn.commit()
+
+    async def load(self, key: str) -> Optional[bytes]:
+        self._validate_key(key)
+        execution_id = self._execution_id_from_key(key)
+
+        async with self._op_lock:
+            if key.endswith("/latest"):
+                row = self._conn.execute(
+                    "SELECT latest_key FROM machine_latest WHERE execution_id = ?",
+                    (execution_id,),
+                ).fetchone()
+                if not row:
+                    return None
+                return str(row["latest_key"]).encode("utf-8")
+
+            row = self._conn.execute(
+                "SELECT snapshot_json FROM machine_checkpoints WHERE checkpoint_key = ?",
+                (key,),
+            ).fetchone()
+            if not row:
+                return None
+            payload = row["snapshot_json"]
+            return bytes(payload) if payload is not None else None
+
+    async def delete(self, key: str) -> None:
+        self._validate_key(key)
+        execution_id = self._execution_id_from_key(key)
+
+        async with self._op_lock:
+            if key.endswith("/latest"):
+                self._conn.execute(
+                    "DELETE FROM machine_latest WHERE execution_id = ?",
+                    (execution_id,),
+                )
+                self._conn.commit()
+                return
+
+            self._conn.execute(
+                "DELETE FROM machine_checkpoints WHERE checkpoint_key = ?",
+                (key,),
+            )
+            self._conn.execute(
+                "DELETE FROM machine_latest WHERE execution_id = ? AND latest_key = ?",
+                (execution_id, key),
+            )
+            self._conn.commit()
+
+    async def list_execution_ids(self) -> List[str]:
+        async with self._op_lock:
+            rows = self._conn.execute(
+                "SELECT DISTINCT execution_id FROM machine_checkpoints ORDER BY execution_id"
+            ).fetchall()
+            return [r["execution_id"] for r in rows]
+
+    async def delete_execution(self, execution_id: str) -> None:
+        self._validate_key(execution_id)
+        async with self._op_lock:
+            self._conn.execute(
+                "DELETE FROM machine_checkpoints WHERE execution_id = ?",
+                (execution_id,),
+            )
+            self._conn.execute(
+                "DELETE FROM machine_latest WHERE execution_id = ?",
+                (execution_id,),
+            )
+            self._conn.commit()
