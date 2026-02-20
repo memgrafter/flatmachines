@@ -2,6 +2,7 @@ import json
 import fcntl
 import asyncio
 import logging
+import shutil
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, List
 from dataclasses import dataclass, asdict, field
@@ -45,6 +46,16 @@ class PersistenceBackend(ABC):
     async def delete(self, key: str) -> None:
         pass
 
+    @abstractmethod
+    async def list_execution_ids(self) -> List[str]:
+        """Return all execution IDs that have checkpoint data."""
+        pass
+
+    @abstractmethod
+    async def delete_execution(self, execution_id: str) -> None:
+        """Remove all checkpoint data for an execution."""
+        pass
+
 class LocalFileBackend(PersistenceBackend):
     """File-based persistence backend."""
 
@@ -83,6 +94,18 @@ class LocalFileBackend(PersistenceBackend):
         path = self.base_dir / key
         path.unlink(missing_ok=True)
 
+    async def list_execution_ids(self) -> List[str]:
+        return sorted(
+            d.name for d in self.base_dir.iterdir()
+            if d.is_dir() and not d.name.startswith(".")
+        )
+
+    async def delete_execution(self, execution_id: str) -> None:
+        self._validate_key(execution_id)
+        exec_dir = self.base_dir / execution_id
+        if exec_dir.exists() and exec_dir.is_dir():
+            shutil.rmtree(exec_dir)
+
 class MemoryBackend(PersistenceBackend):
     """In-memory backend for ephemeral executions."""
     
@@ -97,6 +120,16 @@ class MemoryBackend(PersistenceBackend):
         
     async def delete(self, key: str) -> None:
         self._store.pop(key, None)
+
+    async def list_execution_ids(self) -> List[str]:
+        ids = {k.split("/", 1)[0] for k in self._store if "/" in k}
+        return sorted(ids)
+
+    async def delete_execution(self, execution_id: str) -> None:
+        prefix = f"{execution_id}/"
+        keys = [k for k in self._store if k.startswith(prefix)]
+        for k in keys:
+            del self._store[k]
 
 class CheckpointManager:
     """Manages saving and loading machine snapshots."""

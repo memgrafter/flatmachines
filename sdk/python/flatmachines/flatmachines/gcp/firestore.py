@@ -158,6 +158,21 @@ class FirestoreBackend:
         
         return sorted(keys)
     
+    async def list_execution_ids(self) -> list[str]:
+        docs = self.db.collection(self.collection).stream()
+        ids = []
+        async for doc in docs:
+            ids.append(doc.id)
+        return sorted(ids)
+
+    async def delete_execution(self, execution_id: str) -> None:
+        doc_ref = self.db.collection(self.collection).document(execution_id)
+        for subcoll_name in ("checkpoints", "results"):
+            subcoll = doc_ref.collection(subcoll_name)
+            async for doc in subcoll.stream():
+                await doc.reference.delete()
+        await doc_ref.delete()
+
     # =========================================================================
     # ResultBackend Interface
     # =========================================================================
