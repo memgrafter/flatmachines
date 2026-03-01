@@ -15,10 +15,12 @@
  *   - MachineHooks: Base interface (MUST)
  *   - RegistrationBackend: SQLiteRegistrationBackend (MUST), MemoryRegistrationBackend (SHOULD)
  *   - WorkBackend: SQLiteWorkBackend (MUST), MemoryWorkBackend (SHOULD)
+ *   - SignalBackend: MemorySignalBackend (MUST), SQLiteSignalBackend (SHOULD)
+ *   - TriggerBackend: NoOpTrigger (MUST), FileTrigger (SHOULD)
  *
  * OPTIONAL IMPLEMENTATIONS:
  * -------------------------
- *   - Distributed backends (Redis, Postgres, etc.)
+ *   - Distributed backends (Redis, Postgres, DynamoDB, etc.)
  *   - LLMBackend (SDK may use native provider SDKs)
  *
  * EXECUTION LOCKING:
@@ -87,6 +89,83 @@
  * Interface for invoking peer machines.
  * Used internally by FlatMachine for `machine:` and `launch:` states.
  *
+ * AGENT RESULT:
+ * --------------
+ * Universal result contract for agent execution across all backends.
+ * All fields are optional and use structured data (no classes) for
+ * cross-language and cross-process/network compatibility.
+ *
+ * REGISTRATION BACKEND:
+ * ---------------------
+ * Worker lifecycle management for distributed execution.
+ *
+ * SDKs MUST provide:
+ *   - SQLiteRegistrationBackend: For local deployments
+ *
+ * SDKs SHOULD provide:
+ *   - MemoryRegistrationBackend: For testing
+ *
+ * Implementation notes:
+ *   - Time units: Python reference SDK uses seconds for all interval values
+ *   - Stale threshold: SDKs SHOULD default to 2× heartbeat_interval if not specified
+ *
+ * WORK BACKEND:
+ * -------------
+ * Work distribution via named pools with atomic claim.
+ *
+ * SDKs MUST provide:
+ *   - SQLiteWorkBackend: For local deployments
+ *
+ * SDKs SHOULD provide:
+ *   - MemoryWorkBackend: For testing
+ *
+ * Implementation notes:
+ *   - Atomic claim: SDKs MUST ensure no two workers can claim the same job
+ *   - Test requirements: Include concurrent claim race condition tests
+ *
+ * SIGNAL BACKEND:
+ * ---------------
+ * Durable signal storage for cross-process machine activation.
+ *
+ * Signals are named-channel messages that wake checkpointed machines.
+ * A machine paused at a `wait_for` state checkpoints with a `waiting_channel`
+ * tag and exits (no process running). When a signal arrives on that channel,
+ * a dispatcher finds matching checkpoints and resumes them.
+ *
+ * Signal data becomes the `wait_for` state's output — accessible via
+ * output.* in output_to_context templates. No new template syntax needed.
+ *
+ * Channel semantics:
+ *   - Addressed: "approval/task-001" → one waiting machine
+ *   - Broadcast: "quota/openai"      → N waiting machines (dispatcher controls limit)
+ *
+ * SDKs MUST provide:
+ *   - MemorySignalBackend: For testing and single-process use
+ *
+ * SDKs SHOULD provide:
+ *   - SQLiteSignalBackend: For durable local use
+ *
+ * TRIGGER BACKEND:
+ * ----------------
+ * Process activation when signals or work arrive.
+ * The OS-native equivalent of Lambda triggers / DynamoDB Streams.
+ *
+ * Called after SignalBackend.send() or WorkPool.push() to wake
+ * a dispatcher process. The dispatcher then queries for matching
+ * checkpoints and resumes machines.
+ *
+ * Deployment mapping:
+ *   - NoOpTrigger:  Consumer already running (polling/in-process)
+ *   - FileTrigger:  Touch file → launchd WatchPaths (macOS) / systemd PathChanged (Linux)
+ *   - SocketTrigger: UDS notify → in-host low-latency wake (optional)
+ *   - DynamoDB:     Implicit via Streams → Lambda (no application code)
+ *
+ * SDKs MUST provide:
+ *   - NoOpTrigger: For in-process and polling consumers
+ *
+ * SDKs SHOULD provide:
+ *   - FileTrigger: For OS-level activation with zero running processes
+ *
  * BACKEND CONFIGURATION:
  * ----------------------
  * Backend configuration for machine settings.
@@ -146,6 +225,24 @@ export interface PersistenceBackend {
      * @returns Array of matching keys, sorted lexicographically
      */
     list(prefix: string): Promise<string[]>;
+
+    /**
+     * List execution IDs, optionally filtered by latest checkpoint state.
+     *
+     * @param options.event - Filter by latest checkpoint event (e.g., "machine_end")
+     * @param options.waiting_channel - Filter by waiting_channel metadata
+     * @returns Array of matching execution IDs
+     */
+    listExecutionIds?(options?: {
+        event?: string;
+        waiting_channel?: string;
+    }): Promise<string[]>;
+
+    /**
+     * Delete all checkpoint data for an execution.
+     * Safe to call if execution doesn't exist.
+     */
+    deleteExecution?(execution_id: string): Promise<void>;
 }
 
 export interface ResultBackend {
@@ -181,13 +278,6 @@ export interface ResultBackend {
     delete(uri: string): Promise<void>;
 }
 
-/**
- * AGENT RESULT:
- * --------------
- * Universal result contract for agent execution across all backends.
- * All fields are optional and use structured data (no classes) for
- * cross-language and cross-process/network compatibility.
- */
 export interface AgentResult {
     // Content
     output?: Record<string, any> | null;
@@ -426,6 +516,7 @@ export interface MachineSnapshot {
     total_cost?: number;
     parent_execution_id?: string;
     pending_launches?: LaunchIntent[];
+    waiting_channel?: string;
 }
 
 export interface LaunchIntent {
@@ -435,21 +526,6 @@ export interface LaunchIntent {
     launched: boolean;
 }
 
-/**
- * REGISTRATION BACKEND:
- * ---------------------
- * Worker lifecycle management for distributed execution.
- *
- * SDKs MUST provide:
- *   - SQLiteRegistrationBackend: For local deployments
- *
- * SDKs SHOULD provide:
- *   - MemoryRegistrationBackend: For testing
- *
- * Implementation notes:
- *   - Time units: Python reference SDK uses seconds for all interval values
- *   - Stale threshold: SDKs SHOULD default to 2× heartbeat_interval if not specified
- */
 export interface RegistrationBackend {
     /**
      * Register a new worker.
@@ -507,21 +583,6 @@ export interface WorkerFilter {
     stale_threshold_seconds?: number;  // Filter workers with old heartbeats
 }
 
-/**
- * WORK BACKEND:
- * -------------
- * Work distribution via named pools with atomic claim.
- *
- * SDKs MUST provide:
- *   - SQLiteWorkBackend: For local deployments
- *
- * SDKs SHOULD provide:
- *   - MemoryWorkBackend: For testing
- *
- * Implementation notes:
- *   - Atomic claim: SDKs MUST ensure no two workers can claim the same job
- *   - Test requirements: Include concurrent claim race condition tests
- */
 export interface WorkBackend {
     /**
      * Get a named work pool.
@@ -587,32 +648,89 @@ export interface WorkItem {
 // - "done": Successfully completed
 // - "poisoned": Failed max_retries times, will not be retried
 
+export interface SignalBackend {
+    /**
+     * Send a signal to a named channel.
+     * @param channel - Channel name (e.g., "approval/task-001", "quota/openai")
+     * @param data - Signal payload (JSON-serializable)
+     * @returns Signal ID
+     */
+    send(channel: string, data: any): Promise<string>;
+
+    /**
+     * Atomically consume the next signal on a channel.
+     * Removes the signal from storage.
+     * @returns Signal or null if none pending
+     */
+    consume(channel: string): Promise<Signal | null>;
+
+    /**
+     * Peek at pending signals without consuming.
+     * @returns Array of pending signals on this channel
+     */
+    peek(channel: string): Promise<Signal[]>;
+
+    /**
+     * List channels that have pending signals.
+     * Used by dispatcher to find actionable channels.
+     */
+    channels(): Promise<string[]>;
+}
+
+export interface Signal {
+    id: string;
+    channel: string;
+    data: any;
+    created_at: string;
+}
+
+export interface TriggerBackend {
+    /**
+     * Signal that activity occurred on a channel.
+     * Implementation touches a file, writes to a socket, or no-ops.
+     *
+     * @param channel - Channel name
+     */
+    notify(channel: string): Promise<void>;
+}
+
 export interface BackendConfig {
     /** Checkpoint storage. Default: memory */
-    persistence?: "memory" | "local" | "redis" | "postgres" | "s3";
+    persistence?: "memory" | "local" | "sqlite" | "redis" | "postgres" | "s3" | "dynamodb";
 
     /** Execution locking. Default: none */
-    locking?: "none" | "local" | "redis" | "consul";
+    locking?: "none" | "local" | "sqlite" | "redis" | "consul" | "dynamodb";
 
     /** Inter-machine results. Default: memory */
-    results?: "memory" | "redis";
+    results?: "memory" | "redis" | "dynamodb";
 
     /** Worker registration. Default: memory */
-    registration?: "memory" | "sqlite" | "redis";
+    registration?: "memory" | "sqlite" | "redis" | "dynamodb";
 
     /** Work pool. Default: memory */
-    work?: "memory" | "sqlite" | "redis";
+    work?: "memory" | "sqlite" | "redis" | "dynamodb";
 
-    /** Path for sqlite backends (registration and work share this) */
+    /** Signal storage. Default: memory */
+    signal?: "memory" | "sqlite" | "redis" | "dynamodb";
+
+    /** Trigger activation. Default: none */
+    trigger?: "none" | "file" | "socket";
+
+    /** Path for sqlite backends (registration, work, and signals share this) */
     sqlite_path?: string;
+
+    /** Base path for file triggers (default: /tmp/flatmachines) */
+    trigger_path?: string;
+
+    /** DynamoDB table name (single-table design) */
+    dynamodb_table?: string;
+
+    /** AWS region for DynamoDB */
+    aws_region?: string;
 }
 
 export const SPEC_VERSION = "1.1.1";
 
-/**
- * Wrapper interface for JSON schema generation.
- * Groups all runtime interfaces that SDKs must implement.
- */
 export interface SDKRuntimeWrapper {
     spec: "flatagents-runtime";
     spec_version: typeof SPEC_VERSION;
@@ -627,5 +745,7 @@ export interface SDKRuntimeWrapper {
     machine_snapshot?: MachineSnapshot;
     registration_backend?: RegistrationBackend;
     work_backend?: WorkBackend;
+    signal_backend?: SignalBackend;
+    trigger_backend?: TriggerBackend;
 }
 

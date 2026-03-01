@@ -56,6 +56,7 @@ Resolution: default → profile → overrides → override
 | `on_error` | State name or `{ default: x, ErrorType: y }` |
 | `transitions` | `[{ condition: "expr", to: state }, { to: default }]` |
 | `mode` | `settled` (all) / `any` (first) for parallel |
+| `wait_for` | Channel to wait for external signal (Jinja2 template) |
 | `timeout` | Seconds (0=forever) |
 
 ## Patterns
@@ -87,6 +88,19 @@ launch: background_task
 launch_input: { data: "{{ context.data }}" }
 ```
 
+**Wait for signal** (checkpoint, exit, resume on signal):
+```yaml
+wait_for_approval:
+  wait_for: "approval/{{ context.task_id }}"
+  timeout: 86400
+  output_to_context:
+    approved: "{{ output.approved }}"
+  transitions:
+    - condition: "context.approved"
+      to: continue
+    - to: rejected
+```
+
 ## Distributed Worker Pattern
 
 Use hook actions (e.g., `DistributedWorkerHooks`) with a `RegistrationBackend` + `WorkBackend` to build worker pools.
@@ -108,6 +122,31 @@ states:
 ```
 
 See `sdk/examples/distributed_worker/` for a full example.
+
+## Signals & Triggers
+
+Machine pauses at `wait_for` state → checkpoints with `waiting_channel` → process exits. Nothing running.
+
+**Signal delivery**: External process writes signal → trigger fires → dispatcher resumes matching machines.
+
+```
+send("approval/task-001", {approved: true})
+  → SQLite INSERT + touch trigger file
+  → launchd/systemd starts dispatcher
+  → dispatcher queries checkpoints WHERE waiting_channel = "approval/task-001"
+  → resumes machine from checkpoint, signal data as output.*
+```
+
+**Channel semantics**:
+- Addressed: `"approval/{{ context.task_id }}"` → one waiter
+- Broadcast: `"quota/openai"` → N waiters (dispatcher controls limit)
+
+**10,000 waiting machines** = 10,000 rows in SQLite. Zero processes, zero memory.
+
+**Trigger backends**: `none` (polling), `file` (launchd/systemd — nothing running), `socket` (UDS, in-process).
+DynamoDB Streams is implicit (no trigger code needed).
+
+**Signal backends**: `memory` (testing), `sqlite` (local durable), `dynamodb` (AWS).
 
 ## Context Variables
 
