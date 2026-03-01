@@ -1,0 +1,51 @@
+spec: flatmachine
+spec_version: "1.1.1"
+
+data:
+  name: cli-tool-loop
+  profiles: ./profiles.yml
+
+  context:
+    task: "{{ input.task }}"
+    working_dir: "{{ input.working_dir }}"
+
+  agents:
+    coder: ./agent.yml
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: work
+
+    work:
+      agent: coder
+      tool_loop:
+        max_turns: 30
+        max_tool_calls: 100
+        max_cost: 2.00
+        tool_timeout: 60
+        total_timeout: 600
+      input:
+        task: "{{ context.task }}"
+      output_to_context:
+        result: "{{ output.content }}"
+        tool_calls: "{{ output._tool_calls_count }}"
+        turns: "{{ output._tool_loop_turns }}"
+        cost: "{{ output._tool_loop_cost }}"
+        stop_reason: "{{ output._tool_loop_stop }}"
+      transitions:
+        - to: done
+
+    done:
+      type: final
+      output:
+        result: "{{ context.result }}"
+        tool_calls: "{{ context.tool_calls }}"
+        turns: "{{ context.turns }}"
+        cost: "{{ context.cost }}"
+        stop_reason: "{{ context.stop_reason }}"
+
+metadata:
+  description: "CLI coding agent with tool loop"
+  tags: ["tool-use", "cli"]

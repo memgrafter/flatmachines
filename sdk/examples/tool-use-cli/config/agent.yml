@@ -1,0 +1,102 @@
+spec: flatagent
+spec_version: "1.1.1"
+
+data:
+  name: cli-agent
+
+  model: default
+
+  system: |
+    You are an expert coding assistant. You have access to tools for reading files,
+    writing files, executing bash commands, and making surgical edits.
+
+    Guidelines:
+    - Use bash for file operations like ls, grep, find
+    - Use read to examine files before editing
+    - Use edit for precise changes (old text must match exactly, including whitespace)
+    - Use write only for new files or complete rewrites
+    - Be concise in your responses
+
+  user: |
+    {{ input.task }}
+
+  tools:
+    - type: function
+      function:
+        name: read
+        description: >
+          Read the contents of a file. Output is truncated to 2000 lines or 50KB
+          (whichever is hit first). Use offset/limit for large files. When you need
+          the full file, continue with offset until complete.
+        parameters:
+          type: object
+          properties:
+            path:
+              type: string
+              description: "Path to the file to read (relative or absolute)"
+            offset:
+              type: number
+              description: "Line number to start reading from (1-indexed)"
+            limit:
+              type: number
+              description: "Maximum number of lines to read"
+          required: [path]
+
+    - type: function
+      function:
+        name: bash
+        description: >
+          Execute a bash command in the current working directory. Returns stdout
+          and stderr. Output is truncated to last 2000 lines or 50KB (whichever
+          is hit first). Optionally provide a timeout in seconds.
+        parameters:
+          type: object
+          properties:
+            command:
+              type: string
+              description: "Bash command to execute"
+            timeout:
+              type: number
+              description: "Timeout in seconds (optional, default 30)"
+          required: [command]
+
+    - type: function
+      function:
+        name: write
+        description: >
+          Write content to a file. Creates the file if it doesn't exist, overwrites
+          if it does. Automatically creates parent directories.
+        parameters:
+          type: object
+          properties:
+            path:
+              type: string
+              description: "Path to the file to write (relative or absolute)"
+            content:
+              type: string
+              description: "Content to write to the file"
+          required: [path, content]
+
+    - type: function
+      function:
+        name: edit
+        description: >
+          Edit a file by replacing exact text. The oldText must match exactly
+          (including whitespace). Use this for precise, surgical edits.
+        parameters:
+          type: object
+          properties:
+            path:
+              type: string
+              description: "Path to the file to edit (relative or absolute)"
+            oldText:
+              type: string
+              description: "Exact text to find and replace (must match exactly)"
+            newText:
+              type: string
+              description: "New text to replace the old text with"
+          required: [path, oldText, newText]
+
+metadata:
+  description: "CLI coding agent with read, write, bash, and edit tools"
+  tags: ["tool-use", "cli", "coding"]

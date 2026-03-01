@@ -1,0 +1,15 @@
+spec: flatprofiles
+spec_version: "1.1.1"
+
+data:
+  model_profiles:
+    default:
+      provider: anthropic
+      name: claude-sonnet-4-20250514
+      temperature: 0.5
+    fast:
+      provider: cerebras
+      name: zai-glm-4.7
+      temperature: 0.6
+
+  default: default
