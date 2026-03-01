@@ -22,10 +22,22 @@ def cleanup():
             shutil.rmtree(d)
 
 
-async def _write_checkpoint(backend, execution_id: str, step: int = 1, event: str = "execute"):
+import json
+
+
+async def _write_checkpoint(
+    backend,
+    execution_id: str,
+    step: int = 1,
+    event: str = "execute",
+    waiting_channel: str = None,
+):
     """Write a fake checkpoint directly to the backend."""
     key = f"{execution_id}/step_{step:06d}_{event}.json"
-    await backend.save(key, b'{"fake": true}')
+    data = {"fake": True, "event": event}
+    if waiting_channel is not None:
+        data["waiting_channel"] = waiting_channel
+    await backend.save(key, json.dumps(data).encode())
     # Update latest pointer (mirrors CheckpointManager convention)
     await backend.save(f"{execution_id}/latest", key.encode())
 
@@ -118,3 +130,46 @@ class TestDeleteExecution:
         await _write_checkpoint(backend, "once")
         await backend.delete_execution("once")
         await backend.delete_execution("once")  # second call is fine
+
+
+# ---------------------------------------------------------------------------
+# list_execution_ids with waiting_channel filter
+# ---------------------------------------------------------------------------
+
+class TestListByWaitingChannel:
+
+    @pytest.mark.asyncio
+    async def test_filter_by_waiting_channel(self, backend):
+        await _write_checkpoint(backend, "exec-a", waiting_channel="ch/alpha")
+        await _write_checkpoint(backend, "exec-b", waiting_channel="ch/beta")
+        await _write_checkpoint(backend, "exec-c")  # no waiting_channel
+
+        ids = await backend.list_execution_ids(waiting_channel="ch/alpha")
+        assert ids == ["exec-a"]
+
+    @pytest.mark.asyncio
+    async def test_no_match_returns_empty(self, backend):
+        await _write_checkpoint(backend, "exec-a", waiting_channel="ch/alpha")
+        ids = await backend.list_execution_ids(waiting_channel="ch/nope")
+        assert ids == []
+
+    @pytest.mark.asyncio
+    async def test_multiple_on_same_channel(self, backend):
+        await _write_checkpoint(backend, "exec-a", waiting_channel="broadcast")
+        await _write_checkpoint(backend, "exec-b", waiting_channel="broadcast")
+        ids = await backend.list_execution_ids(waiting_channel="broadcast")
+        assert set(ids) == {"exec-a", "exec-b"}
+
+    @pytest.mark.asyncio
+    async def test_combined_event_and_channel_filter(self, backend):
+        await _write_checkpoint(backend, "exec-a", event="waiting", waiting_channel="ch/1")
+        await _write_checkpoint(backend, "exec-b", event="execute", waiting_channel="ch/1")
+        ids = await backend.list_execution_ids(event="waiting", waiting_channel="ch/1")
+        assert ids == ["exec-a"]
+
+    @pytest.mark.asyncio
+    async def test_none_channel_returns_all(self, backend):
+        await _write_checkpoint(backend, "exec-a", waiting_channel="ch/alpha")
+        await _write_checkpoint(backend, "exec-b")
+        ids = await backend.list_execution_ids()
+        assert set(ids) == {"exec-a", "exec-b"}
