@@ -13,7 +13,11 @@ import argparse
 import asyncio
 import os
 import sys
+import warnings
 from pathlib import Path
+
+# Suppress validation warnings until schemas are regenerated
+warnings.filterwarnings("ignore", category=UserWarning, message=".*validation.*")
 
 from flatmachines import FlatMachine, setup_logging, get_logger
 from flatagents import FlatAgent
@@ -22,7 +26,8 @@ from flatagents.tool_loop import ToolLoopAgent, Guardrails, StopReason
 from .hooks import CLIToolHooks
 from .tools import CLIToolProvider
 
-setup_logging(level="INFO")
+_log_level = os.environ.get("LOG_LEVEL", "WARNING").upper()
+setup_logging(level=_log_level)
 logger = get_logger(__name__)
 
 

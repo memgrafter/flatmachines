@@ -1,7 +1,7 @@
 """
 CLI Tool Use Hooks.
 
-Provides the tool provider, file tracking, and human review action.
+Provides the tool provider, file tracking, and human review.
 """
 
 from typing import Any, Dict
@@ -11,7 +11,7 @@ from .tools import CLIToolProvider
 
 
 class CLIToolHooks(MachineHooks):
-    """Hooks for CLI tool-use workflow with human-in-the-loop review."""
+    """Hooks for CLI tool-use workflow with human review."""
 
     def __init__(self, working_dir: str = "."):
         self._provider = CLIToolProvider(working_dir)
@@ -39,39 +39,28 @@ class CLIToolHooks(MachineHooks):
         return context
 
     def _human_review(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Pause for human review of the agent's work."""
-        print()
-        print("=" * 60)
-        print("HUMAN REVIEW")
-        print("=" * 60)
-        print(f"\nIteration #{context.get('iteration', 1)}")
-
-        # Show what the agent did
+        """Show agent output, ask for follow-up or accept."""
         result = context.get("result", "")
         if result:
-            print(f"\nAgent response:")
-            print("-" * 40)
+            print()
             print(result)
-            print("-" * 40)
+            print()
 
         files = context.get("files_modified", [])
         if files:
-            print(f"\nFiles modified: {', '.join(files)}")
+            print(f"Files modified: {', '.join(files)}")
+            print()
 
-        print(f"\nTool calls: {context.get('tool_calls', 0)}")
-        print(f"Cost so far: ${float(context.get('cost', 0)):.4f}")
+        try:
+            response = input("Follow-up (or Enter to finish): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            response = ""
 
-        response = input("\nApprove? (y/yes to approve, or enter feedback): ").strip()
-
-        if response.lower() in ("y", "yes", ""):
-            context["human_approved"] = True
-            context["feedback"] = ""
-            print("✓ Approved!")
-        else:
+        if response:
             context["human_approved"] = False
             context["feedback"] = response
-            print(f"→ Feedback recorded. Running again...")
+        else:
+            context["human_approved"] = True
+            context["feedback"] = ""
 
-        print("=" * 60)
-        print()
         return context
