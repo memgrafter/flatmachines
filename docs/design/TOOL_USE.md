@@ -167,6 +167,51 @@ class ToolLoopAgent:
 - Human-in-the-loop (`wait_for`)
 - Composition with other states/machines
 
+### ToolLoopAgent Extension: Per-turn Injection Callback
+
+Current `run(**input_data)` semantics render templates from `input_data` on turn 0, then continue with the message chain. There is no first-class way to inject dynamic per-turn state (remaining budget, elapsed cost, steering context, etc.) without reimplementing the loop.
+
+#### Proposed API (backward compatible)
+
+```python
+@dataclass
+class TurnState:
+    turn: int
+    total_tool_calls: int
+    usage: AggregateUsage
+    last_assistant_message: Optional[dict]
+    last_tool_results: List[dict]
+    input_data: Dict[str, Any]
+
+OnTurnCallback = Callable[[TurnState], Optional[List[dict]] | Awaitable[Optional[List[dict]]]]
+
+class ToolLoopAgent:
+    def __init__(..., on_turn: Optional[OnTurnCallback] = None):
+        ...
+
+    async def run(self, on_turn: Optional[OnTurnCallback] = None, **input_data) -> ToolLoopResult:
+        ...
+```
+
+#### Callback semantics
+
+- Called **after tool results are appended** and **before the next LLM call**.
+- Receives structured loop state (`turn`, `tool_calls`, aggregated `usage`, last assistant message, last tool results).
+- Returns additional messages to append to the chain (or `None`).
+- Supports sync or async callbacks.
+- If both constructor-level and `run(...)` callback are provided, `run(...)` wins.
+
+#### Why this shape
+
+- Solves dynamic steering/budget injection without template re-rendering.
+- Keeps `ToolLoopAgent` simple and composable.
+- Preserves current behavior when callback is not supplied.
+- Keeps `SteeringProvider` usable for static steering while enabling state-aware steering via callback.
+
+#### Deferred alternative
+
+A callable `input_data` refresh hook (re-rendering templates every turn) is possible but more complex and not needed for the primary use case. Start with message injection callback first.
+
 ---
 
 ## Layer 2: FlatMachines (Orchestrated Tool Loop)
