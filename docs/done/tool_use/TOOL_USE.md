@@ -2,7 +2,7 @@
 
 > **Status:** Draft  
 > **Branch reference:** `origin/tool-use-flatagent` (existing prototype)  
-> **Date:** 2026-02-28
+> **Date:** 2026-03-01
 
 ## Problem
 
@@ -14,13 +14,88 @@ We want both:
 
 ## Design Principle
 
-**A tool-call round is a state step.** The LLM says "call these tools" → tools execute → results go back. That's the same shape as a state in a machine: enter, execute, evaluate transitions. The tool loop maps onto the existing machine execution model without new abstractions.
+**A tool call is a state step.** The LLM says "call these tools" → each tool executes → checkpoint → hooks fire → transitions evaluate. This maps onto the existing machine execution model without new abstractions.
+
+Checkpointing and hooks fire after **every individual tool call**, not after each round. This gives full rewind granularity — you can resume from the exact point where tool call #7 happened, inspect the state, replay from there or let the LLM diverge.
 
 ---
 
 ## Layer 1: FlatAgents (Single-Call Primitives)
 
 FlatAgent stays a single LLM call. No loop. But it needs to support the mechanics of tool use: accepting tool definitions, returning tool call requests, continuing from a message chain.
+
+### ToolProvider Protocol (lives in flatagents)
+
+`ToolProvider` is a **flatagents concept**, not a flatmachines concept. Both `ToolLoopAgent` (standalone) and `FlatMachine` (orchestrated) use the same protocol for tool execution.
+
+```python
+# flatagents/tools.py
+
+from typing import Any, Dict, List, Protocol
+from dataclasses import dataclass
+
+
+@dataclass
+class ToolResult:
+    """Result from executing a tool."""
+    content: str
+    is_error: bool = False
+
+
+class ToolProvider(Protocol):
+    """
+    Provides tool definitions and execution.
+    
+    Used by both ToolLoopAgent (standalone) and FlatMachine (orchestrated).
+    """
+    
+    async def execute_tool(
+        self,
+        name: str,
+        tool_call_id: str,
+        arguments: Dict[str, Any],
+    ) -> ToolResult:
+        """Execute a tool and return its result."""
+        ...
+    
+    def get_tool_definitions(self) -> List[Dict[str, Any]]:
+        """
+        Return tool definitions in OpenAI function-calling format.
+        
+        Optional — if the agent YAML already has `tools:` defined,
+        this method doesn't need to return anything. If it does,
+        its definitions are merged with (and override) the YAML ones.
+        """
+        ...
+
+
+class SimpleToolProvider:
+    """Build a ToolProvider from individual Tool objects."""
+    
+    def __init__(self, tools: List["Tool"]):
+        self._tools = {t.name: t for t in tools}
+    
+    def get_tool_definitions(self) -> List[Dict[str, Any]]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                },
+            }
+            for t in self._tools.values()
+        ]
+    
+    async def execute_tool(self, name, tool_call_id, arguments) -> ToolResult:
+        tool = self._tools.get(name)
+        if tool is None:
+            return ToolResult(content=f"Unknown tool: {name}", is_error=True)
+        return await tool.execute(tool_call_id, arguments)
+```
+
+`FlatMachine` imports `ToolProvider` from flatagents. One concept, both layers.
 
 ### Changes to `FlatAgent.call()`
 
@@ -140,7 +215,7 @@ class ToolLoopAgent:
     def __init__(
         self,
         agent: FlatAgent,
-        tools: List[Tool],
+        tool_provider: ToolProvider,              # Shared protocol
         guardrails: Optional[Guardrails] = None,
         steering: Optional[SteeringProvider] = None,
     ):
@@ -151,7 +226,9 @@ class ToolLoopAgent:
         ...
 ```
 
-**This is identical to what's on the branch.** The key types (`Tool`, `ToolResult`, `Guardrails`, `StopReason`, `ToolLoopResult`, `AggregateUsage`) stay as-is. The test suite from the branch (`test_tool_loop.py`) covers it thoroughly.
+**This is identical to what's on the branch**, adapted to use `ToolProvider` instead of `List[Tool]`. The `SimpleToolProvider` wraps `Tool` objects for backward compatibility. The key types (`Tool`, `ToolResult`, `Guardrails`, `StopReason`, `ToolLoopResult`, `AggregateUsage`) stay as-is. The test suite from the branch (`test_tool_loop.py`) covers it thoroughly.
+
+The `ToolLoopAgent` constructor also accepts `List[Tool]` for convenience — it wraps them in a `SimpleToolProvider` internally.
 
 **What ToolLoopAgent gives you:**
 - Guardrails: max_turns, max_tool_calls, tool_timeout, total_timeout, max_cost
@@ -167,66 +244,91 @@ class ToolLoopAgent:
 - Human-in-the-loop (`wait_for`)
 - Composition with other states/machines
 
-### ToolLoopAgent Extension: Per-turn Mutation Callback (internal)
-
-Current `run(**input_data)` semantics render templates from `input_data` on turn 0, then continue with a private message chain. There is no first-class way to inject dynamic per-turn state (budget, elapsed cost, steering, tool policy) without reimplementing the loop.
-
-For this codebase (internal use, no external compatibility contract), expose a broad mutation seam.
-
-#### Proposed API
-
-```python
-@dataclass
-class TurnContext:
-    # conversation + loop state (mutable)
-    messages: List[dict]
-    input_data: Dict[str, Any]
-
-    turn: int
-    total_tool_calls: int
-    usage: AggregateUsage
-
-    last_assistant_message: Optional[dict]
-    last_tool_results: List[dict]
-
-    # optional mutable knobs
-    guardrails: Guardrails
-    allowed_tools: Optional[List[str]]
-    denied_tools: Optional[List[str]]
-    stop_reason: Optional[StopReason]
-
-OnTurnCallback = Callable[
-    [TurnContext],
-    Optional[TurnContext] | Awaitable[Optional[TurnContext]]
-]
-
-class ToolLoopAgent:
-    def __init__(..., on_turn: Optional[OnTurnCallback] = None):
-        ...
-
-    async def run(self, on_turn: Optional[OnTurnCallback] = None, **input_data) -> ToolLoopResult:
-        ...
-```
-
-#### Semantics
-
-- Called **after tool results are appended** and **before the next LLM call**.
-- Callback may mutate `TurnContext` in place and return `None`, or return a replacement `TurnContext`.
-- Supports sync or async callbacks.
-- If both constructor-level and `run(...)` callback are provided, `run(...)` wins.
-- Keep only minimal runtime validation (message shape, non-negative counters, known stop reason values).
-
-#### Notes
-
-- This intentionally allows arbitrary state control per turn.
-- "Append-only messages" remains a subset pattern: callback can choose to only append to `messages`.
-- If stricter boundaries are desired later, we can layer a typed/limited callback on top.
+> **Note:** The per-turn mutation callback (`on_turn` / `TurnContext`) is a proposed
+> extension to `ToolLoopAgent` for internal use. See
+> [tool_use_on_turn.md](./tool_use_on_turn.md) for the design.
 
 ---
 
 ## Layer 2: FlatMachines (Orchestrated Tool Loop)
 
-A state with `agent` + `tool_loop` tells the machine to run the tool-call loop as repeated executions of that state, with the full hook suite and transition evaluation between every round.
+A state with `agent` + `tool_loop` tells the machine to run the tool-call loop as repeated executions of that state, with the full hook suite and transition evaluation between every tool call.
+
+### Cross-Adapter Tool Loop via `execute_with_tools`
+
+The tool loop works across adapter boundaries. The `AgentExecutor` protocol gains a new method:
+
+```python
+# flatmachines/agents.py
+
+@dataclass
+class AgentResult:
+    # ... existing fields ...
+    tool_calls: Optional[List[Dict[str, Any]]] = None      # NEW
+    rendered_user_prompt: Optional[str] = None               # NEW
+
+
+class AgentExecutor(Protocol):
+    """Protocol for running a single agent call."""
+
+    async def execute(
+        self,
+        input_data: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None,
+    ) -> AgentResult:
+        ...
+
+    async def execute_with_tools(
+        self,
+        input_data: Dict[str, Any],
+        tools: List[Dict[str, Any]],
+        messages: Optional[List[Dict[str, Any]]] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> AgentResult:
+        """
+        Execute a single LLM call with tool definitions and optional
+        conversation chain. Used by the machine's tool loop.
+        
+        Args:
+            input_data: Input for template rendering (first call only)
+            tools: Tool definitions in OpenAI function-calling format
+            messages: Conversation chain for continuation (subsequent calls)
+            context: Machine context (read-only, for adapter use)
+        
+        Returns:
+            AgentResult with tool_calls populated if LLM requested tools,
+            finish_reason="tool_use" when tools requested,
+            rendered_user_prompt on first call for chain seeding.
+        """
+        raise NotImplementedError
+
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        ...
+```
+
+**`tool_calls` on AgentResult** uses plain dicts for cross-process compatibility:
+```python
+[{"id": "call_abc", "name": "read_file", "arguments": {"path": "src/main.py"}}, ...]
+```
+
+Each adapter implements `execute_with_tools` for its runtime:
+
+| Adapter | Implementation |
+|---------|---------------|
+| `FlatAgentExecutor` | `self._agent.call(tools=tools, messages=messages, **input_data)` — maps `AgentResponse.tool_calls` to `AgentResult.tool_calls` |
+| `PiAgentBridgeExecutor` | Extends JSON protocol: `{"mode": "single_call", "tools": [...], "messages": [...]}` — runner does one LLM call, returns tool_calls |
+| `SmolagentsExecutor` | Uses lower-level smolagents API for single-step calls instead of `agent.run()` |
+
+The machine's `_execute_tool_loop` doesn't care what's behind the adapter. It calls `execute_with_tools`, gets back `AgentResult` with `tool_calls`, executes those tools via `ToolProvider`, appends results to the chain, and calls again. **The LLM decides what to call, the machine decides how to execute it.**
+
+If `tool_loop` is set on a state whose adapter does not implement `execute_with_tools`, the machine raises a clear runtime error:
+
+```
+RuntimeError: Agent 'coder' (adapter 'smolagents') does not support
+machine-driven tool loops. Implement execute_with_tools on the adapter
+or remove tool_loop from state 'code'.
+```
 
 ### Schema Addition (`flatmachine.d.ts`)
 
@@ -248,6 +350,14 @@ export interface ToolLoopStateConfig {
 ```
 
 `tool_loop: true` uses all defaults. `tool_loop: { max_turns: 5, max_cost: 0.50 }` overrides specific limits.
+
+All `ToolLoopStateConfig` values support Jinja2 templates, rendered at loop start against the current context:
+
+```yaml
+tool_loop:
+  max_cost: "{{ context.approved_budget }}"
+  max_turns: "{{ context.max_iterations }}"
+```
 
 ### Machine YAML Example
 
@@ -328,7 +438,7 @@ class MachineHooks:
         - Log/audit what tools the LLM is calling
         - Inject data into context for transition evaluation
         - Set context['_abort_tool_loop'] = True to stop the loop
-        - Set context['_skip_tools'] = ['tool_name'] to skip specific calls
+        - Set context['_skip_tools'] = ['tool_call_id'] to skip specific calls
         
         Args:
             state_name: Current state name
@@ -340,27 +450,28 @@ class MachineHooks:
         """
         return context
     
-    def on_tool_results(
+    def on_tool_result(
         self,
         state_name: str,
-        tool_results: List[Dict[str, Any]],
+        tool_result: Dict[str, Any],
         context: Dict[str, Any],
     ) -> Dict[str, Any]:
         """
-        Called AFTER tool execution, BEFORE the next LLM call.
+        Called AFTER each individual tool execution.
         
-        Fires once per round after all tools in that round have executed.
-        `tool_results` contains the results from each tool call.
+        Fires once per tool call — if the LLM requested 3 tools,
+        this fires 3 times. A checkpoint is saved after each call,
+        enabling rewind to any specific tool execution point.
         
         Use cases:
-        - Inspect results for safety/compliance
-        - Update context based on tool outputs (e.g., track modified files)
+        - Inspect result for safety/compliance
+        - Update context based on tool output (e.g., track modified files)
         - Inject steering messages via context['_steering_messages']
-        - Set context['_abort_tool_loop'] = True to stop
+        - Set context['_abort_tool_loop'] = True to stop before next tool
         
         Args:
             state_name: Current state name
-            tool_results: List of result dicts: [{tool_call_id, name, content, is_error}, ...]
+            tool_result: Result dict: {tool_call_id, name, arguments, content, is_error}
             context: Current context
             
         Returns:
@@ -373,103 +484,15 @@ class MachineHooks:
 
 Tools need two things: **definitions** (JSON schema for the LLM) and **executors** (code that runs them). These are separate concerns.
 
-**Definitions** come from the agent's YAML config (`data.tools`). The LLM sees these in every call. They can also be provided at runtime via hooks.
+**Definitions** come from the agent's YAML config (`data.tools`) and/or `ToolProvider.get_tool_definitions()`. The LLM sees these in every call.
 
-**Executors** are registered via hooks. The machine doesn't know how to `read_file` — your hooks do.
+**Executors** come from `ToolProvider.execute_tool()`. The machine doesn't know how to `read_file` — the provider does.
 
-```python
-# hooks.py for the coding-agent machine
-
-from flatmachines import MachineHooks
-
-class CodingHooks(MachineHooks):
-    """Tool execution for the coding agent."""
-    
-    def __init__(self, working_dir: str = "."):
-        self.working_dir = working_dir
-        self._tools = {
-            "read_file": self._read_file,
-            "write_file": self._write_file,
-        }
-    
-    def on_action(self, action_name: str, context: dict) -> dict:
-        """Execute a tool call. Called by the machine's tool loop."""
-        if action_name.startswith("tool:"):
-            tool_name = action_name[5:]  # Strip "tool:" prefix
-            executor = self._tools.get(tool_name)
-            if executor:
-                # Tool args and call ID are in context['_tool_call']
-                call = context['_tool_call']
-                result = executor(call['arguments'])
-                context['_tool_result'] = result
-        return context
-    
-    def on_tool_results(self, state_name, tool_results, context):
-        """Track which files were modified."""
-        for result in tool_results:
-            if result['name'] == 'write_file' and not result.get('is_error'):
-                path = result.get('arguments', {}).get('path')
-                if path:
-                    context.setdefault('files_modified', []).append(path)
-        return context
-    
-    def _read_file(self, args):
-        path = os.path.join(self.working_dir, args['path'])
-        return {"content": open(path).read()}
-    
-    def _write_file(self, args):
-        path = os.path.join(self.working_dir, args['path'])
-        with open(path, 'w') as f:
-            f.write(args['content'])
-        return {"written": True}
-```
-
-However, **on_action is synchronous and one-tool-at-a-time**. For tool loops, we need a more direct mechanism. The preferred pattern is a **ToolProvider** protocol:
+`ToolProvider` is passed to the machine:
 
 ```python
-# flatmachines/tool_providers.py (NEW file)
+from flatagents.tools import ToolProvider  # Shared protocol from flatagents
 
-from typing import Any, Dict, List, Optional, Protocol
-from dataclasses import dataclass
-
-
-@dataclass
-class ToolResult:
-    """Result from executing a tool."""
-    content: str
-    is_error: bool = False
-
-
-class ToolProvider(Protocol):
-    """
-    Provides tool definitions and execution for tool_loop states.
-    
-    Registered on the machine via hooks or constructor arg.
-    """
-    
-    async def execute_tool(
-        self,
-        name: str,
-        tool_call_id: str,
-        arguments: Dict[str, Any],
-    ) -> ToolResult:
-        """Execute a tool and return its result."""
-        ...
-    
-    def get_tool_definitions(self) -> List[Dict[str, Any]]:
-        """
-        Return tool definitions in OpenAI function-calling format.
-        
-        Optional — if the agent YAML already has `tools:` defined,
-        this method doesn't need to return anything. If it does,
-        its definitions are merged with (and override) the YAML ones.
-        """
-        ...
-```
-
-ToolProvider is passed to the machine:
-
-```python
 machine = FlatMachine(
     config_file="machine.yml",
     hooks=CodingHooks(working_dir="/tmp/workspace"),
@@ -514,34 +537,46 @@ async def _execute_tool_loop(
     """
     Execute an agent in tool-loop mode.
     
-    Each LLM-call + tool-execution round is a step:
-    1. Call agent (with tools + message chain)
+    Each tool call is an individually checkpointed step:
+    1. Call agent via execute_with_tools (with tools + message chain)
     2. If agent returns tool_calls:
-       a. Fire on_tool_calls hook
-       b. Execute tools via ToolProvider
-       c. Fire on_tool_results hook
-       d. Check guardrails (max_turns, max_tool_calls, cost)
-       e. Evaluate transitions — if any match, EXIT the loop
-       f. Checkpoint
-       g. Append results to chain, go to step 1
+       a. Fire on_tool_calls hook (once per LLM response)
+       b. For EACH tool call in the response:
+          i.   Execute tool via ToolProvider
+          ii.  Append result to chain
+          iii. Fire on_tool_result hook
+          iv.  Checkpoint
+          v.   Evaluate conditional transitions — if any match, EXIT
+       c. Check guardrails (max_turns, max_tool_calls, cost)
+       d. Go to step 1
     3. If agent returns content (no tool_calls):
        a. Loop is done. Return output for normal transition evaluation.
     """
-    # Parse guardrails from state config
+    # Parse guardrails from state config — Jinja2 templates supported
     loop_config = state.get('tool_loop', {})
     if isinstance(loop_config, bool):
         loop_config = {}
     
-    max_turns = loop_config.get('max_turns', 20)
-    max_tool_calls = loop_config.get('max_tool_calls', 50)
-    tool_timeout = loop_config.get('tool_timeout', 30.0)
-    total_timeout = loop_config.get('total_timeout', 600.0)
-    max_cost = loop_config.get('max_cost')
+    variables = {"context": context, "input": context}
+    max_turns = self._render_guardrail(loop_config.get('max_turns', 20), variables, int)
+    max_tool_calls = self._render_guardrail(loop_config.get('max_tool_calls', 50), variables, int)
+    tool_timeout = self._render_guardrail(loop_config.get('tool_timeout', 30.0), variables, float)
+    total_timeout = self._render_guardrail(loop_config.get('total_timeout', 600.0), variables, float)
+    max_cost = self._render_guardrail(loop_config.get('max_cost'), variables, float)
     allowed_tools = set(loop_config.get('allowed_tools', []))
     denied_tools = set(loop_config.get('denied_tools', []))
     
-    # Get agent executor and tool provider
+    # Get agent executor — must support execute_with_tools
     executor = self._get_executor(agent_name)
+    if not hasattr(executor, 'execute_with_tools'):
+        adapter_type = getattr(executor, '__class__', type(executor)).__name__
+        raise RuntimeError(
+            f"Agent '{agent_name}' ({adapter_type}) does not support "
+            f"machine-driven tool loops. Implement execute_with_tools "
+            f"on the adapter or remove tool_loop from state '{state_name}'."
+        )
+    
+    # Get tool provider
     tool_provider = self._resolve_tool_provider(state_name)
     
     # Resolve tool definitions
@@ -573,21 +608,25 @@ async def _execute_tool_loop(
             context['_tool_loop_stop'] = 'cost_limit'
             break
         
-        # --- Call agent ---
+        # --- Call agent via execute_with_tools ---
         if turns == 0:
-            # First turn: pass input_data for template rendering + tools
-            response = await self._call_agent_with_tools(
-                executor, agent_input, tool_defs, chain=None
+            result = await executor.execute_with_tools(
+                input_data=agent_input,
+                tools=tool_defs,
+                messages=None,
+                context=context,
             )
         else:
-            # Subsequent turns: pass chain only
-            response = await self._call_agent_with_tools(
-                executor, {}, tool_defs, chain=chain
+            result = await executor.execute_with_tools(
+                input_data={},
+                tools=tool_defs,
+                messages=chain,
+                context=context,
             )
         
         turns += 1
-        self._accumulate_agent_metrics(response)
-        loop_cost += self._extract_cost(response)
+        self._accumulate_agent_metrics(result)
+        loop_cost += self._extract_cost(result)
         
         # Update context with loop metadata
         context['_tool_loop_turns'] = turns
@@ -595,73 +634,110 @@ async def _execute_tool_loop(
         context['_tool_calls_count'] = tool_calls_count
         
         # --- Handle error ---
-        if response.error:
+        if result.error:
             raise RuntimeError(
-                f"{response.error.get('type', 'AgentError')}: "
-                f"{response.error.get('message', 'unknown')}"
+                f"{result.error.get('type', 'AgentError')}: "
+                f"{result.error.get('message', 'unknown')}"
             )
         
         # --- Seed chain on first turn ---
-        if turns == 1 and response.rendered_user_prompt:
-            chain.append({"role": "user", "content": response.rendered_user_prompt})
+        if turns == 1 and result.rendered_user_prompt:
+            chain.append({"role": "user", "content": result.rendered_user_prompt})
         
         # --- Build assistant message and append to chain ---
-        assistant_msg = self._build_assistant_message(response)
+        assistant_msg = self._build_assistant_message(result)
         chain.append(assistant_msg)
-        last_content = response.content
+        last_content = result.content
         
         # --- No tool calls = loop complete ---
-        if response.finish_reason != "tool_use":
+        if result.finish_reason != "tool_use":
             break
         
-        pending_calls = response.tool_calls or []
+        pending_calls = result.tool_calls or []
         
         # --- Guardrail: tool call count ---
         if tool_calls_count + len(pending_calls) > max_tool_calls:
             context['_tool_loop_stop'] = 'max_tool_calls'
             break
         
-        # --- HOOK: on_tool_calls ---
+        # --- HOOK: on_tool_calls (once per LLM response) ---
         context = await self._run_hook(
-            'on_tool_calls', state_name, 
-            [{"id": tc.id, "name": tc.tool, "arguments": tc.arguments} 
-             for tc in pending_calls],
-            context,
+            'on_tool_calls', state_name, pending_calls, context,
         )
         
         if context.get('_abort_tool_loop'):
             context['_tool_loop_stop'] = 'aborted'
             break
         
-        # --- Execute tools ---
-        tool_results = []
+        # --- Execute tools ONE AT A TIME with per-tool hooks + checkpoints ---
+        skip_tools = set(context.pop('_skip_tools', []))
+        
         for tc in pending_calls:
-            result = await self._execute_single_tool(
-                tool_provider, tc, tool_timeout, allowed_tools, denied_tools
+            tc_name = tc.get('name') or tc.get('tool')
+            tc_id = tc.get('id')
+            tc_args = tc.get('arguments', {})
+            
+            # Skip if hook requested
+            if tc_id in skip_tools or tc_name in skip_tools:
+                chain.append({
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "content": f"Tool '{tc_name}' was skipped by policy.",
+                })
+                continue
+            
+            # Execute single tool
+            tool_result = await self._execute_single_tool(
+                tool_provider, tc_name, tc_id, tc_args,
+                tool_timeout, allowed_tools, denied_tools,
             )
             tool_calls_count += 1
-            tool_results.append({
-                "tool_call_id": tc.id,
-                "name": tc.tool,
-                "arguments": tc.arguments,
-                "content": result.content,
-                "is_error": result.is_error,
-            })
+            
+            tool_result_dict = {
+                "tool_call_id": tc_id,
+                "name": tc_name,
+                "arguments": tc_args,
+                "content": tool_result.content,
+                "is_error": tool_result.is_error,
+            }
+            
             chain.append({
                 "role": "tool",
-                "tool_call_id": tc.id,
-                "content": result.content,
+                "tool_call_id": tc_id,
+                "content": tool_result.content,
             })
+            
+            context['_tool_calls_count'] = tool_calls_count
+            
+            # --- HOOK: on_tool_result (per tool call) ---
+            context = await self._run_hook(
+                'on_tool_result', state_name, tool_result_dict, context,
+            )
+            
+            # --- Checkpoint after each tool call ---
+            await self._save_checkpoint(
+                'tool_call', state_name, self._current_step, context,
+                tool_loop_state={
+                    "chain": chain,
+                    "turns": turns,
+                    "tool_calls_count": tool_calls_count,
+                    "loop_cost": loop_cost,
+                },
+            )
+            
+            # --- Evaluate conditional transitions after each tool call ---
+            if context.get('_abort_tool_loop'):
+                context['_tool_loop_stop'] = 'aborted'
+                break
+            
+            next_state = self._find_conditional_transition(state_name, context)
+            if next_state is not None:
+                context['_tool_loop_stop'] = 'transition'
+                context['_tool_loop_next_state'] = next_state
+                break
         
-        context['_tool_calls_count'] = tool_calls_count
-        
-        # --- HOOK: on_tool_results ---
-        context = await self._run_hook(
-            'on_tool_results', state_name, tool_results, context,
-        )
-        
-        if context.get('_abort_tool_loop'):
-            context['_tool_loop_stop'] = 'aborted'
+        # Check if inner loop broke out
+        if context.get('_tool_loop_stop'):
             break
         
         # --- Inject steering messages from hook ---
@@ -669,26 +745,13 @@ async def _execute_tool_loop(
         if steering:
             for msg in steering:
                 chain.append(msg)
-        
-        # --- Checkpoint between rounds ---
-        await self._save_checkpoint(
-            'tool_loop_round', state_name, self._current_step, context
-        )
-        
-        # --- Evaluate transitions mid-loop ---
-        # If any transition condition is true, exit the tool loop
-        # and let the main execute loop handle the transition.
-        next_state = self._find_next_state(state_name, context)
-        if next_state is not None:
-            context['_tool_loop_stop'] = 'transition'
-            context['_tool_loop_next_state'] = next_state
-            break
     
     # --- Build output ---
     output = {
         "content": last_content,
         "_tool_calls_count": tool_calls_count,
         "_tool_loop_turns": turns,
+        "_tool_loop_cost": loop_cost,
         "_tool_loop_stop": context.get('_tool_loop_stop', 'complete'),
     }
     
@@ -702,9 +765,58 @@ async def _execute_tool_loop(
     return context, output
 ```
 
+### Per-Tool-Call Granularity
+
+Hooks, checkpoints, and transitions fire after **every individual tool call**, not after each round. When the LLM returns `[tool_A, tool_B, tool_C]`:
+
+```
+LLM response: [tool_A, tool_B, tool_C]
+  ├─ on_tool_calls hook (once, sees all 3)
+  ├─ execute tool_A
+  │   ├─ on_tool_result hook (tool_A result)
+  │   ├─ checkpoint (chain includes tool_A result)
+  │   └─ evaluate conditional transitions
+  ├─ execute tool_B
+  │   ├─ on_tool_result hook (tool_B result)
+  │   ├─ checkpoint (chain includes tool_A + tool_B results)
+  │   └─ evaluate conditional transitions
+  └─ execute tool_C
+      ├─ on_tool_result hook (tool_C result)
+      ├─ checkpoint (chain includes all 3 results)
+      └─ evaluate conditional transitions
+```
+
+This enables:
+- **Rewind to tool_A:** Resume from that checkpoint, replay tool_B and tool_C, or let the LLM diverge.
+- **Abort mid-batch:** `on_tool_result` for tool_A sets `_abort_tool_loop`, tool_B and tool_C are skipped.
+- **Transition mid-batch:** tool_A writes to a sensitive path, hook sets `context.needs_approval`, conditional transition fires, loop exits before tool_B.
+
 ### Mid-Loop Transition Evaluation
 
-This is the key feature that makes the FlatMachine version powerful. After every tool-call round, the machine checks transitions:
+After each tool call, the machine evaluates **conditional transitions only**. Unconditional transitions (no `condition` field) are the natural exit path — they fire only when the loop completes normally (LLM stops calling tools or guardrails fire).
+
+```python
+def _find_conditional_transition(
+    self,
+    state_name: str,
+    context: Dict[str, Any],
+) -> Optional[str]:
+    """Evaluate only conditional transitions. Used mid-tool-loop."""
+    state = self.states.get(state_name, {})
+    transitions = state.get('transitions', [])
+    
+    for transition in transitions:
+        condition = transition.get('condition')
+        to_state = transition.get('to')
+        
+        if not condition or not to_state:
+            continue  # Skip unconditional transitions
+        
+        if self._evaluate_condition(condition, context):
+            return to_state
+    
+    return None
+```
 
 ```yaml
 states:
@@ -717,44 +829,32 @@ states:
     output_to_context:
       result: "{{ output.content }}"
     transitions:
-      # These are checked BETWEEN every tool-call round:
+      # These are checked AFTER EVERY TOOL CALL:
       - condition: "context.needs_approval"
         to: wait_for_approval
       - condition: "context._tool_calls_count > 20"
         to: too_many_tools
       - condition: "context._tool_loop_cost > 0.50"
         to: cost_warning
-      # This is the normal exit (when LLM finishes without more tool calls):
+      # This is the natural exit (only when loop completes):
       - to: review
 ```
 
-The transitions evaluate against the current context, which hooks can modify between rounds. This means hooks can set flags that trigger transitions:
+Hooks can set flags that trigger mid-loop transitions:
 
 ```python
 class SafetyHooks(MachineHooks):
-    def on_tool_results(self, state_name, tool_results, context):
-        # Check if any tool wrote to a sensitive path
-        for result in tool_results:
-            if result['name'] == 'write_file':
-                path = result['arguments'].get('path', '')
-                if '/etc/' in path or path.startswith('/root'):
-                    context['needs_approval'] = True  # Triggers transition!
+    def on_tool_result(self, state_name, tool_result, context):
+        if tool_result['name'] == 'write_file':
+            path = tool_result['arguments'].get('path', '')
+            if '/etc/' in path or path.startswith('/root'):
+                context['needs_approval'] = True  # Triggers transition!
         return context
 ```
 
 ### Handling `_tool_loop_next_state`
 
 When a mid-loop transition fires, the main `execute` loop needs to know:
-
-```python
-# In _execute_state, after _execute_tool_loop returns:
-if context.get('_tool_loop_next_state'):
-    # Mid-loop transition override — skip normal transition evaluation
-    # The main loop will pick this up
-    pass
-```
-
-And in the main `execute` loop:
 
 ```python
 # In execute(), after _execute_state returns:
@@ -767,27 +867,59 @@ else:
 
 ### Checkpoint & Resume
 
-The tool loop checkpoints after every round (`tool_loop_round` event). On resume:
-
-```python
-# In _execute_tool_loop, at the start:
-# Check if we have a checkpointed chain to resume from
-if self._resuming_tool_loop:
-    chain = self._resumed_chain
-    turns = self._resumed_turns
-    tool_calls_count = self._resumed_tool_calls_count
-    # Continue the loop from where we left off
-```
-
-The chain, turns, and tool_calls_count need to be included in the checkpoint snapshot. This means `MachineSnapshot` gets an optional `tool_loop_state` field:
+The tool loop checkpoints after every tool call (`tool_call` event). The checkpoint includes the full tool loop state for resumption:
 
 ```python
 @dataclass
 class MachineSnapshot:
     # ... existing fields ...
     tool_loop_state: Optional[Dict[str, Any]] = None
-    # Contains: chain, turns, tool_calls_count, loop_cost, start_time
+    # Contains: chain, turns, tool_calls_count, loop_cost
 ```
+
+On resume:
+
+```python
+# In _execute_tool_loop, at the start:
+if self._resuming and snapshot.tool_loop_state:
+    tls = snapshot.tool_loop_state
+    chain = tls['chain']
+    turns = tls['turns']
+    tool_calls_count = tls['tool_calls_count']
+    loop_cost = tls['loop_cost']
+    # Continue the loop from where we left off
+```
+
+The chain contains role/content/tool_calls dicts — all JSON-serializable. The existing `CheckpointManager._safe_serialize` handles this without changes.
+
+### Guardrail Rendering
+
+`ToolLoopStateConfig` values support Jinja2 templates, rendered at loop start:
+
+```python
+def _render_guardrail(self, value, variables, target_type):
+    """Render a guardrail value through Jinja2 if it's a template string."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        rendered = self._render_template(value, variables)
+        return target_type(rendered)
+    return target_type(value)
+```
+
+This enables dynamic guardrails from context:
+
+```yaml
+code_continued:
+  agent: coder
+  tool_loop:
+    max_cost: "{{ context.approved_budget }}"
+    max_turns: "{{ context.remaining_iterations }}"
+```
+
+### Cost Tracking
+
+The tool loop maintains its own `loop_cost` counter for guardrail evaluation. The machine's `_accumulate_agent_metrics` is called for each `AgentResult` (existing behavior), so `self.total_cost` includes all calls automatically. No double-counting — `loop_cost` is local to the loop for guardrail checks, `total_cost` is machine-wide for reporting.
 
 ---
 
@@ -796,18 +928,19 @@ class MachineSnapshot:
 | Capability | ToolLoopAgent (flatagents) | FlatMachine + tool_loop |
 |---|---|---|
 | Basic tool-call loop | ✅ | ✅ |
-| Guardrails (turns, calls, cost, timeout) | ✅ | ✅ |
+| Guardrails (turns, calls, cost, timeout) | ✅ | ✅ (+ Jinja2 templates) |
 | Tool allow/deny lists | ✅ | ✅ |
 | Steering messages between rounds | ✅ (callback) | ✅ (hook sets `_steering_messages`) |
 | Usage aggregation | ✅ | ✅ (machine-level metrics) |
-| Hooks between tool calls | ❌ | ✅ `on_tool_calls`, `on_tool_results` |
-| Checkpoint / crash recovery | ❌ | ✅ every round |
-| Transition evaluation mid-loop | ❌ | ✅ |
+| Hooks between tool calls | ❌ | ✅ `on_tool_calls`, `on_tool_result` |
+| Checkpoint after every tool call | ❌ | ✅ (rewind to any tool call) |
+| Transition evaluation per tool call | ❌ | ✅ (conditional transitions) |
 | Human-in-the-loop (`wait_for`) | ❌ | ✅ (transition to `wait_for` state) |
-| Conditional branching mid-loop | ❌ (stop only) | ✅ (any transition) |
+| Conditional branching mid-loop | ❌ (stop only) | ✅ (any conditional transition) |
 | Error recovery (`on_error`) | ❌ (stop only) | ✅ (machine error handling) |
 | Compose with other machines | ❌ | ✅ |
 | Works without flatmachines | ✅ | ❌ |
+| Cross-adapter (pi, smolagents) | ❌ | ✅ (via `execute_with_tools`) |
 
 ---
 
@@ -915,7 +1048,7 @@ await signals.send("budget/task-42", {
 
 **What happens at each stage:**
 
-1. Agent works in `code` state, tools firing, hooks running, checkpointing every round.
+1. Agent works in `code` state, tools firing, hooks running, checkpointing every tool call.
 2. Cost hits $0.50 → `_tool_loop_stop` = `cost_limit` → transition to `request_budget`.
 3. `wait_for: "budget/..."` → `WaitingForSignal` raised → checkpoint saved with `waiting_channel` → **process exits**.
 4. SQLite has: one checkpoint row (full context, conversation chain), one waiting_channel marker. Zero processes.
@@ -1078,10 +1211,10 @@ class SafetyHooks(MachineHooks):
                         'content_preview': tc['arguments'].get('content', '')[:200],
                     })
                     # Don't actually execute the write — skip it
-                    context.setdefault('_skip_tools', []).append(tc['name'])
+                    context.setdefault('_skip_tools', []).append(tc['id'])
             if pending:
                 context['pending_writes'] = pending
-                # This triggers the mid-loop transition to review_writes
+                # Transition fires after next tool call completes
         return context
 ```
 
@@ -1171,72 +1304,37 @@ This makes patterns like "run 1,000 coding tasks, each with a $0.50 budget gate"
 
 ---
 
-## Open Questions
+## Resolved Design Decisions
 
-### 1. How does the FlatAgent adapter pass tools through?
-
-The current `FlatAgentExecutor.execute()` calls `self._agent.call(**input_data)`. For tool loops, the machine needs to call `self._agent.call(messages=chain, tools=tool_defs, **input_data)`. 
-
-Options:
-- **A) New method on AgentExecutor protocol:** `execute_with_tools(input_data, tools, messages) -> AgentResult`
-- **B) Pass tools/messages in input_data:** `input_data['_tools'] = ...`, `input_data['_messages'] = ...`
-- **C) Direct FlatAgent access:** The tool loop bypasses the adapter and calls FlatAgent directly when it detects the agent is a FlatAgent.
-
-Leaning toward **A** — it's explicit and keeps the protocol clean. Non-flatagent adapters can raise NotImplementedError.
-
-### 2. Should transitions evaluate after EVERY tool call, or after each ROUND?
-
-A round is one LLM response, which may contain multiple tool calls. The LLM says "call read_file and list_dir" — that's one round with two tool calls.
-
-Proposal: evaluate after each **round** (after all tools in one response execute). This matches the natural cadence and avoids mid-batch evaluation complexity. Hooks fire per-round too.
-
-### 3. What about tool definitions — YAML-only or runtime too?
-
-Current proposal: tool definitions come from agent YAML (`data.tools`). But some use cases need runtime-determined tools (e.g., available tools depend on context).
-
-The `ToolProvider.get_tool_definitions()` method handles this — its definitions merge with YAML ones. Hooks can also swap the tool provider per state. But should the machine YAML be able to declare tools too?
-
-```yaml
-# Option: tools at the state level in machine YAML
-states:
-  code:
-    agent: coder
-    tool_loop:
-      tools:
-        - type: function
-          function:
-            name: read_file
-            ...
-```
-
-This seems like over-specification. Better to keep tool definitions in the agent YAML or provider, and let the machine YAML only control the loop config (guardrails).
-
-### 4. Cost tracking across the tool loop
-
-`_execute_tool_loop` needs to extract cost from each agent call. The current adapter returns `AgentResult` with `cost: Optional[CostInfo | float]`. The loop accumulates this. But `_accumulate_agent_metrics` on the machine already does this per-call — we need to avoid double-counting.
-
-Proposal: the tool loop calls `_accumulate_agent_metrics` for each call (existing behavior), and also maintains its own `loop_cost` counter for guardrail evaluation. The machine's `total_cost` includes all calls automatically.
-
-### 5. Parallel tool execution
-
-The branch's `ToolLoopAgent` executes tools sequentially. Should the FlatMachine version support parallel execution?
-
-Proposal: sequential by default (simpler, deterministic). Add `parallel_tools: true` to `ToolLoopStateConfig` later if needed. Tool execution order rarely matters, but parallel execution complicates hook interactions and error handling.
+| # | Question | Decision | Rationale |
+|---|----------|----------|-----------|
+| 1 | Adapter passthrough | `execute_with_tools` on `AgentExecutor` protocol | Cross-runtime — works for FlatAgent (in-process), pi-agent (Node.js subprocess), smolagents. Each adapter implements for its runtime. |
+| 2 | Transition/checkpoint granularity | Per-tool-call | Enables rewind to any specific tool execution point. Hooks fire per tool call. Can replay or diverge from any checkpoint. |
+| 3 | `on_turn` callback for ToolLoopAgent | Deferred to [tool_use_on_turn.md](./tool_use_on_turn.md) | Useful for standalone, but not blocking. FlatMachine hooks provide the same power for orchestrated use. |
+| 4 | Unconditional transitions mid-loop | Mid-loop evaluates conditional only | Unconditional transitions are the natural exit. `_find_conditional_transition` skips transitions without a `condition` field. |
+| 5 | Jinja in ToolLoopStateConfig | Yes — render through `_render_template` | Jinja rendering is already used everywhere. Zero marginal cost. Enables `max_cost: "{{ context.approved_budget }}"`. |
+| 6 | ToolProvider placement | `flatagents` package | Shared by both `ToolLoopAgent` (standalone) and `FlatMachine` (orchestrated). One concept, both layers. |
+| 7 | `tool_loop` on non-capable adapter | Runtime error | Clear message: "Agent 'X' (adapter 'Y') does not support machine-driven tool loops. Implement `execute_with_tools` or remove `tool_loop` from state 'Z'." |
+| 8 | Cost tracking | Separate loop counter + machine accumulator | `loop_cost` is local for guardrail checks. `_accumulate_agent_metrics` feeds machine-wide `total_cost`. No double-counting. |
+| 9 | Parallel tool execution | Sequential for now | Simpler, deterministic, compatible with per-tool-call checkpointing. Can add `parallel_tools: true` later. |
 
 ---
 
 ## Implementation Order
 
-1. **Cherry-pick FlatAgent.call() changes** from branch → `tools` param, `rendered_user_prompt`, conditional MCP skip. Small, surgical diff.
-2. **Bring over ToolLoopAgent + tests** from branch as-is. Standalone flatagents use case works immediately.
-3. **Add ToolProvider protocol** to flatmachines. Simple protocol, no machine changes yet.
-4. **Add on_tool_calls / on_tool_results hooks** to MachineHooks. Backward compatible (default no-op).
-5. **Implement _execute_tool_loop** in FlatMachine. The core logic. Wire it into `_execute_state`.
-6. **Add mid-loop transition evaluation + _tool_loop_next_state handling**.
-7. **Add tool_loop checkpoint/resume support** to MachineSnapshot.
-8. **Update schemas** — flatagent.d.ts (tools field), flatmachine.d.ts (ToolLoopStateConfig).
-9. **Tests** — unit tests for the machine tool loop (mock agent, mock tool provider), integration tests with real transitions and hooks.
-10. **Example** — port the branch's `tool_loop` example to use both standalone and machine modes.
+1. **ToolProvider protocol in flatagents** — `flatagents/tools.py` with `ToolProvider`, `ToolResult`, `SimpleToolProvider`. This is the shared foundation.
+2. **Cherry-pick FlatAgent.call() changes** from branch → `tools` param, `rendered_user_prompt`, conditional MCP skip.
+3. **Bring over ToolLoopAgent + tests** from branch, adapted to accept `ToolProvider` (with backward-compatible `List[Tool]` convenience).
+4. **Update `AgentResult`** in flatmachines — add `tool_calls` and `rendered_user_prompt` fields.
+5. **Add `execute_with_tools`** to `AgentExecutor` protocol. Implement in `FlatAgentExecutor`.
+6. **Update schemas** — `flatagent.d.ts` (tools field, ToolDefinition), `flatmachine.d.ts` (ToolLoopStateConfig).
+7. **Add `on_tool_calls` / `on_tool_result` hooks** to `MachineHooks`. Backward compatible (default no-op).
+8. **Implement `_execute_tool_loop`** in FlatMachine — core loop with per-tool-call checkpoints, hooks, and conditional transition evaluation. Wire into `_execute_state`.
+9. **Add `_find_conditional_transition`** — evaluates only conditional transitions for mid-loop use.
+10. **Add tool_loop checkpoint/resume** — `tool_loop_state` on `MachineSnapshot`, resume logic in `_execute_tool_loop`.
+11. **Add `_render_guardrail`** — Jinja2 rendering for `ToolLoopStateConfig` values.
+12. **Tests** — unit tests for the machine tool loop (mock agent, mock tool provider), integration tests with per-tool-call transitions and hooks.
+13. **Example** — port the branch's `tool_loop` example to use both standalone and machine modes.
 
 ---
 
@@ -1365,11 +1463,10 @@ data:
 ### Hooks (`hooks.py`)
 
 ```python
-import asyncio
 import os
 import subprocess
+from flatagents.tools import ToolProvider, ToolResult
 from flatmachines import MachineHooks
-from flatmachines.tool_providers import ToolProvider, ToolResult
 
 
 class CodingToolProvider(ToolProvider):
@@ -1430,13 +1527,12 @@ class CodingHooks(MachineHooks):
                 context['pending_command'] = tc['arguments'].get('command')
         return context
     
-    def on_tool_results(self, state_name, tool_results, context):
+    def on_tool_result(self, state_name, tool_result, context):
         """Track modified files."""
-        for r in tool_results:
-            if r['name'] == 'write_file' and not r['is_error']:
-                path = r['arguments'].get('path')
-                if path and path not in context.get('files_modified', []):
-                    context['files_modified'].append(path)
+        if tool_result['name'] == 'write_file' and not tool_result['is_error']:
+            path = tool_result['arguments'].get('path')
+            if path and path not in context.get('files_modified', []):
+                context['files_modified'].append(path)
         return context
 ```
 
@@ -1444,12 +1540,15 @@ class CodingHooks(MachineHooks):
 
 ```python
 from flatagents import FlatAgent
-from flatagents.tool_loop import ToolLoopAgent, Tool, ToolResult, Guardrails
+from flatagents.tools import ToolProvider, ToolResult, SimpleToolProvider
+from flatagents.tool_loop import ToolLoopAgent, Tool, Guardrails
 
 async def read_file(tool_call_id, args):
     return ToolResult(content=open(args['path']).read())
 
 agent = FlatAgent(config_file="coder.yml")
+
+# Using Tool convenience objects (wrapped in SimpleToolProvider internally)
 loop = ToolLoopAgent(
     agent=agent,
     tools=[
@@ -1462,4 +1561,11 @@ loop = ToolLoopAgent(
 
 result = await loop.run(task="Read and summarize README.md")
 print(result.content)
+
+# Or using ToolProvider directly
+loop = ToolLoopAgent(
+    agent=agent,
+    tool_provider=my_custom_provider,
+    guardrails=Guardrails(max_turns=5),
+)
 ```
