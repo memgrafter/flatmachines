@@ -68,7 +68,7 @@ def get_error_recovery_config():
                 "end": {
                     "type": "final",
                     "output": {
-                        "final_count": "{{ context.count }}",
+                        "final_count": "context.count",
                         "recovered": "{{ context.recovered | default(false) }}"
                     }
                 }
@@ -146,7 +146,7 @@ class TestErrorWithResume:
                             {"to": "count_up"}
                         ]
                     },
-                    "end": {"type": "final", "output": {"final_count": "{{ context.count }}"}}
+                    "end": {"type": "final", "output": {"final_count": "context.count"}}
                 }
             }
         }

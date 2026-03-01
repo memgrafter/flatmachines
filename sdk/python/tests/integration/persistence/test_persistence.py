@@ -56,7 +56,7 @@ def get_counter_config():
                 },
                 "end": {
                     "type": "final",
-                    "output": {"final_count": "{{ context.count }}"}
+                    "output": {"final_count": "context.count"}
                 }
             }
         }

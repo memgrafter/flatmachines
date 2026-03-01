@@ -136,48 +136,51 @@ class TestJinja2StillWorks:
         assert result == "Hello Alice!"
 
     def test_jinja2_with_tojson(self):
-        """Test that | tojson still works for explicit JSON."""
+        """Test that | tojson renders a JSON string (Jinja2 always returns strings)."""
         machine = FlatMachine(config_dict=get_minimal_config())
         result = machine._render_template(
             "{{ context.chapters | tojson }}",
             {"context": {"chapters": ["a", "b"]}}
         )
-        assert result == ["a", "b"]
-        assert isinstance(result, list)
+        assert result == '["a", "b"]'
+        assert isinstance(result, str)
+        # Caller can recover the list with json.loads()
+        assert json.loads(result) == ["a", "b"]
 
     def test_jinja2_list_without_tojson(self):
-        """Test that lists render as JSON without explicit | tojson filter.
+        """Test that lists render as valid JSON strings via _json_finalize.
 
-        Previously, {{ context.my_list }} would render as ['a', 'b'] (Python repr)
-        which json.loads() can't parse. Now it renders as ["a", "b"] (valid JSON).
+        The custom finalize hook converts lists/dicts to JSON so the output is
+        parseable, but Jinja2 still returns a string — callers must json.loads()
+        if they need the native type.  Use bare path refs for type preservation.
         """
         machine = FlatMachine(config_dict=get_minimal_config())
         result = machine._render_template(
             "{{ context.my_list }}",
             {"context": {"my_list": ["a", "b"]}}
         )
-        assert result == ["a", "b"]
-        assert isinstance(result, list)
+        assert isinstance(result, str)
+        assert json.loads(result) == ["a", "b"]
 
     def test_jinja2_dict_without_tojson(self):
-        """Test that dicts render as JSON without explicit | tojson filter."""
+        """Test that dicts render as valid JSON strings via _json_finalize."""
         machine = FlatMachine(config_dict=get_minimal_config())
         result = machine._render_template(
             "{{ context.data }}",
             {"context": {"data": {"key": "value", "num": 42}}}
         )
-        assert result == {"key": "value", "num": 42}
-        assert isinstance(result, dict)
+        assert isinstance(result, str)
+        assert json.loads(result) == {"key": "value", "num": 42}
 
     def test_jinja2_nested_list_without_tojson(self):
-        """Test nested lists render correctly."""
+        """Test nested lists render as valid JSON strings."""
         machine = FlatMachine(config_dict=get_minimal_config())
         result = machine._render_template(
             "{{ context.nested }}",
             {"context": {"nested": [["a", "b"], ["c", "d"]]}}
         )
-        assert result == [["a", "b"], ["c", "d"]]
-        assert isinstance(result, list)
+        assert isinstance(result, str)
+        assert json.loads(result) == [["a", "b"], ["c", "d"]]
 
     def test_jinja2_filter_expression(self):
         """Test Jinja2 filters work."""
@@ -216,10 +219,32 @@ class TestJinja2StillWorks:
         assert result == "some.random.text"
 
 
-class TestSerializationWarnings:
-    """P2: Test that serialization warnings include field names."""
+class _LogCapture(logging.Handler):
+    """Lightweight handler that accumulates formatted log output."""
+    def __init__(self):
+        super().__init__()
+        self.output = ""
+    def emit(self, record):
+        self.output += self.format(record) + "\n"
 
-    def test_safe_serialize_warns_with_field_name(self, caplog):
+
+class TestSerializationWarnings:
+    """P2: Test that serialization warnings include field names.
+
+    The flatmachines logger uses propagate=False, so pytest caplog/capsys
+    can't see the records.  We attach a handler directly to the persistence
+    logger for the duration of each test.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _capture_persistence_logs(self):
+        self._log = _LogCapture()
+        logger = logging.getLogger("flatmachines.persistence")
+        logger.addHandler(self._log)
+        yield
+        logger.removeHandler(self._log)
+
+    def test_safe_serialize_warns_with_field_name(self):
         """Test that non-serializable fields are logged with names."""
         import datetime
 
@@ -231,8 +256,7 @@ class TestSerializationWarnings:
             "timestamp": datetime.datetime.now()
         }
 
-        with caplog.at_level(logging.WARNING):
-            result = manager._safe_serialize(data)
+        result = manager._safe_serialize(data)
 
         # Should have serialized successfully
         parsed = json.loads(result)
@@ -240,10 +264,10 @@ class TestSerializationWarnings:
         assert "timestamp" in parsed  # Field exists as string
 
         # Should have logged warning with field name
-        assert "timestamp (datetime)" in caplog.text
-        assert "good" not in caplog.text  # Only warn about bad fields
+        assert "timestamp (datetime)" in self._log.output
+        assert "good" not in self._log.output  # Only warn about bad fields
 
-    def test_safe_serialize_nested_non_serializable(self, caplog):
+    def test_safe_serialize_nested_non_serializable(self):
         """Test that nested non-serializable fields are identified."""
         import datetime
 
@@ -256,17 +280,16 @@ class TestSerializationWarnings:
             }
         }
 
-        with caplog.at_level(logging.WARNING):
-            result = manager._safe_serialize(data)
+        result = manager._safe_serialize(data)
 
         parsed = json.loads(result)
         assert "wrapper" in parsed
         assert "nested_time" in parsed["wrapper"]
 
         # Warning should include path
-        assert "wrapper.nested_time (datetime)" in caplog.text
+        assert "wrapper.nested_time (datetime)" in self._log.output
 
-    def test_safe_serialize_list_with_non_serializable(self, caplog):
+    def test_safe_serialize_list_with_non_serializable(self):
         """Test that non-serializable items in lists are identified."""
         import datetime
 
@@ -277,8 +300,7 @@ class TestSerializationWarnings:
             "items": ["good", datetime.datetime.now(), "also_good"]
         }
 
-        with caplog.at_level(logging.WARNING):
-            result = manager._safe_serialize(data)
+        result = manager._safe_serialize(data)
 
         parsed = json.loads(result)
         assert len(parsed["items"]) == 3
@@ -286,9 +308,9 @@ class TestSerializationWarnings:
         assert parsed["items"][2] == "also_good"
 
         # Warning should include index
-        assert "items[1] (datetime)" in caplog.text
+        assert "items[1] (datetime)" in self._log.output
 
-    def test_safe_serialize_all_good_no_warning(self, caplog):
+    def test_safe_serialize_all_good_no_warning(self):
         """Test that no warning is logged when all fields are serializable."""
         backend = MemoryBackend()
         manager = CheckpointManager(backend, "test-id")
@@ -300,16 +322,15 @@ class TestSerializationWarnings:
             "nested": {"a": "b"}
         }
 
-        with caplog.at_level(logging.WARNING):
-            result = manager._safe_serialize(data)
+        result = manager._safe_serialize(data)
 
         parsed = json.loads(result)
         assert parsed == data
 
         # No warning should be logged
-        assert "not JSON serializable" not in caplog.text
+        assert "not JSON serializable" not in self._log.output
 
-    def test_safe_serialize_multiple_bad_fields(self, caplog):
+    def test_safe_serialize_multiple_bad_fields(self):
         """Test that multiple non-serializable fields are all reported."""
         import datetime
 
@@ -325,12 +346,11 @@ class TestSerializationWarnings:
             "custom": CustomObj()
         }
 
-        with caplog.at_level(logging.WARNING):
-            result = manager._safe_serialize(data)
+        result = manager._safe_serialize(data)
 
         # Both bad fields should be mentioned
-        assert "time1 (datetime)" in caplog.text
-        assert "custom (CustomObj)" in caplog.text
+        assert "time1 (datetime)" in self._log.output
+        assert "custom (CustomObj)" in self._log.output
 
 
 class TestMarkdownStripping:
