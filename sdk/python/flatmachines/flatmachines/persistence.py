@@ -31,6 +31,8 @@ class MachineSnapshot:
     parent_execution_id: Optional[str] = None  # ID of launcher machine if this was launched
     # Outbox pattern (v0.4.0)
     pending_launches: Optional[List[Dict[str, Any]]] = None  # LaunchIntent dicts awaiting completion
+    # External signals (v1.2.0)
+    waiting_channel: Optional[str] = None  # Signal channel this machine is blocked on
 
 class PersistenceBackend(ABC):
     """Abstract storage backend for checkpoints."""
@@ -48,13 +50,20 @@ class PersistenceBackend(ABC):
         pass
 
     @abstractmethod
-    async def list_execution_ids(self, *, event: Optional[str] = None) -> List[str]:
+    async def list_execution_ids(
+        self,
+        *,
+        event: Optional[str] = None,
+        waiting_channel: Optional[str] = None,
+    ) -> List[str]:
         """Return execution IDs that have checkpoint data.
 
         Args:
             event: If provided, only return IDs whose latest checkpoint
                    has this event value (e.g., "machine_end" for completed).
-                   If None, return all execution IDs.
+            waiting_channel: If provided, only return IDs whose latest checkpoint
+                   has this waiting_channel value (e.g., "approval/task-001").
+            If both are None, return all execution IDs.
         """
         pass
 
@@ -101,12 +110,17 @@ class LocalFileBackend(PersistenceBackend):
         path = self.base_dir / key
         path.unlink(missing_ok=True)
 
-    async def list_execution_ids(self, *, event: Optional[str] = None) -> List[str]:
+    async def list_execution_ids(
+        self,
+        *,
+        event: Optional[str] = None,
+        waiting_channel: Optional[str] = None,
+    ) -> List[str]:
         all_ids = sorted(
             d.name for d in self.base_dir.iterdir()
             if d.is_dir() and not d.name.startswith(".")
         )
-        if event is None:
+        if event is None and waiting_channel is None:
             return all_ids
         # Filter by loading the latest snapshot for each execution
         matched = []
@@ -120,8 +134,13 @@ class LocalFileBackend(PersistenceBackend):
                 continue
             try:
                 snapshot = json.loads(data_bytes.decode("utf-8"))
-                if isinstance(snapshot, dict) and snapshot.get("event") == event:
-                    matched.append(eid)
+                if not isinstance(snapshot, dict):
+                    continue
+                if event is not None and snapshot.get("event") != event:
+                    continue
+                if waiting_channel is not None and snapshot.get("waiting_channel") != waiting_channel:
+                    continue
+                matched.append(eid)
             except Exception:
                 continue
         return matched
@@ -147,10 +166,15 @@ class MemoryBackend(PersistenceBackend):
     async def delete(self, key: str) -> None:
         self._store.pop(key, None)
 
-    async def list_execution_ids(self, *, event: Optional[str] = None) -> List[str]:
+    async def list_execution_ids(
+        self,
+        *,
+        event: Optional[str] = None,
+        waiting_channel: Optional[str] = None,
+    ) -> List[str]:
         ids = {k.split("/", 1)[0] for k in self._store if "/" in k}
         all_ids = sorted(ids)
-        if event is None:
+        if event is None and waiting_channel is None:
             return all_ids
         matched = []
         for eid in all_ids:
@@ -163,8 +187,13 @@ class MemoryBackend(PersistenceBackend):
                 continue
             try:
                 snapshot = json.loads(data_bytes.decode("utf-8"))
-                if isinstance(snapshot, dict) and snapshot.get("event") == event:
-                    matched.append(eid)
+                if not isinstance(snapshot, dict):
+                    continue
+                if event is not None and snapshot.get("event") != event:
+                    continue
+                if waiting_channel is not None and snapshot.get("waiting_channel") != waiting_channel:
+                    continue
+                matched.append(eid)
             except Exception:
                 continue
         return matched
@@ -343,17 +372,22 @@ class SQLiteCheckpointBackend(PersistenceBackend):
         self._conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS machine_checkpoints (
-                checkpoint_key TEXT PRIMARY KEY,
-                execution_id   TEXT NOT NULL,
-                machine_name   TEXT,
-                event          TEXT,
-                current_state  TEXT,
-                snapshot_json  BLOB NOT NULL,
-                created_at     TEXT NOT NULL
+                checkpoint_key  TEXT PRIMARY KEY,
+                execution_id    TEXT NOT NULL,
+                machine_name    TEXT,
+                event           TEXT,
+                current_state   TEXT,
+                waiting_channel TEXT,
+                snapshot_json   BLOB NOT NULL,
+                created_at      TEXT NOT NULL
             );
 
             CREATE INDEX IF NOT EXISTS idx_mc_execution_created
               ON machine_checkpoints(execution_id, created_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_mc_waiting_channel
+              ON machine_checkpoints(waiting_channel)
+              WHERE waiting_channel IS NOT NULL;
 
             CREATE TABLE IF NOT EXISTS machine_latest (
                 execution_id TEXT PRIMARY KEY,
@@ -362,6 +396,21 @@ class SQLiteCheckpointBackend(PersistenceBackend):
             );
             """
         )
+        # Migration: add waiting_channel if table already existed without it
+        try:
+            self._conn.execute(
+                "ALTER TABLE machine_checkpoints ADD COLUMN waiting_channel TEXT"
+            )
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_mc_waiting_channel
+                  ON machine_checkpoints(waiting_channel)
+                  WHERE waiting_channel IS NOT NULL
+                """
+            )
+            self._conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         self._conn.commit()
 
     @staticmethod
@@ -402,12 +451,14 @@ class SQLiteCheckpointBackend(PersistenceBackend):
             machine_name = None
             event = None
             current_state = None
+            waiting_channel = None
             try:
                 snapshot = json.loads(bytes(value).decode("utf-8"))
                 if isinstance(snapshot, dict):
                     machine_name = snapshot.get("machine_name")
                     event = snapshot.get("event")
                     current_state = snapshot.get("current_state")
+                    waiting_channel = snapshot.get("waiting_channel")
             except Exception:
                 pass
 
@@ -415,18 +466,19 @@ class SQLiteCheckpointBackend(PersistenceBackend):
                 """
                 INSERT INTO machine_checkpoints (
                     checkpoint_key, execution_id, machine_name,
-                    event, current_state, snapshot_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    event, current_state, waiting_channel, snapshot_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(checkpoint_key) DO UPDATE SET
                     execution_id = excluded.execution_id,
                     machine_name = excluded.machine_name,
                     event = excluded.event,
                     current_state = excluded.current_state,
+                    waiting_channel = excluded.waiting_channel,
                     snapshot_json = excluded.snapshot_json,
                     created_at = excluded.created_at
                 """,
                 (key, execution_id, machine_name, event, current_state,
-                 sqlite3.Binary(bytes(value)), now),
+                 waiting_channel, sqlite3.Binary(bytes(value)), now),
             )
             self._conn.commit()
 
@@ -476,23 +528,37 @@ class SQLiteCheckpointBackend(PersistenceBackend):
             )
             self._conn.commit()
 
-    async def list_execution_ids(self, *, event: Optional[str] = None) -> List[str]:
+    async def list_execution_ids(
+        self,
+        *,
+        event: Optional[str] = None,
+        waiting_channel: Optional[str] = None,
+    ) -> List[str]:
         async with self._op_lock:
-            if event is None:
+            if event is None and waiting_channel is None:
                 rows = self._conn.execute(
                     "SELECT DISTINCT execution_id FROM machine_checkpoints ORDER BY execution_id"
                 ).fetchall()
             else:
-                # Join through latest pointer to get the current event for each execution
+                # Join through latest pointer, filter on indexed columns
+                conditions = []
+                params = []
+                if event is not None:
+                    conditions.append("mc.event = ?")
+                    params.append(event)
+                if waiting_channel is not None:
+                    conditions.append("mc.waiting_channel = ?")
+                    params.append(waiting_channel)
+                where = " AND ".join(conditions)
                 rows = self._conn.execute(
-                    """
+                    f"""
                     SELECT ml.execution_id
                     FROM machine_latest ml
                     JOIN machine_checkpoints mc ON mc.checkpoint_key = ml.latest_key
-                    WHERE mc.event = ?
+                    WHERE {where}
                     ORDER BY ml.execution_id
                     """,
-                    (event,),
+                    params,
                 ).fetchall()
             return [r["execution_id"] for r in rows]
 

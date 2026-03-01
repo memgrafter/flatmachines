@@ -74,6 +74,20 @@ from .work import (
     create_work_backend,
 )
 from .distributed_hooks import DistributedWorkerHooks
+from .signals import (
+    Signal,
+    SignalBackend,
+    TriggerBackend,
+    MemorySignalBackend,
+    SQLiteSignalBackend,
+    NoOpTrigger,
+    FileTrigger,
+    SocketTrigger,
+    create_signal_backend,
+    create_trigger_backend,
+)
+from .dispatcher import SignalDispatcher
+from .flatmachine import WaitingForSignal
 
 __all__ = [
     "__version__",
@@ -143,4 +157,16 @@ __all__ = [
     "SubprocessInvoker",
     "launch_machine",
     "DistributedWorkerHooks",
+    "Signal",
+    "SignalBackend",
+    "TriggerBackend",
+    "MemorySignalBackend",
+    "SQLiteSignalBackend",
+    "NoOpTrigger",
+    "FileTrigger",
+    "SocketTrigger",
+    "create_signal_backend",
+    "create_trigger_backend",
+    "SignalDispatcher",
+    "WaitingForSignal",
 ]

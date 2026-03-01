@@ -55,6 +55,7 @@ from .backends import (
     get_default_result_backend,
 )
 from .locking import ExecutionLock, LocalFileLock, NoOpLock
+from .signals import SignalBackend, TriggerBackend, NoOpTrigger
 from .actions import (
     Action,
     HookAction,
@@ -64,6 +65,16 @@ from .actions import (
 )
 
 logger = get_logger(__name__)
+
+
+class WaitingForSignal(Exception):
+    """Raised when a state hits wait_for with no signal available.
+
+    The main loop catches this, checkpoints with waiting_channel, and returns.
+    """
+    def __init__(self, channel: str):
+        self.channel = channel
+        super().__init__(f"Waiting for signal on channel: {channel}")
 
 
 class FlatMachine:
@@ -88,6 +99,8 @@ class FlatMachine:
         lock: Optional[ExecutionLock] = None,
         invoker: Optional[MachineInvoker] = None,
         result_backend: Optional[ResultBackend] = None,
+        signal_backend: Optional[SignalBackend] = None,
+        trigger_backend: Optional[TriggerBackend] = None,
         agent_registry: Optional[AgentAdapterRegistry] = None,
         agent_adapters: Optional[list] = None,
         profiles_file: Optional[str] = None,
@@ -104,6 +117,8 @@ class FlatMachine:
             lock: Concurrency lock (overrides config)
             invoker: Strategy for invoking other machines
             result_backend: Backend for inter-machine result storage
+            signal_backend: Signal storage for wait_for states (optional)
+            trigger_backend: Trigger activation after signals (optional)
             agent_registry: Registry of agent adapters (optional)
             agent_adapters: List of agent adapters to register (optional)
             profiles_file: Optional profiles.yml path for adapters that use it
@@ -184,6 +199,10 @@ class FlatMachine:
         # Result backend for inter-machine communication
         self.result_backend = result_backend or get_default_result_backend()
 
+        # Signal & trigger backends for wait_for states
+        self.signal_backend = signal_backend
+        self.trigger_backend = trigger_backend or NoOpTrigger()
+
         # Pending launches (outbox pattern)
         self._pending_launches: list[LaunchIntent] = []
 
@@ -242,7 +261,7 @@ class FlatMachine:
             self.lock = NoOpLock()
             
         # Checkpoint events (default set)
-        default_events = ['machine_start', 'state_enter', 'execute', 'state_exit', 'machine_end']
+        default_events = ['machine_start', 'state_enter', 'execute', 'state_exit', 'machine_end', 'waiting']
         self.checkpoint_events = set(p_config.get('checkpoint_on', default_events))
 
 
@@ -716,6 +735,8 @@ class FlatMachine:
         peer = FlatMachine(
             config_dict=target_config,
             result_backend=self.result_backend,
+            signal_backend=self.signal_backend,
+            trigger_backend=self.trigger_backend,
             agent_registry=self.agent_registry,
             persistence=self.persistence,
             lock=self.lock,
@@ -948,6 +969,34 @@ class FlatMachine:
         state = self.states.get(state_name, {})
         output = None
 
+        # 0. Handle 'wait_for' (external signal — checkpoint and exit)
+        wait_for_expr = state.get('wait_for')
+        if wait_for_expr:
+            variables = {"context": context, "input": context}
+            channel = self._render_template(wait_for_expr, variables)
+
+            # Try to consume a signal (available on resume, or pre-loaded)
+            signal = None
+            if self.signal_backend:
+                signal = await self.signal_backend.consume(channel)
+
+            if signal is None:
+                # No signal available — checkpoint and exit
+                raise WaitingForSignal(channel=channel)
+
+            # Signal consumed — its data becomes output for this state
+            output = signal.data
+
+            # Apply output_to_context mapping
+            output_mapping = state.get('output_to_context', {})
+            if output_mapping:
+                safe_output = output if isinstance(output, dict) else {"value": output}
+                variables = {"context": context, "output": safe_output, "input": context}
+                for ctx_key, template in output_mapping.items():
+                    context[ctx_key] = self._render_template(template, variables)
+
+            return context, output
+
         # 1. Handle 'action' (hooks/custom actions)
         action_name = state.get('action')
         if action_name:
@@ -1104,7 +1153,8 @@ class FlatMachine:
         state_name: str,
         step: int,
         context: Dict[str, Any],
-        output: Optional[Dict[str, Any]] = None
+        output: Optional[Dict[str, Any]] = None,
+        waiting_channel: Optional[str] = None,
     ) -> None:
         """Save a checkpoint if configured."""
         if event not in self.checkpoint_events:
@@ -1123,6 +1173,7 @@ class FlatMachine:
             total_cost=self.total_cost,
             parent_execution_id=self.parent_execution_id,
             pending_launches=self._get_pending_intents() if self._pending_launches else None,
+            waiting_channel=waiting_channel,
         )
 
         manager = CheckpointManager(self.persistence, self.execution_id)
@@ -1202,6 +1253,14 @@ class FlatMachine:
                     context, output = await self._execute_state(current_state, context)
                     if output and is_final:
                         final_output = output
+                except WaitingForSignal as ws:
+                    # Checkpoint with waiting_channel and exit
+                    await self._save_checkpoint(
+                        'waiting', current_state, step, context,
+                        waiting_channel=ws.channel,
+                    )
+                    logger.info(f"Machine paused, waiting for signal on: {ws.channel}")
+                    return {"_waiting": True, "_channel": ws.channel}
                 except Exception as e:
                     context['last_error'] = str(e)
                     context['last_error_type'] = type(e).__name__
