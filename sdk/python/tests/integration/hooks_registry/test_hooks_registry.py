@@ -321,18 +321,20 @@ class TestHooksRegistryMachineIntegration:
     @pytest.mark.asyncio
     async def test_string_hooks_ref(self):
         """hooks: "counter" in config resolves from registry."""
-        machine = FlatMachine(config_dict=COUNTER_MACHINE)
-        machine.hooks_registry.register("counter", CounterHooks)
+        registry = HooksRegistry()
+        registry.register("counter", CounterHooks)
+        machine = FlatMachine(config_dict=COUNTER_MACHINE, hooks_registry=registry)
         result = await machine.execute()
-        assert result["total"] == 3
+        assert int(result["total"]) == 3
 
     @pytest.mark.asyncio
     async def test_hooks_ref_with_args(self):
         """hooks: {name: "counter-step", args: {step: 5}} passes args to constructor."""
-        machine = FlatMachine(config_dict=COUNTER_WITH_ARGS_MACHINE)
-        machine.hooks_registry.register("counter-step", CounterWithStepHooks)
+        registry = HooksRegistry()
+        registry.register("counter-step", CounterWithStepHooks)
+        machine = FlatMachine(config_dict=COUNTER_WITH_ARGS_MACHINE, hooks_registry=registry)
         result = await machine.execute()
-        assert result["total"] == 10
+        assert int(result["total"]) == 10
 
     @pytest.mark.asyncio
     async def test_composite_hooks_ref(self):
@@ -344,7 +346,7 @@ class TestHooksRegistryMachineIntegration:
 
         machine = FlatMachine(config_dict=COMPOSITE_HOOKS_MACHINE, hooks_registry=registry)
         result = await machine.execute()
-        assert result["total"] == 2
+        assert int(result["total"]) == 2
         assert "machine_start" in tracker.events
         assert "machine_end" in tracker.events
         assert "action:increment" in tracker.events
@@ -363,7 +365,7 @@ class TestHooksRegistryMachineIntegration:
         machine = FlatMachine(config_dict=COUNTER_MACHINE, hooks=step_hooks)
         # "counter" is NOT registered, but hooks= bypasses registry
         result = await machine.execute()
-        assert result["total"] == 100
+        assert int(result["total"]) == 100
 
     @pytest.mark.asyncio
     async def test_unregistered_hooks_raises(self):
@@ -379,7 +381,7 @@ class TestHooksRegistryMachineIntegration:
         registry.register("counter", CounterHooks)
         machine = FlatMachine(config_dict=COUNTER_MACHINE, hooks_registry=registry)
         result = await machine.execute()
-        assert result["total"] == 3
+        assert int(result["total"]) == 3
 
     @pytest.mark.asyncio
     async def test_registry_shared_across_machines(self):
@@ -392,8 +394,8 @@ class TestHooksRegistryMachineIntegration:
 
         r1 = await m1.execute()
         r2 = await m2.execute()
-        assert r1["total"] == 3
-        assert r2["total"] == 3
+        assert int(r1["total"]) == 3
+        assert int(r2["total"]) == 3
 
 
 class TestHooksRegistryChildPropagation:
@@ -436,4 +438,4 @@ class TestHooksRegistryProperty:
         registry.register("counter", CounterHooks)
         machine = FlatMachine(config_dict=COUNTER_MACHINE, hooks_registry=registry)
         result = await machine.execute()
-        assert result["total"] == 3
+        assert int(result["total"]) == 3
