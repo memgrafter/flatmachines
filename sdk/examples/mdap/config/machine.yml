@@ -2,7 +2,7 @@
 # Uses flatmachine orchestration with MDAP voting hooks
 
 spec: flatmachine
-spec_version: "1.0.0"
+spec_version: "2.0.0"
 
 data:
   name: mdap-hanoi

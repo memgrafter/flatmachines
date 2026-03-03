@@ -2,7 +2,7 @@
 # Returns the next character to build a target string
 
 spec: flatagent
-spec_version: "1.0.0"
+spec_version: "2.0.0"
 
 data:
   name: hello-world-agent

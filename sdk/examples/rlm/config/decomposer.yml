@@ -2,7 +2,7 @@
 # Determines how to partition work for recursive calls
 
 spec: flatagent
-spec_version: "1.0.0"
+spec_version: "2.0.0"
 
 data:
   name: rlm-decomposer

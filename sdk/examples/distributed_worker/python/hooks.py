@@ -9,7 +9,7 @@ import asyncio
 from typing import Dict, Any, Optional
 from pathlib import Path
 
-from flatagents import (
+from flatmachines import (
     DistributedWorkerHooks,
     SQLiteRegistrationBackend,
     SQLiteWorkBackend,

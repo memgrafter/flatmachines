@@ -1,7 +1,7 @@
 # Critic Agent
 # Judges quality of executive summary and provides improvement suggestions
 spec: flatagent
-spec_version: "1.0.0"
+spec_version: "2.0.0"
 
 data:
   name: critic

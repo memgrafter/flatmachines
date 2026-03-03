@@ -2,7 +2,7 @@
 # Demonstrates different parallel execution patterns in FlatAgents v0.4.0
 
 spec: flatmachine
-spec_version: "1.0.0"
+spec_version: "2.0.0"
 
 data:
   name: parallelism-demo

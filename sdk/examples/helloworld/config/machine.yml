@@ -2,7 +2,7 @@
 # Builds a target string character by character
 
 spec: flatmachine
-spec_version: "1.0.0"
+spec_version: "2.0.0"
 
 data:
   name: hello-world-loop

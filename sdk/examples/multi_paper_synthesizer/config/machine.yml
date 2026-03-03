@@ -3,7 +3,7 @@
 # Demonstrates: Machine peering with dynamic launches, cross-document synthesis
 
 spec: flatmachine
-spec_version: "1.0.0"
+spec_version: "2.0.0"
 
 data:
   name: multi-paper-synthesizer

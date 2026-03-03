@@ -2,7 +2,7 @@
 # RLM works best with capable models that can write and reason about code
 
 spec: flatprofiles
-spec_version: "1.0.0"
+spec_version: "2.0.0"
 
 data:
   model_profiles:
