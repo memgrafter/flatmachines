@@ -136,6 +136,7 @@ class InlineInvoker(MachineInvoker):
         
         target = FlatMachine(
             config_dict=target_config,
+            hooks_registry=getattr(caller_machine, "_hooks_registry", None),
             persistence=caller_machine.persistence,
             lock=caller_machine.lock,
             result_backend=caller_machine.result_backend,
@@ -172,6 +173,7 @@ class InlineInvoker(MachineInvoker):
         async def _execute_and_write():
             target = FlatMachine(
                 config_dict=target_config,
+                hooks_registry=getattr(caller_machine, "_hooks_registry", None),
                 persistence=caller_machine.persistence,
                 lock=caller_machine.lock,
                 result_backend=caller_machine.result_backend,

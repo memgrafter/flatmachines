@@ -30,7 +30,7 @@ from .monitoring import get_logger
 from .utils import check_spec_version
 from .expressions import get_expression_engine, ExpressionEngine
 from .execution import get_execution_type, ExecutionType
-from .hooks import MachineHooks, LoggingHooks
+from .hooks import MachineHooks, LoggingHooks, HooksRegistry
 from .agents import (
     AgentAdapterContext,
     AgentAdapterRegistry,
@@ -96,6 +96,7 @@ class FlatMachine:
         config_file: Optional[str] = None,
         config_dict: Optional[Dict] = None,
         hooks: Optional[MachineHooks] = None,
+        hooks_registry: Optional[HooksRegistry] = None,
         persistence: Optional[PersistenceBackend] = None,
         lock: Optional[ExecutionLock] = None,
         invoker: Optional[MachineInvoker] = None,
@@ -114,7 +115,8 @@ class FlatMachine:
         Args:
             config_file: Path to YAML/JSON config file
             config_dict: Configuration dictionary
-            hooks: Custom hooks for extensibility
+            hooks: Custom hooks for extensibility (bypasses registry)
+            hooks_registry: Registry for resolving hooks by name from config
             persistence: Storage backend (overrides config)
             lock: Concurrency lock (overrides config)
             invoker: Strategy for invoking other machines
@@ -177,8 +179,9 @@ class FlatMachine:
         expression_mode = self.data.get("expression_engine", "simple")
         self._expression_engine = get_expression_engine(expression_mode)
 
-        # Hooks - load from config or use provided/default
-        self._hooks = self._load_hooks(hooks)
+        # Hooks registry + resolution
+        self._hooks_registry = hooks_registry or HooksRegistry()
+        self._hooks = self._resolve_hooks(hooks)
 
         # Agent adapter registry
         if agent_registry is not None:
@@ -358,29 +361,21 @@ class FlatMachine:
             else:
                 raise ValueError("No states defined")
 
-    def _load_hooks(self, hooks: Optional[MachineHooks]) -> MachineHooks:
+    @property
+    def hooks_registry(self) -> HooksRegistry:
+        """Access the hooks registry for registering hooks by name."""
+        return self._hooks_registry
+
+    def _resolve_hooks(self, hooks: Optional[MachineHooks]) -> MachineHooks:
         """
-        Load hooks from config or use provided/default.
+        Resolve hooks from explicit arg or config via registry.
 
-        Invocation patterns:
+        Priority: explicit hooks= arg > config hooks: > no hooks
 
-        LOCAL (development, single-process):
-            hooks:
-              file: "./hooks.py"    # Relative to config dir
-              class: "MyHooks"
-            - Loads from file path with sys.path manipulation
-            - Supports sibling imports (from repl import X)
-            - Hooks CAN be stateful (same process)
-
-        DISTRIBUTED (Lambda, Cloud Run, multi-process):
-            hooks:
-              module: "mypackage.hooks"  # Installed package
-              class: "MyHooks"
-            - Loads from installed package (pip install)
-            - No sys.path manipulation needed
-            - Hooks MUST be stateless (checkpoint/restore loses instance state)
-
-        Priority: explicit arg > file > module > default
+        Config hooks are resolved via the HooksRegistry by name:
+            hooks: "my-hooks"
+            hooks: { name: "my-hooks", args: { key: "val" } }
+            hooks: ["logging", { name: "my-hooks", args: {} }]
         """
         if hooks is not None:
             return hooks
@@ -389,84 +384,7 @@ class FlatMachine:
         if not hooks_config:
             return MachineHooks()
 
-        class_name = hooks_config.get('class')
-        if not class_name:
-            logger.warning(f"Hooks config missing 'class', using default")
-            return MachineHooks()
-
-        # Route to appropriate loader based on invocation pattern
-        if hooks_config.get('file'):
-            hooks_class = self._load_hooks_local(hooks_config)
-        elif hooks_config.get('module'):
-            hooks_class = self._load_hooks_distributed(hooks_config)
-        else:
-            logger.warning(f"Hooks config needs 'file' or 'module', using default")
-            return MachineHooks()
-
-        if hooks_class is None:
-            return MachineHooks()
-
-        # Instantiate
-        try:
-            return hooks_class(**hooks_config.get('args', {}))
-        except Exception as e:
-            logger.error(f"Failed to instantiate {class_name}: {e}")
-            return MachineHooks()
-
-    def _load_hooks_local(self, config: Dict[str, Any]) -> Optional[type]:
-        """
-        LOCAL: Load hooks from file path.
-
-        Use for development and single-process execution:
-        - File path relative to machine config
-        - sys.path manipulation for sibling imports
-        - Hooks can be stateful (same process)
-        """
-        import sys
-
-        file_path = config['file']
-        class_name = config['class']
-
-        if not os.path.isabs(file_path):
-            file_path = os.path.join(self._config_dir, file_path)
-
-        hooks_dir = os.path.dirname(os.path.abspath(file_path))
-        added = hooks_dir not in sys.path
-
-        try:
-            if added:
-                sys.path.insert(0, hooks_dir)
-            try:
-                spec = importlib.util.spec_from_file_location("hooks", file_path)
-                if spec and spec.loader:
-                    module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(module)
-                    return getattr(module, class_name)
-            finally:
-                if added and hooks_dir in sys.path:
-                    sys.path.remove(hooks_dir)
-        except Exception as e:
-            logger.error(f"LOCAL hooks failed ({file_path}): {e}")
-        return None
-
-    def _load_hooks_distributed(self, config: Dict[str, Any]) -> Optional[type]:
-        """
-        DISTRIBUTED: Load hooks from installed package.
-
-        Use for Lambda, Cloud Run, checkpoint/restore:
-        - Package installed via pip (requirements.txt)
-        - No sys.path manipulation
-        - Hooks MUST be stateless (state in context)
-        """
-        module_name = config['module']
-        class_name = config['class']
-
-        try:
-            module = importlib.import_module(module_name)
-            return getattr(module, class_name)
-        except (ImportError, AttributeError) as e:
-            logger.error(f"DISTRIBUTED hooks failed ({module_name}.{class_name}): {e}")
-        return None
+        return self._hooks_registry.resolve(hooks_config)
 
     def _get_executor(self, agent_name: str) -> AgentExecutor:
         """Get or load an agent executor by name."""
@@ -738,11 +656,11 @@ class FlatMachine:
         """Launch a peer machine and write its result to the backend."""
         target_config, peer_config_dir = self._resolve_machine_config(machine_name)
 
-        # Peer machines are independent - they load their own hooks from config
-        # (via the hooks: section in their machine.yml)
+        # Peer machines share the hooks registry so they can resolve hooks by name
         # Use peer's config_dir so relative paths (e.g., ./agents/judge.yml) resolve correctly
         peer = FlatMachine(
             config_dict=target_config,
+            hooks_registry=self._hooks_registry,
             result_backend=self.result_backend,
             signal_backend=self.signal_backend,
             trigger_backend=self.trigger_backend,

@@ -1,7 +1,7 @@
 __version__ = "1.2.0"
 
 from .flatmachine import FlatMachine
-from .hooks import MachineHooks, LoggingHooks, MetricsHooks, CompositeHooks, WebhookHooks
+from .hooks import MachineHooks, LoggingHooks, MetricsHooks, CompositeHooks, WebhookHooks, HooksRegistry
 from .actions import SubprocessInvoker, launch_machine
 from .expressions import get_expression_engine, ExpressionEngine
 from .execution import (
@@ -97,6 +97,7 @@ __all__ = [
     "MetricsHooks",
     "CompositeHooks",
     "WebhookHooks",
+    "HooksRegistry",
     "ExpressionEngine",
     "get_expression_engine",
     "ExecutionType",

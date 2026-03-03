@@ -1,4 +1,4 @@
-import { MachineHooks } from './types';
+import { MachineHooks, HooksFactory, HooksRef } from './types';
 
 export class WebhookHooks implements MachineHooks {
   constructor(private url: string) {}
@@ -154,5 +154,49 @@ export class CompositeHooks implements MachineHooks {
       }
     }
     return result;
+  }
+}
+
+/**
+ * Name-based registry for resolving hooks from machine config.
+ *
+ * Machine configs reference hooks by name (e.g., hooks: "my-hooks").
+ * The registry maps names to factory classes/functions and resolves
+ * them at runtime, keeping configs language-agnostic.
+ */
+export class HooksRegistry {
+  private factories = new Map<string, HooksFactory>();
+
+  register(name: string, factory: HooksFactory): void {
+    this.factories.set(name, factory);
+  }
+
+  has(name: string): boolean {
+    return this.factories.has(name);
+  }
+
+  resolve(ref: HooksRef): MachineHooks {
+    if (Array.isArray(ref)) {
+      const hooks = ref.map((entry) => this.resolveSingle(entry));
+      return new CompositeHooks(hooks);
+    }
+    return this.resolveSingle(ref);
+  }
+
+  private resolveSingle(ref: string | { name: string; args?: Record<string, any> }): MachineHooks {
+    const name = typeof ref === 'string' ? ref : ref.name;
+    const args = typeof ref === 'string' ? undefined : ref.args;
+    const factory = this.factories.get(name);
+    if (!factory) {
+      throw new Error(
+        `No hooks registered for name '${name}'. Registered: [${[...this.factories.keys()].join(', ')}]`
+      );
+    }
+    // Try as constructor, fall back to function call
+    try {
+      return new (factory as any)(args);
+    } catch {
+      return (factory as Function)(args);
+    }
   }
 }

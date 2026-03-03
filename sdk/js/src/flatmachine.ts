@@ -12,7 +12,8 @@ import {
   State,
   MachineSnapshot,
   LaunchIntent,
-  BackendConfig
+  BackendConfig,
+  HooksRef
 } from './types';
 import { FlatAgent } from './flatagent';
 import { getExecutionType } from './execution';
@@ -21,6 +22,7 @@ import { CheckpointManager, LocalFileBackend, MemoryBackend } from './persistenc
 import { inMemoryResultBackend } from './results';
 import { LocalFileLock, NoOpLock } from './locking';
 import { renderTemplate } from './templating';
+import { HooksRegistry } from './hooks';
 
 
 export class FlatMachine {
@@ -30,6 +32,7 @@ export class FlatMachine {
   private context: Record<string, any> = {};
   private input: Record<string, any> = {};
   private hooks?: MachineHooks;
+  private _hooksRegistry: HooksRegistry;
   private checkpointManager?: CheckpointManager;
   private resultBackend?: ResultBackend;
   private executionLock: ExecutionLock;
@@ -45,7 +48,8 @@ export class FlatMachine {
     this.config = typeof options.config === "string"
       ? yaml.parse(readFileSync(options.config, "utf-8")) as MachineConfig
       : options.config;
-    this.hooks = options.hooks;
+    this._hooksRegistry = options.hooksRegistry ?? new HooksRegistry();
+    this.hooks = this.resolveHooks(options.hooks);
     this.configDir = options.configDir ?? process.cwd();
     this.profilesFile = this.resolveProfilesFile(options.profilesFile);
     this.executionId = options.executionId ?? this.executionId;
@@ -69,6 +73,17 @@ export class FlatMachine {
       const events = configEvents?.length ? configEvents : ["execute"];
       this.checkpointEvents = new Set(events);
     }
+  }
+
+  get hooksRegistry(): HooksRegistry {
+    return this._hooksRegistry;
+  }
+
+  private resolveHooks(explicit?: MachineHooks): MachineHooks | undefined {
+    if (explicit) return explicit;
+    const hooksConfig = (this.config.data as any).hooks as HooksRef | undefined;
+    if (!hooksConfig) return undefined;
+    return this._hooksRegistry.resolve(hooksConfig);
   }
 
   async execute(input?: Record<string, any>, resumeSnapshot?: MachineSnapshot): Promise<any> {
@@ -400,7 +415,7 @@ export class FlatMachine {
       config: resolved.config,
       configDir: resolved.configDir,
       resultBackend: this.resultBackend,
-      hooks: this.hooks,
+      hooksRegistry: this._hooksRegistry,
       executionId: overrides?.executionId,
       parentExecutionId: overrides?.parentExecutionId,
       profilesFile: this.profilesFile,

@@ -10,7 +10,8 @@ export {
 } from './execution';
 export {
   WebhookHooks,
-  CompositeHooks
+  CompositeHooks,
+  HooksRegistry
 } from './hooks';
 export {
   MemoryBackend,
@@ -60,6 +61,9 @@ export type {
   ModelConfig,
   ModelProfileConfig,
   ProfiledModelConfig,
-  ProfilesConfig
+  ProfilesConfig,
+  HooksRef,
+  HooksRefConfig,
+  HooksFactory
 } from './types';
 export type { TemplateAllowlist } from './template_allowlist';

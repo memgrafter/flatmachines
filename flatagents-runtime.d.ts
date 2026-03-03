@@ -70,9 +70,29 @@
  * Extension points for machine execution.
  * All methods are optional and can be sync or async.
  *
+ * SDKs MUST provide:
+ *   - HooksRegistry: Name-based registry for resolving hooks from config
+ *
  * SDKs SHOULD provide:
  *   - WebhookHooks: Send events to HTTP endpoint
  *   - CompositeHooks: Combine multiple hook implementations
+ *
+ * HOOKS REGISTRY:
+ * ---------------
+ * Maps hook names (strings) to implementations. Machine configs reference
+ * hooks by name; the SDK's HooksRegistry resolves them at runtime.
+ *
+ * This decouples machine configs from any specific language or file path,
+ * enabling the same YAML to work across Python, JavaScript, Rust, etc.
+ *
+ * SDKs MUST provide:
+ *   - HooksRegistry with register(), resolve(), has()
+ *
+ * Built-in registrations (when available in the SDK):
+ *   - "logging": LoggingHooks
+ *   - "webhook": WebhookHooks (args: { url, timeout?, api_key? })
+ *   - "metrics": MetricsHooks
+ *   - "distributed-worker": DistributedWorkerHooks
  *
  * LLM BACKEND (OPTIONAL):
  * -----------------------
@@ -436,6 +456,37 @@ export interface MachineHooks {
     onAction?(action: string, context: Record<string, any>): Record<string, any> | Promise<Record<string, any>>;
 }
 
+export interface HooksRegistry {
+    /**
+     * Register a hooks implementation by name.
+     * @param name - Hook name referenced in machine config (e.g., "my-hooks")
+     * @param factory - Class constructor or factory function
+     */
+    register(name: string, factory: HooksFactory): void;
+
+    /**
+     * Resolve a HooksRef from machine config into a MachineHooks instance.
+     * - String: lookup by name, no args
+     * - HooksRefConfig: lookup by name, pass args to factory
+     * - Array: resolve each entry, combine with CompositeHooks
+     * @throws Error if name is not registered
+     */
+    resolve(ref: HooksRef): MachineHooks;
+
+    /** Check if a name is registered. */
+    has(name: string): boolean;
+}
+
+/**
+ * Factory for creating MachineHooks instances.
+ * Can be a class constructor or a function.
+ */
+export type HooksFactory =
+    | { new (args?: Record<string, any>): MachineHooks }
+    | ((args?: Record<string, any>) => MachineHooks);
+
+import { HooksRef, HooksRefConfig } from "./flatmachine";
+
 export interface LLMBackend {
     /** Total cost accumulated across all calls. */
     totalCost: number;
@@ -739,6 +790,7 @@ export interface SDKRuntimeWrapper {
     result_backend?: ResultBackend;
     execution_config?: ExecutionConfig;
     machine_hooks?: MachineHooks;
+    hooks_registry?: HooksRegistry;
     llm_backend?: LLMBackend;
     machine_invoker?: MachineInvoker;
     backend_config?: BackendConfig;

@@ -186,9 +186,21 @@ export interface ResultBackend {
   delete(uri: string): Promise<void>;
 }
 
+export type HooksRef = string | HooksRefConfig | Array<string | HooksRefConfig>;
+
+export interface HooksRefConfig {
+  name: string;
+  args?: Record<string, any>;
+}
+
+export type HooksFactory =
+  | { new (args?: Record<string, any>): MachineHooks }
+  | ((args?: Record<string, any>) => MachineHooks);
+
 export interface MachineOptions {
   config: MachineConfig | string;
   hooks?: MachineHooks;
+  hooksRegistry?: import('./hooks').HooksRegistry;
   persistence?: PersistenceBackend;
   resultBackend?: ResultBackend;
   executionLock?: ExecutionLock;

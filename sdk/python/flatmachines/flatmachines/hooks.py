@@ -474,10 +474,77 @@ class WebhookHooks(MachineHooks):
         return context
 
 
+class HooksRegistry:
+    """
+    Name-based registry for resolving hooks from machine config.
+
+    Machine configs reference hooks by name (e.g., hooks: "my-hooks").
+    The registry maps names to factory classes/functions and resolves
+    them at runtime, keeping configs language-agnostic.
+
+    Example:
+        registry = HooksRegistry()
+        registry.register("my-hooks", MyHooksClass)
+        hooks = registry.resolve("my-hooks")
+        hooks = registry.resolve({"name": "my-hooks", "args": {"key": "val"}})
+        hooks = registry.resolve(["logging", {"name": "my-hooks", "args": {}}])
+    """
+
+    def __init__(self):
+        self._factories: Dict[str, Any] = {}
+
+    def register(self, name: str, factory) -> None:
+        """Register a hooks factory by name."""
+        self._factories[name] = factory
+
+    def has(self, name: str) -> bool:
+        """Check if a name is registered."""
+        return name in self._factories
+
+    def resolve(self, ref) -> MachineHooks:
+        """
+        Resolve a hooks reference into a MachineHooks instance.
+
+        Args:
+            ref: A string name, a dict with 'name' and optional 'args',
+                 or a list of either (resolved into CompositeHooks).
+
+        Returns:
+            MachineHooks instance
+
+        Raises:
+            KeyError: If a referenced name is not registered
+        """
+        if isinstance(ref, list):
+            hooks = [self._resolve_single(entry) for entry in ref]
+            return CompositeHooks(*hooks)
+        return self._resolve_single(ref)
+
+    def _resolve_single(self, ref) -> MachineHooks:
+        if isinstance(ref, str):
+            name = ref
+            args = {}
+        elif isinstance(ref, dict):
+            name = ref['name']
+            args = ref.get('args', {})
+        else:
+            raise TypeError(f"Invalid hooks ref type: {type(ref)}")
+
+        if name not in self._factories:
+            raise KeyError(f"No hooks registered for name '{name}'. "
+                           f"Registered: {list(self._factories.keys())}")
+
+        factory = self._factories[name]
+        if args:
+            return factory(**args)
+        return factory()
+
+
 __all__ = [
     "MachineHooks",
     "LoggingHooks",
     "MetricsHooks",
     "CompositeHooks",
     "WebhookHooks",
+    "HooksRegistry",
 ]
