@@ -16,7 +16,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from flatmachines import FlatMachine, get_logger
-from dynamic_agent.hooks import OTFAgentHooks
+from dynamic_agent.hooks import OTFAgentHooks, UserQuit
 
 logger = get_logger(__name__)
 
@@ -32,14 +32,15 @@ async def main(task: str, style_hints: str = "") -> None:
         print(f"Style hints: {style_hints}")
     print("\n")
     
-    # Create hooks
-    hooks = OTFAgentHooks()
-    
-    # Get config path relative to this file
+    # Get config paths relative to this file
     config_dir = os.path.dirname(
         os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
     )
     config_path = os.path.join(config_dir, "config", "machine.yml")
+    profiles_path = os.path.join(config_dir, "config", "profiles.yml")
+
+    # Create hooks (with profiles for dynamically generated agents)
+    hooks = OTFAgentHooks(profiles_file=profiles_path)
     
     # Create and run machine
     machine = FlatMachine(
@@ -57,7 +58,7 @@ async def main(task: str, style_hints: str = "") -> None:
         print("FINAL RESULT")
         print("=" * 70)
         
-        if "error" in result:
+        if result.get("error"):
             print(f"\n❌ Error: {result['error']}")
             if result.get("last_concerns"):
                 print(f"Last concerns: {result['last_concerns']}")
@@ -69,9 +70,9 @@ async def main(task: str, style_hints: str = "") -> None:
         for key, value in hooks.get_metrics().items():
             print(f"   {key}: {value}")
         
-    except KeyboardInterrupt:
+    except (UserQuit, KeyboardInterrupt):
         print("\n\nExecution cancelled by user.")
-        sys.exit(0)
+        return
 
 
 def cli():

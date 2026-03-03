@@ -2,7 +2,7 @@
 # Generates a specialized creative writing agent based on the task
 
 spec: flatagent
-spec_version: "1.0.0"
+spec_version: "2.0.0"
 
 data:
   name: otf-generator
@@ -29,9 +29,10 @@ data:
     If previous concerns are provided, address them in your new design.
 
     Output format:
-    - Provide a plain-text spec using labeled sections exactly as shown below.
-    - Do NOT include extra commentary or markdown outside the sections.
-    - output fields must be described as key/value pairs (at minimum include "content").
+    - Provide plain text using the exact labeled sections shown below.
+    - Do NOT include extra commentary, markdown, or additional headers.
+    - output fields must be simple key/value bullets (at minimum include "content").
+    - Keep label spelling exact: Name, System Prompt, User Prompt Template, Temperature, Output Fields.
 
     Format:
     Name: <short agent name>

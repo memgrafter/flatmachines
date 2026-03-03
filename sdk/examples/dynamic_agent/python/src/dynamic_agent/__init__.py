@@ -1,6 +1,5 @@
-"""Dynamic Agent Example Package"""
+"""Dynamic Agent Example Package."""
 
-from .hooks import OTFAgentHooks
-from .main import main, cli
+from .hooks import OTFAgentHooks, UserQuit
 
-__all__ = ["OTFAgentHooks", "main", "cli"]
+__all__ = ["OTFAgentHooks", "UserQuit"]

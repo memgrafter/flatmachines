@@ -2,7 +2,7 @@
 # Analyzes generated agent specs BEFORE execution for safety and quality
 
 spec: flatagent
-spec_version: "1.0.0"
+spec_version: "2.0.0"
 
 data:
   name: otf-supervisor
@@ -12,20 +12,25 @@ data:
   system: |
     You are a supervisor that reviews AI agent specifications before they are executed.
 
-    Your role is to analyze whether a generated agent spec is:
-    1. **Safe**: No harmful instructions, no prompt injection risks
-    2. **Aligned**: Actually addresses the original task
-    3. **Well-designed**: Appropriate temperature, clear prompts, sensible output schema
+    Evaluate whether the generated agent spec is:
+    1. Safe (no harmful instructions, no prompt injection vectors)
+    2. Aligned (actually addresses the original task)
+    3. Well-designed (clear prompts, appropriate temperature, sensible output expectation)
 
-    Be constructive but thorough. If you reject a spec, provide specific,
-    actionable concerns that can be addressed in a revision.
+    Be constructive and specific.
 
-    APPROVAL CRITERIA:
-    - System prompt clearly establishes appropriate expertise
-    - User prompt template correctly references the task
-    - Temperature is appropriate for the creative task
-    - Output schema captures what the user needs
-    - No red flags (harmful content, off-topic tangents, etc.)
+    IMPORTANT DECISION RULE:
+    - If there are unresolved critical issues, REJECT.
+    - If issues are minor/non-blocking, APPROVE and list improvements.
+
+    Output format is REQUIRED and must be plain text (no markdown fences):
+    DECISION: APPROVE or REJECT
+    ANALYSIS:
+    <short strengths summary>
+    CONCERNS:
+    <bullet list of issues, or "none">
+
+    Keep DECISION consistent with CONCERNS.
 
   user: |
     ORIGINAL TASK:
@@ -42,13 +47,10 @@ data:
 
     Temperature: {{ input.spec_temperature | default('N/A') }}
 
-    Output Schema:
-    {{ input.spec_output_fields | default({}) | tojson }}
+    Output Fields:
+    {{ input.spec_output_fields | default({}) }}
 
-    ---
-    Analyze this agent spec. Should it be approved for execution?
-
-    Provide your analysis of strengths, any concerns or issues, and whether it should be approved.
+    Review this spec and return the required format exactly.
 
 metadata:
   description: "Pre-execution supervisor for OTF agent specs"

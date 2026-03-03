@@ -26,6 +26,12 @@ export class OTFAgentHooks implements MachineHooks {
   }
 
   async onAction(action: string, context: Record<string, any>): Promise<Record<string, any>> {
+    if (action === 'parse_generator_spec') {
+      return this.parseGeneratorSpec(context);
+    }
+    if (action === 'parse_supervisor_review') {
+      return this.parseSupervisorReview(context);
+    }
     if (action === 'human_review_otf') {
       return this.humanReviewOtf(context);
     }
@@ -44,6 +50,154 @@ export class OTFAgentHooks implements MachineHooks {
     const answer = await rl.question(question);
     rl.close();
     return answer.trim();
+  }
+
+  private normalizeTemperature(value: unknown, fallback = 0.6): 0.6 | 1.0 {
+    const parsed = typeof value === 'string' ? Number(value) : Number(value);
+    const temp = Number.isFinite(parsed) ? parsed : fallback;
+    return temp >= 0.8 ? 1.0 : 0.6;
+  }
+
+  private parseOutputFieldsBlock(text: string): Record<string, any> {
+    const block = (text ?? '').trim();
+    if (!block) return { content: 'The creative writing output' };
+
+    if (block.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(block);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return parsed as Record<string, any>;
+        }
+      } catch {
+        // fall through
+      }
+    }
+
+    const fields: Record<string, string> = {};
+    for (const line of block.split('\n')) {
+      const match = line.match(/^\s*(?:[-*]\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.+?)\s*$/);
+      if (match) {
+        fields[match[1]] = match[2].trim();
+      }
+    }
+
+    if (!Object.keys(fields).length) return { content: 'The creative writing output' };
+    return fields;
+  }
+
+  private parseGeneratorSpec(context: Record<string, any>): Record<string, any> {
+    const raw = String(context.raw_generator ?? '');
+
+    let name: string | null = null;
+    const systemLines: string[] = [];
+    const userLines: string[] = [];
+    const outputLines: string[] = [];
+    let temperature: string | null = null;
+    let section: 'system' | 'user' | 'output' | null = null;
+
+    for (const line of raw.replace(/\r\n/g, '\n').split('\n')) {
+      const nameMatch = line.match(/^\s*Name\s*:\s*(.*)$/i);
+      if (nameMatch) {
+        name = (nameMatch[1] ?? '').trim() || name;
+        section = null;
+        continue;
+      }
+
+      const systemMatch = line.match(/^\s*System Prompt\s*:\s*(.*)$/i);
+      if (systemMatch) {
+        section = 'system';
+        const first = (systemMatch[1] ?? '').trimEnd();
+        if (first) systemLines.push(first);
+        continue;
+      }
+
+      const userMatch = line.match(/^\s*User Prompt Template\s*:\s*(.*)$/i);
+      if (userMatch) {
+        section = 'user';
+        const first = (userMatch[1] ?? '').trimEnd();
+        if (first) userLines.push(first);
+        continue;
+      }
+
+      const tempMatch = line.match(/^\s*Temperature\s*:\s*(.*)$/i);
+      if (tempMatch) {
+        temperature = (tempMatch[1] ?? '').trim();
+        section = null;
+        continue;
+      }
+
+      const outputMatch = line.match(/^\s*Output Fields\s*:\s*(.*)$/i);
+      if (outputMatch) {
+        section = 'output';
+        const first = (outputMatch[1] ?? '').trimEnd();
+        if (first) outputLines.push(first);
+        continue;
+      }
+
+      if (section === 'system') systemLines.push(line);
+      else if (section === 'user') userLines.push(line);
+      else if (section === 'output') outputLines.push(line);
+    }
+
+    let parsedUser = userLines.join('\n').trim() || '{{ input.task }}';
+    if (!/<<\s*input\.task\s*>>/.test(parsedUser) && !/\{\{\s*input\.task\s*\}\}/.test(parsedUser)) {
+      parsedUser = parsedUser ? `${parsedUser}\n\n{{ input.task }}` : '{{ input.task }}';
+    }
+
+    context.otf_name = (name ?? 'otf-agent').trim();
+    context.otf_system = systemLines.join('\n').trim() || 'You are a helpful creative writer.';
+    context.otf_user = parsedUser;
+    context.otf_temperature = this.normalizeTemperature(temperature, 0.6);
+    context.otf_output_fields = this.parseOutputFieldsBlock(outputLines.join('\n'));
+
+    if (!raw.trim()) {
+      context.supervisor_concerns = 'Generator returned empty text; used default fallbacks.';
+    }
+
+    return context;
+  }
+
+  private extractSupervisorBlock(text: string, label: string, nextLabel?: string): string {
+    const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (nextLabel) {
+      const escapedNext = nextLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`^\\s*${escapedLabel}\\s*:\\s*([\\s\\S]*?)^\\s*${escapedNext}\\s*:`, 'im');
+      const match = text.match(regex);
+      return (match?.[1] ?? '').trim();
+    }
+    const regex = new RegExp(`^\\s*${escapedLabel}\\s*:\\s*([\\s\\S]*)$`, 'im');
+    const match = text.match(regex);
+    return (match?.[1] ?? '').trim();
+  }
+
+  private parseSupervisorReview(context: Record<string, any>): Record<string, any> {
+    const raw = String(context.raw_supervisor ?? '');
+    const decisionMatch = raw.match(/^\s*DECISION\s*:\s*(APPROVE|REJECT)\b/im);
+
+    let approved = false;
+    if (decisionMatch) {
+      approved = decisionMatch[1].toUpperCase() === 'APPROVE';
+    } else if (/\breject\b/i.test(raw)) {
+      approved = false;
+    } else if (/\bapprove\b/i.test(raw)) {
+      approved = true;
+    }
+
+    let analysis = this.extractSupervisorBlock(raw, 'ANALYSIS', 'CONCERNS');
+    let concerns = this.extractSupervisorBlock(raw, 'CONCERNS');
+
+    if (!analysis) analysis = raw.trim() || '(no supervisor analysis returned)';
+    if (/^(none|\(none\)|n\/a|no concerns)$/i.test(concerns.trim())) {
+      concerns = '';
+    }
+    if (!approved && !concerns.trim()) {
+      concerns = 'Supervisor rejected the spec but did not provide explicit concerns.';
+    }
+
+    context.supervisor_approved = approved;
+    context.supervisor_analysis = analysis;
+    context.supervisor_concerns = concerns;
+    return context;
   }
 
   private async humanReviewOtf(context: Record<string, any>): Promise<Record<string, any>> {
@@ -127,62 +281,26 @@ export class OTFAgentHooks implements MachineHooks {
     const name = context.otf_name ?? 'otf-agent';
     const system = context.otf_system ?? 'You are a helpful creative writer.';
     const user = context.otf_user ?? '{{ input.task }}';
-    const temperatureRaw = context.otf_temperature ?? 0.6;
-    const outputFieldsRaw = context.otf_output_fields ?? '{}';
+    const temperature = this.normalizeTemperature(context.otf_temperature ?? 0.6, 0.6);
 
     console.log(`\n${'='.repeat(70)}`);
     console.log(`🚀 EXECUTING OTF AGENT: ${name}`);
     console.log('='.repeat(70));
 
-    let outputFields: Record<string, any> = {};
-    if (typeof outputFieldsRaw === 'string') {
-      try {
-        outputFields = JSON.parse(outputFieldsRaw);
-      } catch {
-        outputFields = {};
-      }
-    } else if (typeof outputFieldsRaw === 'object' && outputFieldsRaw) {
-      outputFields = outputFieldsRaw as Record<string, any>;
-    }
-
-    const outputSchema: Record<string, any> = {};
-    if (outputFields && typeof outputFields === 'object') {
-      for (const [fieldName, fieldDef] of Object.entries(outputFields)) {
-        if (fieldDef && typeof fieldDef === 'object') {
-          outputSchema[fieldName] = fieldDef;
-        } else {
-          outputSchema[fieldName] = { type: 'str', description: String(fieldDef) };
-        }
-      }
-    }
-
-    if (!Object.keys(outputSchema).length) {
-      outputSchema.content = { type: 'str', description: 'The creative writing output' };
-    }
-
-    let temperature = typeof temperatureRaw === 'string' ? Number(temperatureRaw) : Number(temperatureRaw);
-    if (!Number.isFinite(temperature)) {
-      temperature = 0.6;
-    }
-    if (temperature !== 1.0) {
-      temperature = 0.6;
-    }
-
     const profileName = temperature === 0.6 ? 'creative' : 'default';
-
     const normalizedUser = String(user)
       .replace(/<<\s*input\.task\s*>>/g, '{{ input.task }}')
       .trim();
 
+    // Keep execution plain-text: do not force output schema/json mode.
     const agentConfig: AgentConfig = {
       spec: 'flatagent',
-      spec_version: '0.7.7',
+      spec_version: '2.0.0',
       data: {
         name,
         model: profileName,
         system: String(system),
         user: normalizedUser,
-        output: outputSchema,
       },
     };
 
@@ -194,26 +312,25 @@ export class OTFAgentHooks implements MachineHooks {
       });
       this.metrics.agents_generated += 1;
 
-      const result = await agent.call({ task: context.task ?? '' });
-      this.metrics.agents_executed += 1;
+      const result: any = await agent.call({ task: context.task ?? '' });
 
-      if (result.output) {
-        context.otf_result = result.output;
-      } else if (result.content) {
-        context.otf_result = { content: result.content };
-      } else {
-        context.otf_result = { content: '(empty response)' };
+      if (result?.error) {
+        const errorType = result.error.error_type ?? result.error.type ?? 'AgentError';
+        const message = result.error.message ?? String(result.error);
+        const errorText = `${errorType}: ${message}`;
+        context.otf_result = { error: errorText };
+        console.log(`\n❌ Error: ${errorText}`);
+        console.log(`${'='.repeat(70)}\n`);
+        return context;
       }
+
+      this.metrics.agents_executed += 1;
+      const content = String(result?.content ?? '').trim();
+      context.otf_result = { content: content || '(empty response)' };
 
       console.log('\n📝 OUTPUT:');
       console.log('-'.repeat(50));
-      if (typeof context.otf_result === 'object' && context.otf_result) {
-        for (const [key, value] of Object.entries(context.otf_result)) {
-          console.log(`${key}: ${value}`);
-        }
-      } else {
-        console.log(context.otf_result);
-      }
+      console.log(context.otf_result.content);
       console.log('-'.repeat(50));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

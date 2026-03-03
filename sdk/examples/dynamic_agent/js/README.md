@@ -5,13 +5,13 @@ Demonstrates On-The-Fly (OTF) agent generation with supervisor validation and hu
 ## Prerequisites
 
 1. **Node.js & npm**: Node.js 16+ and npm installed.
-2. **LLM API Key**: This demo uses Cerebras by default, so set `CEREBRAS_API_KEY` (or update `config/profiles.yml`).
+2. **LLM API Key**: This demo uses OpenAI profile defaults, so set `OPENAI_API_KEY` (or update `config/profiles.yml`).
 
 ## Quick Start (with `run.sh`)
 
 ```bash
 # Set your API key
-export CEREBRAS_API_KEY="your-api-key-here"
+export OPENAI_API_KEY="your-api-key-here"
 
 # Make the script executable (if you haven't already)
 chmod +x run.sh
@@ -32,7 +32,7 @@ chmod +x run.sh
    ```
 3. **Set your LLM API key**:
    ```bash
-   export CEREBRAS_API_KEY="your-api-key-here"
+   export OPENAI_API_KEY="your-api-key-here"
    ```
 4. **Build and run**:
    ```bash

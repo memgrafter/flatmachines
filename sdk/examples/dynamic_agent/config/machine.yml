@@ -2,11 +2,10 @@
 # Demonstrates On-The-Fly (OTF) agent generation with pre-execution supervision
 
 spec: flatmachine
-spec_version: "1.0.0"
+spec_version: "2.0.0"
 
 data:
   name: dynamic-agent
-  profiles: ./profiles.yml
 
   context:
     # User's creative writing task
@@ -42,9 +41,7 @@ data:
 
   agents:
     generator: ./generator.yml
-    generator_extractor: ./generator_extractor.yml
     supervisor: ./supervisor.yml
-    result_extractor: ./result_extractor.yml
 
   states:
     start:
@@ -62,22 +59,10 @@ data:
         raw_generator: "{{ output.content }}"
         generation_attempts: "{{ context.generation_attempts + 1 }}"
       transitions:
-        - to: extract_generator
+        - to: parse_generator
 
-    extract_generator:
-      agent: generator_extractor
-      execution:
-        type: retry
-        backoffs: [2, 8, 16, 35]
-        jitter: 0.1
-      input:
-        text: "{{ context.raw_generator }}"
-      output_to_context:
-        otf_name: "{{ output.name }}"
-        otf_system: "{{ output.system }}"
-        otf_user: "{{ output.user }}"
-        otf_temperature: "{{ output.temperature | default(0.6) }}"
-        otf_output_fields: "{{ output.output_fields | default({}) | tojson }}"
+    parse_generator:
+      action: parse_generator_spec
       transitions:
         - to: supervise_spec
 
@@ -90,24 +75,14 @@ data:
         spec_system: "{{ context.otf_system }}"
         spec_user: "{{ context.otf_user }}"
         spec_temperature: "{{ context.otf_temperature }}"
-        spec_output_fields: "{{ context.otf_output_fields }}"
+        spec_output_fields: "{{ context.otf_output_fields | default({}) }}"
       output_to_context:
         raw_supervisor: "{{ output.content }}"
       transitions:
-        - to: extract_supervisor
+        - to: parse_supervisor
 
-    extract_supervisor:
-      agent: result_extractor
-      execution:
-        type: retry
-        backoffs: [2, 8, 16, 35]
-        jitter: 0.1
-      input:
-        text: "{{ context.raw_supervisor }}"
-      output_to_context:
-        supervisor_approved: "{{ output.approved }}"
-        supervisor_analysis: "{{ output.analysis }}"
-        supervisor_concerns: "{{ output.concerns }}"
+    parse_supervisor:
+      action: parse_supervisor_review
       transitions:
         - to: human_review
 
@@ -137,7 +112,8 @@ data:
     done:
       type: final
       output:
-        content: "{{ context.otf_result.content | default(context.otf_result) }}"
+        content: "{{ context.otf_result.content | default(context.otf_result.error | default(context.otf_result)) }}"
+        error: "{{ context.otf_result.error | default('') }}"
         agent_name: "{{ context.otf_name }}"
         attempts: "{{ context.generation_attempts }}"
 
