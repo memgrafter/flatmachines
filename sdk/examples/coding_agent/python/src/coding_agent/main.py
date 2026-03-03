@@ -19,7 +19,7 @@ import warnings
 warnings.filterwarnings('ignore', message='.*Pydantic serializer warnings.*')
 warnings.filterwarnings('ignore', category=UserWarning, module='pydantic')
 
-from flatmachines import FlatMachine, setup_logging, get_logger
+from flatmachines import FlatMachine, HooksRegistry, setup_logging, get_logger
 from .hooks import CodingAgentHooks
 
 # Configure logging (respects LOG_LEVEL env var for quiet mode)
@@ -48,10 +48,13 @@ async def run(task: str, cwd: str = ".", max_iterations: int = 5):
     # Capture actual directory user ran from (for safety checks)
     user_cwd = Path.cwd().resolve()
     
-    # Create machine with hooks (passing working_dir for exploration tools)
+    # Register hooks by name so config hooks refs resolve correctly
+    registry = HooksRegistry()
+    registry.register("coding-agent", lambda: CodingAgentHooks(working_dir=str(working_dir)))
+
     machine = FlatMachine(
         config_file=str(config_path),
-        hooks=CodingAgentHooks(working_dir=str(working_dir))
+        hooks_registry=registry,
     )
 
     logger.info(f"Machine: {machine.machine_name}")

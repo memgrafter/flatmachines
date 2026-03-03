@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { FlatMachine } from 'flatagents';
+import { FlatMachine, HooksRegistry } from 'flatagents';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { readFileSync, existsSync } from 'fs';
@@ -68,10 +68,13 @@ async function runRlm(context: string, task: string, maxChunkSize: number, maxEx
   const rootDir = join(__dirname, '..', '..', '..');
   const configDir = join(rootDir, 'config');
 
+  const hooksRegistry = new HooksRegistry();
+  hooksRegistry.register('rlm', RLMHooks);
+
   const machine = new FlatMachine({
     config: join(configDir, 'machine.yml'),
     configDir,
-    hooks: new RLMHooks(),
+    hooksRegistry,
   });
 
   console.log(`Starting RLM with context of ${context.length} characters`);

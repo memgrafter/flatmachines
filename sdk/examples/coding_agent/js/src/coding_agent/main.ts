@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { FlatMachine } from 'flatagents';
+import { FlatMachine, HooksRegistry } from 'flatagents';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { CodingAgentHooks } from './hooks.js';
@@ -66,10 +66,13 @@ async function main() {
   console.log(`Working Dir: ${workingDir}`);
   console.log('-'.repeat(70));
 
+  const hooksRegistry = new HooksRegistry();
+  hooksRegistry.register('coding-agent', () => new CodingAgentHooks(workingDir));
+
   const machine = new FlatMachine({
     config: join(configDir, 'machine.yml'),
     configDir,
-    hooks: new CodingAgentHooks(workingDir),
+    hooksRegistry,
   });
 
   const result = await machine.execute({
