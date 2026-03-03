@@ -71,7 +71,7 @@ print(result.output)
 **reviewer.yml**
 ```yaml
 spec: flatagent
-spec_version: "1.2.0"
+spec_version: "2.0.0"
 
 data:
   name: code-reviewer
@@ -114,7 +114,7 @@ Centralize model configurations in `profiles.yml` and reference them by name:
 **profiles.yml**
 ```yaml
 spec: flatprofiles
-spec_version: "1.2.0"
+spec_version: "2.0.0"
 
 data:
   model_profiles:

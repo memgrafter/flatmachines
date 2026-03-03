@@ -1,4 +1,4 @@
-export const SPEC_VERSION = "1.2.0";
+export const SPEC_VERSION = "2.0.0";
 export interface MachineWrapper {
     spec: "flatmachine";
     spec_version: string;
@@ -14,7 +14,7 @@ export interface MachineData {
     states: Record<string, StateDefinition>;
     settings?: MachineSettings;
     persistence?: PersistenceConfig;
-    hooks?: HooksConfig;
+    hooks?: HooksRef;
 }
 export interface AgentRefConfig {
     type: string;
@@ -22,10 +22,9 @@ export interface AgentRefConfig {
     config?: Record<string, any>;
 }
 export type AgentRef = string | AgentWrapper | AgentRefConfig;
-export interface HooksConfig {
-    file?: string;
-    module?: string;
-    class: string;
+export type HooksRef = string | HooksRefConfig | Array<string | HooksRefConfig>;
+export interface HooksRefConfig {
+    name: string;
     args?: Record<string, any>;
 }
 export interface MachineSettings {

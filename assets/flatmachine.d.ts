@@ -285,27 +285,28 @@
  *
  * HOOKS CONFIG:
  * -------------
- * Configuration for loading hooks from file or module.
+ * Hooks are referenced by name and resolved via a runtime HooksRegistry.
+ * This keeps machine configs language-agnostic — the same YAML works with
+ * Python, JavaScript, Rust, or any other SDK.
  *
- * File-based (preferred for self-contained skills):
+ * String shorthand:
+ *   hooks: "my-hooks"
+ *
+ * With constructor args:
  *   hooks:
- *     file: "./hooks.py"
- *     class: "MyHooks"
+ *     name: "my-hooks"
  *     args:
  *       working_dir: "."
  *
- * Module-based (for installed packages):
+ * Composite (multiple hooks):
  *   hooks:
- *     module: "mypackage.hooks"
- *     class: "MyHooks"
- *     args:
- *       api_key: "{{ input.api_key }}"
+ *     - "logging"
+ *     - name: "my-hooks"
+ *       args: { working_dir: "." }
  *
- * Fields:
- *   file   - Path to Python file containing hooks class (relative to machine.yml)
- *   module - Python module path to import
- *   class  - Class name to instantiate (required)
- *   args   - Arguments to pass to hooks constructor
+ * The SDK's HooksRegistry maps names to implementations.
+ * Built-in hooks (e.g., "logging", "webhook") are pre-registered.
+ * Custom hooks are registered by the runner before machine execution.
  *
  * MACHINE SNAPSHOT:
  * -----------------
@@ -315,7 +316,7 @@
  * waiting_channel     - Signal channel this machine is blocked on (v1.2.0)
  */
 
-export const SPEC_VERSION = "1.2.0";
+export const SPEC_VERSION = "2.0.0";
 
 export interface MachineWrapper {
   spec: "flatmachine";
@@ -333,7 +334,7 @@ export interface MachineData {
   states: Record<string, StateDefinition>;
   settings?: MachineSettings;
   persistence?: PersistenceConfig;
-  hooks?: HooksConfig;
+  hooks?: HooksRef;
 }
 
 export interface AgentRefConfig {
@@ -344,10 +345,10 @@ export interface AgentRefConfig {
 
 export type AgentRef = string | AgentWrapper | AgentRefConfig;
 
-export interface HooksConfig {
-  file?: string;
-  module?: string;
-  class: string;
+export type HooksRef = string | HooksRefConfig | Array<string | HooksRefConfig>;
+
+export interface HooksRefConfig {
+  name: string;
   args?: Record<string, any>;
 }
 

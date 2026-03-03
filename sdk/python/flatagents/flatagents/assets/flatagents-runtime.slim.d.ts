@@ -99,6 +99,15 @@ export interface MachineHooks {
     onError?(state: string, error: Error, context: Record<string, any>): string | null | Promise<string | null>;
     onAction?(action: string, context: Record<string, any>): Record<string, any> | Promise<Record<string, any>>;
 }
+export interface HooksRegistry {
+    register(name: string, factory: HooksFactory): void;
+    resolve(ref: HooksRef): MachineHooks;
+    has(name: string): boolean;
+}
+export type HooksFactory = {
+    new (args?: Record<string, any>): MachineHooks;
+} | ((args?: Record<string, any>) => MachineHooks);
+import { HooksRef, HooksRefConfig } from "./flatmachine";
 export interface LLMBackend {
     totalCost: number;
     totalApiCalls: number;
@@ -240,7 +249,7 @@ export interface BackendConfig {
     dynamodb_table?: string;
     aws_region?: string;
 }
-export const SPEC_VERSION = "1.2.0";
+export const SPEC_VERSION = "2.0.0";
 export interface SDKRuntimeWrapper {
     spec: "flatagents-runtime";
     spec_version: typeof SPEC_VERSION;
@@ -249,6 +258,7 @@ export interface SDKRuntimeWrapper {
     result_backend?: ResultBackend;
     execution_config?: ExecutionConfig;
     machine_hooks?: MachineHooks;
+    hooks_registry?: HooksRegistry;
     llm_backend?: LLMBackend;
     machine_invoker?: MachineInvoker;
     backend_config?: BackendConfig;

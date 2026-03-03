@@ -108,7 +108,7 @@
  * stream            - Enable streaming responses (default: false)
  */
 
-export const SPEC_VERSION = "1.2.0";
+export const SPEC_VERSION = "2.0.0";
 
 export interface ProfilesWrapper {
   spec: "flatprofiles";

@@ -74,7 +74,7 @@
           "$ref": "#/definitions/PersistenceConfig"
         },
         "hooks": {
-          "$ref": "#/definitions/HooksConfig"
+          "$ref": "#/definitions/HooksRef"
         }
       },
       "required": [
@@ -675,16 +675,33 @@
         "backend"
       ]
     },
-    "HooksConfig": {
+    "HooksRef": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/definitions/HooksRefConfig"
+        },
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/definitions/HooksRefConfig"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "HooksRefConfig": {
       "type": "object",
       "properties": {
-        "file": {
-          "type": "string"
-        },
-        "module": {
-          "type": "string"
-        },
-        "class": {
+        "name": {
           "type": "string"
         },
         "args": {
@@ -692,7 +709,7 @@
         }
       },
       "required": [
-        "class"
+        "name"
       ],
       "additionalProperties": false
     }
