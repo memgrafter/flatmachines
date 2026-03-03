@@ -61,7 +61,7 @@ data:
         iteration: "{{ context.iteration }}"
       output_to_context:
         raw_summary: "{{ output.content }}"
-        iteration: "{{ context.iteration + 1 }}"
+        iteration: "{{ (context.iteration | int) + 1 }}"
       transitions:
         - to: extract_summary
 
@@ -103,11 +103,11 @@ data:
       input:
         text: "{{ context.raw_critique }}"
       output_to_context:
-        quality_score: "{{ output.quality_score }}"
+        quality_score: output.quality_score
         critique: "{{ output.critique }}"
       transitions:
         # Accept if quality >= 8 or max iterations (3) reached
-        - condition: "context.quality_score >= 8 or context.iteration >= 3"
+        - condition: "context.quality_score >= 8 or context.iteration >= '3'"
           to: done
         # Otherwise, refine again
         - to: synthesize

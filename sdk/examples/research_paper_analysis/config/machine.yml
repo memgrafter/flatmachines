@@ -77,7 +77,7 @@ data:
         reference_count: "{{ context.reference_count }}"
       output_to_context:
         summary: "{{ output.summary }}"
-        quality_score: "{{ output.quality_score }}"
+        quality_score: output.quality_score
       transitions:
         - to: format
 

@@ -20,7 +20,7 @@ data:
       type: initial
       launch: [worker_node]
       launch_input:
-        tasks: "{{ context.tasks }}"
+        tasks: context.tasks
       transitions:
         - to: wait_for_results
     wait_for_results:

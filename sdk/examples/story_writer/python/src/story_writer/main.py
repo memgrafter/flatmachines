@@ -12,7 +12,6 @@ Usage:
 """
 
 import asyncio
-import json
 from pathlib import Path
 
 from flatmachines import FlatMachine, LoggingHooks, setup_logging, get_logger
@@ -68,30 +67,12 @@ async def run(
     logger.info(f"Title: {result.get('title', 'Untitled')}")
     logger.info(f"Chapters Written: {result.get('chapters_completed', 0)}")
     
-    # Show first 300 chars of each chapter
-    chapters = result.get('chapters', [])
-    
-    # Parse chapters - may be nested JSON strings from template rendering
-    def flatten_chapters(data):
-        """Recursively parse JSON strings and flatten nested lists."""
-        if isinstance(data, str):
-            try:
-                data = json.loads(data)
-                return flatten_chapters(data)  # Recurse in case of nested strings
-            except json.JSONDecodeError:
-                return [data]  # It's just text, wrap it
-        if isinstance(data, list):
-            result = []
-            for item in data:
-                flattened = flatten_chapters(item)
-                if isinstance(flattened, list):
-                    result.extend(flattened)
-                else:
-                    result.append(flattened)
-            return result
-        return [str(data)]
-    
-    chapters = flatten_chapters(chapters)
+    # Chapters are emitted as plain text with a deterministic separator
+    chapters_blob = result.get('chapters', '') or ''
+    if isinstance(chapters_blob, list):
+        chapters = [str(c) for c in chapters_blob]
+    else:
+        chapters = [c for c in str(chapters_blob).split("\n\n--- CHAPTER BREAK ---\n\n") if c.strip()]
     
     for i, chapter in enumerate(chapters[:3], 1):
         logger.info(f"\n--- Chapter {i} Preview ---")

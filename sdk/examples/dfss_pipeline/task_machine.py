@@ -5,7 +5,7 @@ def task_config() -> dict:
     """Reusable FlatMachine config for one DFSS task execution."""
     return {
         "spec": "flatmachine",
-        "spec_version": "1.1.1",
+        "spec_version": "2.0.0",
         "data": {
             "name": "dfss-task-runner",
             "context": {

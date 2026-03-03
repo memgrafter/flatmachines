@@ -8,7 +8,7 @@ Also provides exploration tools (tree, ripgrep, read_file) for accurate diffs.
 
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from flatmachines import MachineHooks
 
 
@@ -31,7 +31,43 @@ class CodingAgentHooks(MachineHooks):
     def __init__(self, working_dir: str = "."):
         """Initialize with working directory for exploration."""
         self.working_dir = Path(working_dir).resolve()
+
+    def _get_base_path(self, context: Dict[str, Any]) -> Path:
+        """Resolve working directory from context or instance default."""
+        working_dir = context.get("working_dir")
+        if working_dir:
+            return Path(working_dir).expanduser().resolve()
+        return self.working_dir
+
+    def _is_within_base(self, base_path: Path, target_path: Path) -> bool:
+        """Return True if target_path resolves inside base_path."""
+        try:
+            target_path.resolve().relative_to(base_path.resolve())
+            return True
+        except ValueError:
+            return False
+
+    def _get_approval_response(self, kind: str) -> Optional[str]:
+        """Get optional non-interactive approval response from env vars."""
+        import os
+
+        env_key = "CODING_AGENT_APPROVAL_PLAN" if kind == "plan" else "CODING_AGENT_APPROVAL_RESULT"
+        value = os.environ.get(env_key)
+        if value is None:
+            return None
+        return value.strip()
     
+    def on_state_enter(self, state_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize common numeric fields that may arrive as template strings."""
+        for key in ("iteration", "max_iterations", "token_budget", "frozen_token_count"):
+            value = context.get(key)
+            if isinstance(value, str):
+                try:
+                    context[key] = int(value)
+                except ValueError:
+                    pass
+        return context
+
     def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """Route actions to their handlers."""
         handlers = {
@@ -56,12 +92,7 @@ class CodingAgentHooks(MachineHooks):
         Uses tree for structure and reads README for overview.
         For deeper exploration, use run_tree, run_ripgrep, read_file actions.
         """
-        # Use working_dir from context if provided, else use instance default
-        working_dir = context.get("working_dir")
-        if working_dir:
-            path = Path(working_dir).expanduser().resolve()
-        else:
-            path = self.working_dir
+        path = self._get_base_path(context)
         
         context_parts = []
         
@@ -112,8 +143,7 @@ class CodingAgentHooks(MachineHooks):
         Returns: context.latest_output, updated tree_outputs
         """
         cmd = context.get("action_command", "")
-        working_dir = context.get("working_dir")
-        cwd = Path(working_dir).resolve() if working_dir else self.working_dir
+        cwd = self._get_base_path(context)
 
         # If just a path, prepend tree command
         if not cmd or not cmd.strip().startswith("tree"):
@@ -153,8 +183,7 @@ class CodingAgentHooks(MachineHooks):
         Returns: context.latest_output, updated rg_results
         """
         cmd = context.get("action_command", "")
-        working_dir = context.get("working_dir")
-        cwd = Path(working_dir).resolve() if working_dir else self.working_dir
+        cwd = self._get_base_path(context)
 
         # If just a pattern, prepend rg command
         if not cmd or not cmd.strip().startswith("rg"):
@@ -198,26 +227,24 @@ class CodingAgentHooks(MachineHooks):
         Returns: context.latest_output, updated file_contents
         """
         filepath = context.get("action_command", "")
-        working_dir = context.get("working_dir")
-        base_path = Path(working_dir).resolve() if working_dir else self.working_dir
+        base_path = self._get_base_path(context)
 
         if not filepath:
             context["latest_output"] = "Error: no file path specified"
             context["latest_action"] = "read"
             return context
 
-        # Resolve path relative to working dir
-        full_path = base_path / filepath
+        # Resolve path relative to working dir (unless already absolute)
+        candidate_path = Path(filepath)
+        full_path = candidate_path if candidate_path.is_absolute() else (base_path / candidate_path)
 
         # Security: ensure path is within working dir
-        try:
-            full_path = full_path.resolve()
-            if not str(full_path).startswith(str(base_path)):
-                context["latest_output"] = "Error: path outside working directory"
-                context["latest_action"] = "read"
-                return context
-        except Exception:
-            pass
+        if not self._is_within_base(base_path, full_path):
+            context["latest_output"] = "Error: path outside working directory"
+            context["latest_action"] = "read"
+            return context
+
+        full_path = full_path.resolve()
 
         try:
             content = full_path.read_text()
@@ -255,8 +282,7 @@ class CodingAgentHooks(MachineHooks):
         else:
             plan = str(plan_raw)
         
-        working_dir = context.get("working_dir")
-        base_path = Path(working_dir).resolve() if working_dir else self.working_dir
+        base_path = self._get_base_path(context)
         
         # Extract file paths from plan - look for path-like patterns
         # Matches: src/file.py, ./lib/foo.js, path/to/file.ts, etc.
@@ -270,14 +296,10 @@ class CodingAgentHooks(MachineHooks):
         files_read = []
         
         for filepath in paths[:20]:  # Limit to 20 files to avoid overwhelming context
-            full_path = base_path / filepath
-            
+            full_path = (base_path / filepath).resolve()
+
             # Security check
-            try:
-                full_path = full_path.resolve()
-                if not str(full_path).startswith(str(base_path)):
-                    continue
-            except Exception:
+            if not self._is_within_base(base_path, full_path):
                 continue
             
             # Read file
@@ -331,9 +353,11 @@ class CodingAgentHooks(MachineHooks):
             print("[WARNING] No plan content received")
         
         print("\n" + "-" * 70)
-        response = input("Approve plan? (y/yes to approve, or enter feedback): ").strip()
-        
-        if response.lower() in ("y", "yes", ""):
+        response = self._get_approval_response("plan")
+        if response is None:
+            response = input("Approve plan? (y/yes to approve, or enter feedback): ").strip()
+
+        if response.lower() in ("y", "yes", "", "approved"):
             context["plan_approved"] = True
             context["human_feedback"] = None
             print("✅ Plan approved!")
@@ -405,9 +429,11 @@ class CodingAgentHooks(MachineHooks):
             print(f"\n📊 Review: {review_summary}")
         
         print("\n" + "-" * 70)
-        response = input("Approve changes? (y/yes to approve, or enter feedback): ").strip()
-        
-        if response.lower() in ("y", "yes", ""):
+        response = self._get_approval_response("result")
+        if response is None:
+            response = input("Approve changes? (y/yes to approve, or enter feedback): ").strip()
+
+        if response.lower() in ("y", "yes", "", "approved"):
             context["result_approved"] = True
             context["human_feedback"] = None
             print("✅ Changes approved!")

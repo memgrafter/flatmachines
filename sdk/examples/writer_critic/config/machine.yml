@@ -87,7 +87,7 @@ data:
       output_to_context:
         score: "{{ output.score }}"
         feedback: "{{ output.feedback }}"
-        round: "{{ context.round + 1 }}"
+        round: "{{ (context.round | int) + 1 }}"
       transitions:
         - condition: "context.score >= context.target_score"
           to: done

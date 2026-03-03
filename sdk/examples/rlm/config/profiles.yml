@@ -8,24 +8,23 @@ data:
   model_profiles:
     # Default Cerebras GLM profile for RLM workloads
     default:
-      provider: cerebras
-      name: zai-glm-4.7
+      provider: openai
+      name: gpt-5-mini
       temperature: 1.0
       max_tokens: 10000
 
     # Creative profile for more expressive synthesis
     creative:
-      provider: cerebras
-      name: zai-glm-4.7
-      temperature: 0.6
+      provider: openai
+      name: gpt-5-mini
+      temperature: 1.0
       max_tokens: 10000
 
     # Fast profile for extraction
     fast:
-      provider: cerebras
-      name: zai-glm-4.7
+      provider: openai
+      name: gpt-5-mini
       temperature: 1.0
-
   default: default
 
 metadata:

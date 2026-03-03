@@ -14,7 +14,9 @@ data:
       type: str
       description: Concise summary of all texts
     key_topics:
-      type: array
+      type: list
+      items:
+        type: str
       description: Main topics identified across texts
     text_count:
       type: int

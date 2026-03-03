@@ -3,7 +3,7 @@
 # System prompt follows SillyTavern chat completion format
 
 spec: flatagent
-spec_version: "1.0.0"
+spec_version: "2.0.0"
 
 data:
   name: character-responder
@@ -65,7 +65,7 @@ data:
     {% endif %}
     ---
     {% endif %}
-    {% for msg in input.messages %}
+    {% for msg in input.chat_messages %}
     {% if msg.role == 'user' %}{{ input.user_name }}: {{ msg.content }}{% else %}{{ input.card_name }}: {{ msg.content }}{% endif %}
     {% endfor %}
     {{ input.user_name }}: {{ input.user_message }}{% if input.post_history_instructions %}

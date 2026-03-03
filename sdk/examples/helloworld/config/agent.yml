@@ -11,7 +11,7 @@ data:
   # Override max_tokens for this specific agent
   model:
     profile: "extra-params-demo"
-    max_tokens: 2000 # or turn off thinking, glm 4.7 always overthinks
+    max_tokens: 200
 
   system: >
     You are an agent in a test-time sequential scaling. Reply with exactly one output character in text format. No explanation. No wrapper.

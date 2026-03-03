@@ -2,7 +2,7 @@
 # Loads a character card PNG and enables chat with the character
 
 spec: flatmachine
-spec_version: "1.0.0"
+spec_version: "2.0.0"
 
 data:
   name: character-card-chat
@@ -31,6 +31,8 @@ data:
   
   agents:
     responder: ./responder.yml
+
+  hooks: character-card-hooks
   
   states:
     start:
@@ -54,18 +56,18 @@ data:
     respond:
       agent: responder
       input:
-        card_name: "{{ context.card_name }}"
-        card_description: "{{ context.card_description }}"
-        card_personality: "{{ context.card_personality }}"
-        card_scenario: "{{ context.card_scenario }}"
-        card_system_prompt: "{{ context.card_system_prompt }}"
-        card_mes_example: "{{ context.card_mes_example }}"
-        post_history_instructions: "{{ context.post_history_instructions }}"
-        messages: "{{ context.messages | tojson }}"
-        user_message: "{{ context.user_message }}"
-        user_name: "{{ context.user_name }}"
-        user_persona: "{{ context.user_persona }}"
-        no_system_prompt: "{{ context.no_system_prompt }}"
+        card_name: context.card_name
+        card_description: context.card_description
+        card_personality: context.card_personality
+        card_scenario: context.card_scenario
+        card_system_prompt: context.card_system_prompt
+        card_mes_example: context.card_mes_example
+        post_history_instructions: context.post_history_instructions
+        chat_messages: context.messages
+        user_message: context.user_message
+        user_name: context.user_name
+        user_persona: context.user_persona
+        no_system_prompt: context.no_system_prompt
       output_to_context:
         assistant_message: |-
           {%- if output.content is defined -%}

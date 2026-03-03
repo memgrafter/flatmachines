@@ -13,6 +13,8 @@ data:
   
   agents:
     builder: ./agent.yml
+
+  hooks: hello-world-hooks
   
   states:
     start:
@@ -36,7 +38,7 @@ data:
         expected_char: "{{ context.target[context.current|length] }}"
         last_output: "{{ output.next_char or output.content }}"
       transitions:
-        - condition: "context.last_output == context.expected_char"
+        - condition: "context.last_output != null and context.last_output != '' and context.last_output[0] == context.expected_char"
           to: append_char
         - to: build_char
 

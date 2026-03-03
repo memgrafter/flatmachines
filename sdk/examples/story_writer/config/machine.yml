@@ -21,7 +21,7 @@ data:
     title: null
     outline: null
     current_chapter: 0
-    chapters: []
+    chapters_text: ""
 
   agents:
     outliner: ./outliner.yml
@@ -63,7 +63,7 @@ data:
         text: "{{ context.raw_outline }}"
       output_to_context:
         title: "{{ output.title }}"
-        outline: "{{ output.chapter_outlines }}"
+        outline: output.chapter_outlines
       transitions:
         - to: write_chapter
 
@@ -73,12 +73,12 @@ data:
       input:
         genre: "{{ context.genre }}"
         title: "{{ context.title }}"
-        chapter_number: "{{ context.current_chapter + 1 }}"
-        chapter_outline: "{{ context.outline[context.current_chapter] }}"
-        previous_chapters: "{{ context.chapters }}"
+        chapter_number: "{{ (context.current_chapter | int) + 1 }}"
+        chapter_outline: "{{ context.outline[(context.current_chapter | int)] }}"
+        previous_chapters: "{{ context.chapters_text }}"
       output_to_context:
-        chapters: "{{ (context.chapters + [output.final_chapter]) | tojson }}"
-        current_chapter: "{{ context.current_chapter + 1 }}"
+        chapters_text: "{{ context.chapters_text ~ ('\n\n--- CHAPTER BREAK ---\n\n' if context.chapters_text else '') ~ output.final_chapter }}"
+        current_chapter: "{{ (context.current_chapter | int) + 1 }}"
       transitions:
         - condition: "context.current_chapter >= context.num_chapters"
           to: done
@@ -88,8 +88,8 @@ data:
       type: final
       output:
         title: "{{ context.title }}"
-        chapters: "{{ context.chapters | tojson }}"
-        chapters_completed: "{{ context.chapters | length }}"
+        chapters: "{{ context.chapters_text }}"
+        chapters_completed: "{{ context.current_chapter }}"
 
 metadata:
   description: "Multi-chapter story writer with machine peering and checkpoint/resume"

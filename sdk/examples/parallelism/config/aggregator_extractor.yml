@@ -14,7 +14,9 @@ data:
       type: str
       description: Unified summary combining all parallel results
     insights:
-      type: array
+      type: list
+      items:
+        type: str
       description: Key insights from combined data
     execution_summary:
       type: str

@@ -15,9 +15,9 @@ data:
     context_content: "{{ input.context }}"
     context_length: "{{ input.context | length | int }}"
     estimated_tokens: "{{ ((input.context | length) // 4) | int }}"
-    # Bare path references preserve native types (important for numeric comparisons)
-    max_chunk_size: input.max_chunk_size
-    max_exploration_rounds: input.max_exploration_rounds
+    # Keep as templated strings to avoid string/int comparison mismatches in transitions
+    max_chunk_size: "{{ input.max_chunk_size }}"
+    max_exploration_rounds: "{{ input.max_exploration_rounds }}"
 
     # Exploration state
     exploration_round: 0
@@ -79,7 +79,7 @@ data:
         estimated_tokens: "{{ context.estimated_tokens }}"
         exploration_history: "{{ context.exploration_history }}"
       output_to_context:
-        exploration_round: "{{ context.exploration_round + 1 }}"
+        exploration_round: "{{ (context.exploration_round | int) + 1 }}"
         raw_exploration: "{{ output.content }}"
       on_error: explore_error
       transitions:
@@ -95,9 +95,9 @@ data:
         text: "{{ context.raw_exploration }}"
       output_to_context:
         code: "{{ output.code }}"
-        ready_to_answer: "{{ output.ready_to_answer }}"
+        ready_to_answer: output.ready_to_answer
         findings: "{{ output.findings }}"
-        suggested_chunks: "{{ output.suggested_chunks }}"
+        suggested_chunks: output.suggested_chunks
       transitions:
         - to: execute_exploration_code
 
@@ -148,8 +148,8 @@ data:
       input:
         text: "{{ context.raw_decomposition }}"
       output_to_context:
-        needs_decomposition: "{{ output.needs_decomposition }}"
-        sub_tasks: "{{ output.sub_tasks }}"
+        needs_decomposition: output.needs_decomposition
+        sub_tasks: output.sub_tasks
         aggregation_strategy: "{{ output.aggregation_strategy }}"
         direct_answer: "{{ output.direct_answer }}"
       transitions:
@@ -159,7 +159,7 @@ data:
 
     # Process all chunks in parallel using foreach
     process_chunks:
-      foreach: "{{ context.sub_tasks }}"
+      foreach: context.sub_tasks
       as: sub_task
       machine: chunk_processor
       mode: settled
@@ -170,7 +170,7 @@ data:
         context_content: "{{ context.context_content }}"
         total_length: "{{ context.context_length }}"
       output_to_context:
-        sub_task_results: "{{ output }}"
+        sub_task_results: output
       transitions:
         - to: synthesize
 

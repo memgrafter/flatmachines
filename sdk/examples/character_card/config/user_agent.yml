@@ -2,7 +2,7 @@
 # LLM-driven user that generates responses in character chats
 
 spec: flatagent
-spec_version: "1.0.0"
+spec_version: "2.0.0"
 
 data:
   name: user-agent
@@ -25,7 +25,7 @@ data:
     {% endif %}
     
     Conversation so far:
-    {% for msg in input.messages %}
+    {% for msg in input.chat_messages %}
     {% if msg.role == 'user' %}{{ input.user_name }}: {{ msg.content }}{% else %}{{ input.card_name }}: {{ msg.content }}{% endif %}
     {% endfor %}
     

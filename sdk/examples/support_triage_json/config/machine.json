@@ -40,15 +40,15 @@
           "jitter": 0.1
         },
         "input": {
-          "ticket_id": "{{ context.ticket_id }}",
-          "customer_message": "{{ context.customer_message }}",
-          "customer_tier": "{{ context.customer_tier }}"
+          "ticket_id": "context.ticket_id",
+          "customer_message": "context.customer_message",
+          "customer_tier": "context.customer_tier"
         },
         "output_to_context": {
-          "category": "{{ output.category }}",
-          "urgency": "{{ output.urgency }}",
-          "needs_response": "{{ output.needs_response | tojson }}",
-          "triage_summary": "{{ output.summary }}"
+          "category": "output.category",
+          "urgency": "output.urgency",
+          "needs_response": "output.needs_response",
+          "triage_summary": "output.summary"
         },
         "transitions": [
           {
@@ -61,16 +61,16 @@
       "compose_response": {
         "machine": "response_flow",
         "input": {
-          "ticket_id": "{{ context.ticket_id }}",
-          "customer_message": "{{ context.customer_message }}",
-          "customer_tier": "{{ context.customer_tier }}",
-          "preferred_tone": "{{ context.preferred_tone }}",
-          "category": "{{ context.category }}",
-          "urgency": "{{ context.urgency }}",
-          "triage_summary": "{{ context.triage_summary }}"
+          "ticket_id": "context.ticket_id",
+          "customer_message": "context.customer_message",
+          "customer_tier": "context.customer_tier",
+          "preferred_tone": "context.preferred_tone",
+          "category": "context.category",
+          "urgency": "context.urgency",
+          "triage_summary": "context.triage_summary"
         },
         "output_to_context": {
-          "response": "{{ output.response | tojson }}"
+          "response": "output.response"
         },
         "transitions": [
           {"to": "done_response"}
@@ -79,22 +79,22 @@
       "done_response": {
         "type": "final",
         "output": {
-          "ticket_id": "{{ context.ticket_id }}",
-          "category": "{{ context.category }}",
-          "urgency": "{{ context.urgency }}",
-          "needs_response": "{{ context.needs_response | tojson }}",
-          "triage_summary": "{{ context.triage_summary }}",
-          "response": "{{ context.response | tojson }}"
+          "ticket_id": "context.ticket_id",
+          "category": "context.category",
+          "urgency": "context.urgency",
+          "needs_response": "context.needs_response",
+          "triage_summary": "context.triage_summary",
+          "response": "context.response"
         }
       },
       "done_no_response": {
         "type": "final",
         "output": {
-          "ticket_id": "{{ context.ticket_id }}",
-          "category": "{{ context.category }}",
-          "urgency": "{{ context.urgency }}",
-          "needs_response": "{{ context.needs_response | tojson }}",
-          "triage_summary": "{{ context.triage_summary }}",
+          "ticket_id": "context.ticket_id",
+          "category": "context.category",
+          "urgency": "context.urgency",
+          "needs_response": "context.needs_response",
+          "triage_summary": "context.triage_summary",
           "response": null
         }
       }

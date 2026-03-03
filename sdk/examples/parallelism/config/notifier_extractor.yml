@@ -11,7 +11,16 @@ data:
     Respond with JSON: {"formatted_messages": [{"recipient": "...", "message": "...", "timestamp": "..."}], "delivery_status": "ready|failed", "summary": "brief status"}
   output:
     formatted_messages:
-      type: array
+      type: list
+      items:
+        type: object
+        properties:
+          recipient:
+            type: str
+          message:
+            type: str
+          timestamp:
+            type: str
       description: Formatted messages for each recipient
     delivery_status:
       type: str

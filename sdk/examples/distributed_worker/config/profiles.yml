@@ -1,7 +1,10 @@
-# Model profiles for the distributed worker example
-# No LLM calls needed for this example, but required by FlatMachine
+spec: flatprofiles
+spec_version: "2.0.0"
 
-profiles:
-  default:
-    provider: mock
-    model: none
+data:
+  model_profiles:
+    default:
+      provider: openai
+      name: gpt-5-mini
+      temperature: 1.0
+  default: default

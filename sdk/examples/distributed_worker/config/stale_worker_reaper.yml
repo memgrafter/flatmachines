@@ -6,7 +6,7 @@ data:
   
   context:
     pool_id: "{{ input.pool_id | default('default') }}"
-    stale_threshold_seconds: "{{ input.stale_threshold_seconds | default(60) }}"
+    stale_threshold_seconds: input.stale_threshold_seconds
   
   hooks: "distributed-worker"
   
@@ -19,8 +19,8 @@ data:
     find_stale_workers:
       action: list_stale_workers
       output_to_context:
-        stale_workers: "{{ output.workers }}"
-        stale_count: "{{ output.stale_count }}"
+        stale_workers: output.workers
+        stale_count: output.stale_count
       transitions:
         - condition: "context.stale_count == 0"
           to: done
@@ -29,8 +29,8 @@ data:
     reap_workers:
       action: reap_stale_workers
       output_to_context:
-        reaped_count: "{{ output.reaped_count }}"
-        reaped_workers: "{{ output.reaped_workers }}"
+        reaped_count: output.reaped_count
+        reaped_workers: output.reaped_workers
       transitions:
         - to: done
     

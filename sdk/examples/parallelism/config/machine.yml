@@ -9,9 +9,9 @@ data:
   profiles: ./profiles.yml
 
   context:
-    execution_type: "{{ input.type }}"
-    texts: "{{ input.texts }}"
-    message: "{{ input.message }}"
+    execution_type: input.type
+    texts: input.texts
+    message: input.message
     raw_aggregated: null
 
   agents:
@@ -40,7 +40,7 @@ data:
       # Run summarization and sentiment analysis in parallel
       machine: [summarizer_machine, sentiment_machine]
       input:
-        texts: "{{ context.texts }}"
+        texts: context.texts
       output_to_context:
         parallel_results: "{{ output }}"
       transitions:
@@ -70,7 +70,7 @@ data:
 
     # Pattern 2: Dynamic parallelism with foreach
     foreach_analysis:
-      foreach: "{{ context.texts }}"
+      foreach: context.texts
       as: text
       machine: sentiment_machine
       input:

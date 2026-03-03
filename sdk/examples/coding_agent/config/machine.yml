@@ -14,9 +14,11 @@ data:
     # Input from user
     task: "{{ input.task }}"
     working_dir: "{{ input.cwd | default('.') }}"
+    user_cwd: "{{ input.user_cwd | default(input.cwd | default('.')) }}"
     
     # State tracking
     codebase_context: null
+    frozen_signatures: []
     plan: null
     plan_history: []      # Preserve rejected plans
     changes: null
@@ -35,7 +37,7 @@ data:
     planner: ./agents/planner.yml
     coder: ./agents/coder.yml
     reviewer: ./agents/reviewer.yml
-  
+
   machines:
     explorer: ../.skills/codebase_explorer/machine.yml
   

@@ -19,19 +19,18 @@ models:
   # All agents use Cerebras zai-glm-4.7
   # Temperature: 1.0 by default, 0.6 for creative tasks
   default:
-    provider: cerebras
-    name: zai-glm-4.7
+    provider: openai
+    name: gpt-5-mini
     temperature: 1.0
-
   # Task model - the judge being optimized (analytical)
   task:
-    provider: cerebras
-    name: zai-glm-4.7
+    provider: openai
+    name: gpt-5-mini
 
   # Reflection model - analyzes failures and proposes improvements (analytical)
   reflection:
-    provider: cerebras
-    name: zai-glm-4.7
+    provider: openai
+    name: gpt-5-mini
 
 evaluation:
   # Minimum number of evaluation examples required

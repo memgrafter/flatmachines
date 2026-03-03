@@ -14,6 +14,7 @@ import asyncio
 from pathlib import Path
 import os
 import warnings
+import importlib.util
 
 # Suppress Pydantic serialization warnings
 warnings.filterwarnings('ignore', message='.*Pydantic serializer warnings.*')
@@ -26,6 +27,32 @@ from .hooks import CodingAgentHooks
 log_level = os.environ.get('LOG_LEVEL', 'INFO')
 setup_logging(level=log_level)
 logger = get_logger(__name__)
+
+
+def _register_codebase_explorer_hooks(
+    registry: HooksRegistry,
+    project_root: Path,
+    working_dir: Path,
+) -> None:
+    """Register hooks used by nested .skills/codebase_explorer machine."""
+    hooks_file = project_root / ".skills" / "codebase_explorer" / "src" / "codebase_explorer" / "hooks.py"
+
+    if not hooks_file.exists():
+        logger.warning(f"Explorer hooks not found: {hooks_file}")
+        registry.register("codebase-explorer", lambda: CodingAgentHooks(working_dir=str(working_dir)))
+        return
+
+    try:
+        spec = importlib.util.spec_from_file_location("codebase_explorer_hooks", hooks_file)
+        if spec is None or spec.loader is None:
+            raise RuntimeError("unable to build import spec")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        hooks_cls = getattr(module, "CodebaseExplorerHooks")
+        registry.register("codebase-explorer", lambda: hooks_cls(working_dir=str(working_dir)))
+    except Exception as e:
+        logger.warning(f"Failed to register explorer hooks from {hooks_file}: {e}")
+        registry.register("codebase-explorer", lambda: CodingAgentHooks(working_dir=str(working_dir)))
 
 
 async def run(task: str, cwd: str = ".", max_iterations: int = 5):
@@ -51,6 +78,7 @@ async def run(task: str, cwd: str = ".", max_iterations: int = 5):
     # Register hooks by name so config hooks refs resolve correctly
     registry = HooksRegistry()
     registry.register("coding-agent", lambda: CodingAgentHooks(working_dir=str(working_dir)))
+    _register_codebase_explorer_hooks(registry, config_path.parent.parent, working_dir)
 
     machine = FlatMachine(
         config_file=str(config_path),

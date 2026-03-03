@@ -41,11 +41,11 @@ data:
       output_to_context:
         pegs: "{{ output.predicted_state }}"
         previous_move: "{{ output.move }}"
-        step: "{{ context.step + 1 }}"
+        step: "{{ (context.step | int) + 1 }}"
       transitions:
         - condition: "context.pegs == context.goal"
           to: done
-        - condition: "context.step >= 20"
+        - condition: "context.step >= '20'"
           to: failed
         - to: solve_step
 

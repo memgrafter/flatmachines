@@ -23,6 +23,26 @@ export class CodingAgentHooks implements MachineHooks {
     this.workingDir = resolve(workingDir);
   }
 
+  onStateEnter(_stateName: string, context: Context): Context {
+    for (const key of ['iteration', 'max_iterations', 'token_budget', 'frozen_token_count']) {
+      const value = context[key];
+      if (typeof value === 'string') {
+        const parsed = Number.parseInt(value, 10);
+        if (!Number.isNaN(parsed)) {
+          context[key] = parsed;
+        }
+      }
+    }
+    return context;
+  }
+
+  private getApprovalResponse(kind: 'plan' | 'result'): string | null {
+    const key = kind === 'plan' ? 'CODING_AGENT_APPROVAL_PLAN' : 'CODING_AGENT_APPROVAL_RESULT';
+    const value = process.env[key];
+    if (value === undefined) return null;
+    return value.trim();
+  }
+
   async onAction(action: string, context: Context): Promise<Context> {
     const handlers: Record<string, (ctx: Context) => Promise<Context> | Context> = {
       explore_codebase: this.exploreCodebase.bind(this),
@@ -261,9 +281,12 @@ export class CodingAgentHooks implements MachineHooks {
     }
 
     console.log(`\n${'-'.repeat(70)}`);
-    const response = await this.prompt('Approve plan? (y/yes to approve, or enter feedback): ');
+    let response = this.getApprovalResponse('plan');
+    if (response === null) {
+      response = await this.prompt('Approve plan? (y/yes to approve, or enter feedback): ');
+    }
 
-    if (response.toLowerCase() === 'y' || response.toLowerCase() === 'yes' || response === '') {
+    if (response.toLowerCase() === 'y' || response.toLowerCase() === 'yes' || response.toLowerCase() === 'approved' || response === '') {
       context.plan_approved = true;
       context.human_feedback = null;
       console.log('✅ Plan approved!');
@@ -321,9 +344,12 @@ export class CodingAgentHooks implements MachineHooks {
     }
 
     console.log(`\n${'-'.repeat(70)}`);
-    const response = await this.prompt('Approve changes? (y/yes to approve, or enter feedback): ');
+    let response = this.getApprovalResponse('result');
+    if (response === null) {
+      response = await this.prompt('Approve changes? (y/yes to approve, or enter feedback): ');
+    }
 
-    if (response.toLowerCase() === 'y' || response.toLowerCase() === 'yes' || response === '') {
+    if (response.toLowerCase() === 'y' || response.toLowerCase() === 'yes' || response.toLowerCase() === 'approved' || response === '') {
       context.result_approved = true;
       context.human_feedback = null;
       console.log('✅ Changes approved!');

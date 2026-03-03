@@ -4,12 +4,11 @@ spec_version: "2.0.0"
 data:
   model_profiles:
     default:
-      provider: cerebras
-      name: zai-glm-4.7
+      provider: openai
+      name: gpt-5-mini
       temperature: 1.0
     creative:
-      provider: cerebras
-      name: zai-glm-4.7
-      temperature: 0.6
-
+      provider: openai
+      name: gpt-5-mini
+      temperature: 1.0
   default: default

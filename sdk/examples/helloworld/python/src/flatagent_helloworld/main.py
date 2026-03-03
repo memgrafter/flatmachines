@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from flatmachines import FlatMachine, LoggingHooks, setup_logging, get_logger
+from flatmachines import FlatMachine, HooksRegistry, LoggingHooks, setup_logging, get_logger
 
 # Configure logging for the entire application
 setup_logging(level='INFO')
@@ -24,16 +24,19 @@ class HelloWorldHooks(LoggingHooks):
             next_char = output.get("next_char")
             if next_char is None:
                 next_char = output.get("content")
-            if next_char is not None:
+            if next_char:
+                ch = str(next_char)[0]
                 current = context.get("current", "")
                 expected = context.get("expected_char")
-                status = "match" if expected is not None and next_char == expected else "mismatch"
-                print(f"{current}{next_char} ({status})")
+                status = "match" if expected is not None and ch == expected else "mismatch"
+                print(f"{current}{ch} ({status})")
         return output
 
     def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         if action_name == "append_char":
-            context["current"] = context["current"] + context["last_output"]
+            last_output = context.get("last_output", "")
+            if last_output:
+                context["current"] = context["current"] + str(last_output)[0]
         return context
 
 
@@ -48,9 +51,12 @@ async def run():
 
     # Load the machine from YAML
     config_path = Path(__file__).parent.parent.parent.parent / 'config' / 'machine.yml'
+    hooks_registry = HooksRegistry()
+    hooks_registry.register("hello-world-hooks", HelloWorldHooks)
+
     machine = FlatMachine(
         config_file=str(config_path),
-        hooks=HelloWorldHooks()
+        hooks_registry=hooks_registry,
     )
 
     logger.info(f"Machine: {machine.machine_name}")

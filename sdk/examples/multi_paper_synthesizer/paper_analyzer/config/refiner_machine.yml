@@ -51,7 +51,7 @@ data:
         iteration: "{{ context.iteration }}"
       output_to_context:
         summary: content
-        iteration: "{{ context.iteration + 1 }}"
+        iteration: "{{ (context.iteration | int) + 1 }}"
       transitions:
         - to: critique
 
@@ -70,7 +70,7 @@ data:
         critique_text: content
       transitions:
         # Loop max 3 times (can't parse score from text in machine)
-        - condition: "context.iteration >= 3"
+        - condition: "context.iteration >= '3'"
           to: done
         - to: synthesize
 

@@ -37,16 +37,16 @@
           "jitter": 0.1
         },
         "input": {
-          "ticket_id": "{{ context.ticket_id }}",
-          "customer_message": "{{ context.customer_message }}",
-          "customer_tier": "{{ context.customer_tier }}",
-          "preferred_tone": "{{ context.preferred_tone }}",
-          "category": "{{ context.category }}",
-          "urgency": "{{ context.urgency }}",
-          "triage_summary": "{{ context.triage_summary }}"
+          "ticket_id": "context.ticket_id",
+          "customer_message": "context.customer_message",
+          "customer_tier": "context.customer_tier",
+          "preferred_tone": "context.preferred_tone",
+          "category": "context.category",
+          "urgency": "context.urgency",
+          "triage_summary": "context.triage_summary"
         },
         "output_to_context": {
-          "response": "{{ output.response | tojson }}"
+          "response": "output.response"
         },
         "transitions": [
           {"to": "polish"}
@@ -55,15 +55,15 @@
       "polish": {
         "agent": "response_polisher",
         "input": {
-          "response": "{{ context.response | tojson }}",
-          "customer_message": "{{ context.customer_message }}",
-          "customer_tier": "{{ context.customer_tier }}",
-          "preferred_tone": "{{ context.preferred_tone }}",
-          "category": "{{ context.category }}",
-          "urgency": "{{ context.urgency }}"
+          "response": "context.response",
+          "customer_message": "context.customer_message",
+          "customer_tier": "context.customer_tier",
+          "preferred_tone": "context.preferred_tone",
+          "category": "context.category",
+          "urgency": "context.urgency"
         },
         "output_to_context": {
-          "response": "{{ output.response | tojson }}"
+          "response": "output.response"
         },
         "transitions": [
           {"to": "done"}
@@ -72,7 +72,7 @@
       "done": {
         "type": "final",
         "output": {
-          "response": "{{ context.response | tojson }}"
+          "response": "context.response"
         }
       }
     }

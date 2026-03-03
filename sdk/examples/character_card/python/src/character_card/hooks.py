@@ -76,13 +76,13 @@ class CharacterCardHooks(MachineHooks):
         self.card_data = None
         self.user_agent: Optional[FlatAgent] = None
     
-    def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    async def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         if action_name == "load_card":
             return self._load_card(context)
         elif action_name == "show_greeting":
             return self._show_greeting(context)
         elif action_name == "get_user_input":
-            return self._get_user_input(context)
+            return await self._get_user_input(context)
         elif action_name == "update_chat_history":
             return self._update_chat_history(context)
         return context
@@ -211,21 +211,33 @@ class CharacterCardHooks(MachineHooks):
         """Generate user response via LLM agent."""
         if not self.user_agent:
             return "/quit"
-        
-        result = await self.user_agent.run(input={
-            "user_name": context.get("user_name", "User"),
-            "user_persona": context.get("user_persona", ""),
-            "card_name": context.get("card_name", "Character"),
-            "card_description": context.get("card_description", ""),
-            "messages": context.get("messages", []),
-        })
-        
-        return result.get("response", "/quit")
-    
-    def _get_user_input(self, context: Dict[str, Any]) -> Dict[str, Any]:
+
+        response = await self.user_agent.call(
+            user_name=context.get("user_name", "User"),
+            user_persona=context.get("user_persona", ""),
+            card_name=context.get("card_name", "Character"),
+            card_description=context.get("card_description", ""),
+            chat_messages=context.get("messages", []),
+        )
+
+        if response.error:
+            logger.error(f"Auto-user LLM error: {response.error.message}")
+            return "/quit"
+
+        if isinstance(response.output, dict):
+            text = response.output.get("response") or response.output.get("content")
+            if isinstance(text, str) and text.strip():
+                return text.strip()
+
+        if isinstance(response.content, str) and response.content.strip():
+            return response.content.strip()
+
+        return "/quit"
+
+    async def _get_user_input(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Get user input from terminal, script, or LLM agent."""
         import asyncio
-        
+
         # Scripted mode - use next response from script
         if self.script_responses and self.script_index < len(self.script_responses):
             response = self.script_responses[self.script_index]
@@ -233,7 +245,7 @@ class CharacterCardHooks(MachineHooks):
             print(f"{self.user_name}: {response}")
             context["user_message"] = response
             return context
-        
+
         # Auto-user mode - generate via LLM
         if self.auto_user and self.user_agent:
             # Check max turns (0 means unlimited)
@@ -241,18 +253,15 @@ class CharacterCardHooks(MachineHooks):
                 logger.info(f"Reached max turns: {self.max_turns}")
                 context["user_message"] = "/quit"
                 return context
-            
+
             # Delay between rounds in unlimited mode
             if self.max_turns == 0 and self.turn_count > 0:
-                import time
-                time.sleep(2)
-            
+                await asyncio.sleep(2)
+
             self.turn_count += 1
-            
+
             try:
-                response = asyncio.get_event_loop().run_until_complete(
-                    self._generate_user_response(context)
-                )
+                response = await self._generate_user_response(context)
                 print(f"{self.user_name}: {response}")
                 context["user_message"] = response
                 return context
@@ -260,7 +269,7 @@ class CharacterCardHooks(MachineHooks):
                 logger.error(f"Auto-user error: {e}")
                 context["user_message"] = "/quit"
                 return context
-        
+
         # Interactive mode - prompt user
         try:
             user_input = input(f"{self.user_name}: ").strip()
@@ -268,7 +277,7 @@ class CharacterCardHooks(MachineHooks):
         except (EOFError, KeyboardInterrupt):
             context["user_message"] = "/quit"
             print()
-        
+
         return context
     
     def _update_chat_history(self, context: Dict[str, Any]) -> Dict[str, Any]:

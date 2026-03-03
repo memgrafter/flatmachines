@@ -22,7 +22,7 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from flatmachines import FlatMachine, setup_logging, get_logger
+from flatmachines import FlatMachine, HooksRegistry, setup_logging, get_logger
 from .hooks import CharacterCardHooks
 
 # Configure logging
@@ -46,9 +46,10 @@ async def run(
         return None
     
     config_path = Path(__file__).parent.parent.parent.parent / 'config' / 'machine.yml'
-    machine = FlatMachine(
-        config_file=str(config_path),
-        hooks=CharacterCardHooks(
+    hooks_registry = HooksRegistry()
+    hooks_registry.register(
+        "character-card-hooks",
+        lambda: CharacterCardHooks(
             card_path=card_path,
             user_name=user_name,
             user_persona=user_persona,
@@ -57,7 +58,12 @@ async def run(
             no_system_prompt=no_system_prompt,
             auto_user=auto_user,
             max_turns=max_turns,
-        )
+        ),
+    )
+
+    machine = FlatMachine(
+        config_file=str(config_path),
+        hooks_registry=hooks_registry,
     )
     
     print("\nType '/quit' to exit.\n")

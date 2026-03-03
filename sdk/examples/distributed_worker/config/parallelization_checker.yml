@@ -6,7 +6,7 @@ data:
   
   context:
     pool_id: "{{ input.pool_id | default('default') }}"
-    max_workers: "{{ input.max_workers | default(3) }}"
+    max_workers: input.max_workers
   
   hooks: "distributed-worker"
   
@@ -22,16 +22,16 @@ data:
     check_state:
       action: get_pool_state
       output_to_context:
-        queue_depth: "{{ output.queue_depth }}"
-        active_workers: "{{ output.active_workers }}"
+        queue_depth: output.queue_depth
+        active_workers: output.active_workers
       transitions:
         - to: calculate_spawn
     
     calculate_spawn:
       action: calculate_spawn
       output_to_context:
-        workers_needed: "{{ output.workers_needed }}"
-        workers_to_spawn: "{{ output.workers_to_spawn }}"
+        workers_needed: output.workers_needed
+        workers_to_spawn: output.workers_to_spawn
       transitions:
         - condition: "context.workers_to_spawn > 0"
           to: spawn_workers
@@ -41,7 +41,7 @@ data:
       # Use action-based spawning (hook handles subprocess launch)
       action: spawn_workers
       output_to_context:
-        spawned_ids: "{{ output.spawned_ids }}"
+        spawned_ids: output.spawned_ids
       transitions:
         - to: done
     

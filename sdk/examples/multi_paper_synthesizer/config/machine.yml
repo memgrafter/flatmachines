@@ -120,7 +120,7 @@ data:
         synthesis: "{{ context.synthesis_draft }}"
         paper_count: "{{ context.paper_count }}"
       output_to_context:
-        quality_score: "{{ output.quality_score }}"
+        quality_score: output.quality_score
         critique: "{{ output.critique }}"
       transitions:
         # If quality is good, format and finish

@@ -32,8 +32,8 @@ data:
     claim_job:
       action: claim_job
       output_to_context:
-        job: "{{ output.job }}"
-        job_id: "{{ output.job_id }}"
+        job: output.job
+        job_id: output.job_id
       transitions:
         - condition: "context.job == None"
           to: no_work
@@ -42,9 +42,9 @@ data:
     process_job:
       machine: echo_processor
       input:
-        job: "{{ context.job }}"
+        job: context.job
       output_to_context:
-        result: "{{ output }}"
+        result: output
       on_error: job_failed
       transitions:
         - to: complete_job

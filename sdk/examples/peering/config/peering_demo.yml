@@ -27,7 +27,7 @@ data:
     run_worker_node:
       machine: worker_node
       input:
-        tasks: "{{ context.worker_tasks }}"
+        tasks: context.worker_tasks
       output_to_context:
         worker_result: "{{ output }}"
       transitions:
