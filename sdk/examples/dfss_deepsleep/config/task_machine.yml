@@ -14,12 +14,12 @@ data:
     root_id: "input.root_id"
     depth: "input.depth"
     resource_class: "input.resource_class"
+    has_expensive_descendant: "input.has_expensive_descendant"
+    distance_to_nearest_slow_descendant: "input.distance_to_nearest_slow_descendant"
     result: null
     children: []
 
-  hooks:
-    file: "../python/src/flatagent_dfss_deepsleep/hooks.py"
-    class: DeepSleepHooks
+  hooks: "deepsleep"
 
   states:
     start:
@@ -43,6 +43,8 @@ data:
       output:
         task_id: "context.task_id"
         root_id: "context.root_id"
+        depth: "context.depth"
+        resource_class: "context.resource_class"
         result: "context.result"
         children: "context.children"
 
@@ -51,4 +53,6 @@ data:
       output:
         task_id: "context.task_id"
         root_id: "context.root_id"
+        depth: "context.depth"
+        resource_class: "context.resource_class"
         error: "context.last_error"

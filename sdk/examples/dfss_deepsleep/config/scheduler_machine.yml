@@ -4,11 +4,13 @@
 # Zero processes while idle. Signals wake it when work is ready.
 #
 # Flow:
-#   wait_for "dfss/ready"
-#     → score_and_select (action: pick batch up to available slots)
-#     → dispatch_batch (foreach: batch, machine: task_runner)
-#     → process_results (action: push children, send "dfss/ready" signal)
-#     → loop back to wait_for (or done)
+#   init → seed (or release_stale on resume)
+#     → hydrate → pick → claim → dispatch → settle → check_done
+#     → loop back to hydrate (or sleep if blocked, or done)
+#
+# Deep sleep: when pick finds nothing runnable but work remains, the machine
+# enters 'sleep' (wait_for "dfss/ready"), checkpoints, and exits. A signal
+# from a completing task wakes it.
 
 spec: flatmachine
 spec_version: "1.2.0"
@@ -20,36 +22,71 @@ data:
     pool_name: "input.pool_name"
     max_active_roots: "input.max_active_roots"
     batch_size: "input.batch_size"
+    n_roots: "input.n_roots"
+    max_depth: "input.max_depth"
+    resume: "input.resume"
+    cleanup: "input.cleanup"
+    root_ids: []
     roots: {}
+    resources: {}
+    _candidates: []
     batch: []
+    claimed_batch: []
+    batch_results: []
     all_done: false
+    _announced_complete: []
+    _last_gate_toggle: null
 
   machines:
     task_runner: ./task_machine.yml
 
-  hooks:
-    file: "../python/src/flatagent_dfss_deepsleep/hooks.py"
-    class: DeepSleepHooks
+  hooks: "deepsleep"
+
+  max_steps: 500
 
   states:
-    wait_for_work:
+    # ── Bootstrap ──
+    init:
       type: initial
-      wait_for: "dfss/ready"
-      timeout: 0
       transitions:
-        - to: score_and_select
+        - condition: "context.resume"
+          to: release_stale
+        - to: seed
 
-    score_and_select:
+    seed:
+      action: seed_work
+      transitions:
+        - to: hydrate
+
+    release_stale:
+      action: release_stale
+      transitions:
+        - to: hydrate
+
+    # ── Main loop ──
+    hydrate:
+      action: hydrate_candidates
+      transitions:
+        - to: pick
+
+    pick:
       action: pick_batch
       transitions:
         - condition: "context.batch"
-          to: dispatch_batch
+          to: claim
         - condition: "context.all_done"
-          to: done
-        - to: wait_for_work
+          to: report
+        - to: sleep
 
-    dispatch_batch:
-      foreach: "context.batch"
+    claim:
+      action: claim_batch
+      transitions:
+        - condition: "context.claimed_batch"
+          to: dispatch
+        - to: hydrate
+
+    dispatch:
+      foreach: "context.claimed_batch"
       as: task
       machine: task_runner
       input:
@@ -57,21 +94,42 @@ data:
         root_id: "{{ task.root_id }}"
         depth: "{{ task.depth }}"
         resource_class: "{{ task.resource_class }}"
+        has_expensive_descendant: "{{ task.has_expensive_descendant }}"
+        distance_to_nearest_slow_descendant: "{{ task.distance_to_nearest_slow_descendant }}"
       mode: settled
       output_to_context:
         batch_results: "output"
-      on_error: process_results
+      on_error: settle
       transitions:
-        - to: process_results
+        - to: settle
 
-    process_results:
-      action: process_results
+    settle:
+      action: settle_results
+      transitions:
+        - to: check_done
+
+    check_done:
+      action: check_done
       transitions:
         - condition: "context.all_done"
-          to: done
-        - to: wait_for_work
+          to: report
+        - to: hydrate
+
+    # ── Deep sleep ──
+    sleep:
+      wait_for: "dfss/ready"
+      timeout: 0
+      transitions:
+        - to: hydrate
+
+    # ── Finish ──
+    report:
+      action: report_and_cleanup
+      transitions:
+        - to: done
 
     done:
       type: final
       output:
         roots: "context.roots"
+        summary: "context.summary"

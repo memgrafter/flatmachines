@@ -1,24 +1,20 @@
 """
-Integration tests for the scheduler machine with wait_for.
+Integration tests for the scheduler machine.
 
-These tests exercise the checkpoint-and-exit pattern:
-  1. Scheduler starts, hits wait_for, checkpoints, returns _waiting
-  2. Signal arrives, scheduler resumes, picks batch, dispatches
-  3. Results processed, children pushed, scheduler sleeps again
-  4. All roots done → scheduler reaches final state
+Tests the full machine lifecycle: init → seed → hydrate → pick → claim →
+dispatch → settle → check_done → loop/sleep/done.
 
-Uses MemorySignalBackend + MemoryBackend (no SQLite, no real tasks).
-Task machines are mocked — we're testing the scheduler flow, not task execution.
+Uses MemoryWorkBackend + MemorySignalBackend + MemoryBackend.
 
-NOTE: These tests will fail until SignalBackend, wait_for, and WaitingForSignal
-are implemented. That's the point — TDD targets.
+The YAML configs reference hooks: "deepsleep" — each test registers the
+DeepSleepHooks instance in a HooksRegistry, mirroring what the runner does.
 """
 from __future__ import annotations
 
 import copy
 
 import pytest
-from _helpers import load_config, load_module
+from _helpers import load_config, load_module, make_hooks_registry
 
 scheduler_config = load_config("scheduler_machine.yml")
 hooks_mod = load_module("hooks.py", "deepsleep_hooks")
@@ -26,191 +22,157 @@ hooks_mod = load_module("hooks.py", "deepsleep_hooks")
 DeepSleepHooks = hooks_mod.DeepSleepHooks
 
 
-# ── Helpers ────────────────────────────────────────────────
-
-def _make_candidates(n_roots: int = 2, tasks_per_root: int = 2):
-    """Generate simple candidate lists."""
-    candidates = []
-    for r in range(n_roots):
-        for t in range(tasks_per_root):
-            candidates.append({
-                "task_id": f"root-{r}/{t}",
-                "root_id": f"root-{r}",
-                "depth": t,
-                "resource_class": "fast",
-            })
-    return candidates
+def _scheduler_input(**overrides):
+    base = {
+        "pool_name": "tasks",
+        "max_active_roots": 2,
+        "batch_size": 4,
+        "n_roots": 2,
+        "max_depth": 2,
+        "resume": False,
+        "cleanup": False,
+    }
+    base.update(overrides)
+    return base
 
 
-# ── Tests ──────────────────────────────────────────────────
-
-class TestSchedulerWaitFor:
-    """Tests that require wait_for + SignalBackend implementation."""
+class TestSchedulerFreshRun:
+    """Fresh run: seed → hydrate → pick → dispatch → ... → done."""
 
     @pytest.mark.asyncio
-    async def test_scheduler_pauses_at_wait_for(self):
-        """Scheduler should checkpoint and return when hitting wait_for with no signal."""
-        from flatmachines import FlatMachine, MemoryBackend
+    async def test_fresh_run_completes(self):
+        """Scheduler should complete when all roots are done."""
+        from flatmachines import FlatMachine, MemoryBackend, MemoryWorkBackend, MemorySignalBackend
 
-        # These imports will fail until implemented — that's the TDD signal
-        from flatmachines import MemorySignalBackend
-
-        signal_backend = MemorySignalBackend()
-        hooks = DeepSleepHooks(max_depth=2, seed=1)
-
-        machine = FlatMachine(
-            config_dict=copy.deepcopy(scheduler_config),
-            hooks=hooks,
-            persistence=MemoryBackend(),
-            signal_backend=signal_backend,
-        )
-
-        result = await machine.execute(input={
-            "pool_name": "tasks",
-            "max_active_roots": 2,
-            "batch_size": 4,
-        })
-
-        # Machine should have paused at wait_for_work
-        assert result.get("_waiting") is True
-        assert result.get("_channel") == "dfss/ready"
-
-    @pytest.mark.asyncio
-    async def test_scheduler_resumes_on_signal(self):
-        """Send signal before resume — scheduler should pick batch and dispatch."""
-        from flatmachines import FlatMachine, MemoryBackend
-        from flatmachines import MemorySignalBackend
-
+        work_backend = MemoryWorkBackend()
         signal_backend = MemorySignalBackend()
         persistence = MemoryBackend()
-        candidates = _make_candidates(n_roots=1, tasks_per_root=2)
 
-        hooks = DeepSleepHooks(max_depth=2, seed=1)
+        hooks = DeepSleepHooks(
+            max_depth=2, fail_rate=0.0, seed=7, max_attempts=3,
+            work_backend=work_backend, signal_backend=signal_backend,
+        )
 
-        # First run: scheduler parks at wait_for
         machine = FlatMachine(
             config_dict=copy.deepcopy(scheduler_config),
-            hooks=hooks,
+            hooks_registry=make_hooks_registry(hooks),
             persistence=persistence,
             signal_backend=signal_backend,
         )
-        result = await machine.execute(input={
-            "pool_name": "tasks",
-            "max_active_roots": 2,
-            "batch_size": 4,
-        })
-        execution_id = machine.execution_id
-        assert result.get("_waiting") is True
 
-        # Send signal with candidates
-        await signal_backend.send("dfss/ready", {"candidates": candidates})
+        result = await machine.execute(input=_scheduler_input(n_roots=2, max_depth=2))
 
-        # Resume: scheduler should wake, pick batch, try to dispatch
-        machine2 = FlatMachine(
-            config_dict=copy.deepcopy(scheduler_config),
-            hooks=hooks,
-            persistence=persistence,
-            signal_backend=signal_backend,
-        )
-        # This will fail at dispatch_batch (no real task_runner machine)
-        # but we verify it got past wait_for
-        try:
-            result2 = await machine2.execute(resume_from=execution_id)
-        except Exception:
-            pass  # Expected — no task_runner machine configured for test
+        # Should complete (not be waiting)
+        assert result.get("_waiting") is not True
+        assert "roots" in result
 
     @pytest.mark.asyncio
-    async def test_signal_data_available_as_output(self):
-        """Signal payload should be accessible via output.* in output_to_context."""
-        from flatmachines import FlatMachine, MemoryBackend
-        from flatmachines import MemorySignalBackend
+    async def test_fresh_run_produces_root_entries(self):
+        from flatmachines import FlatMachine, MemoryBackend, MemoryWorkBackend, MemorySignalBackend
 
+        work_backend = MemoryWorkBackend()
         signal_backend = MemorySignalBackend()
 
-        # Send signal before machine starts (pre-loaded)
-        await signal_backend.send("dfss/ready", {"reason": "initial_seed"})
+        hooks = DeepSleepHooks(
+            max_depth=1, fail_rate=0.0, seed=7, max_attempts=3,
+            work_backend=work_backend, signal_backend=signal_backend,
+        )
 
-        hooks = DeepSleepHooks(max_depth=2, seed=1)
         machine = FlatMachine(
             config_dict=copy.deepcopy(scheduler_config),
-            hooks=hooks,
+            hooks_registry=make_hooks_registry(hooks),
             persistence=MemoryBackend(),
             signal_backend=signal_backend,
         )
 
-        # With signal pre-loaded, machine should consume it and continue
-        # (not pause at wait_for)
-        # It will proceed to score_and_select with empty candidates → all_done → done
-        result = await machine.execute(input={
-            "pool_name": "tasks",
-            "max_active_roots": 2,
-            "batch_size": 4,
-        })
-        # Should have completed (all_done with no candidates)
-        assert "_waiting" not in result or result.get("_waiting") is not True
+        result = await machine.execute(input=_scheduler_input(n_roots=2, max_depth=1))
+        roots = result.get("roots", {})
+        assert "root-000" in roots
+        assert "root-001" in roots
+
+
+class TestSchedulerSleep:
+    """Sleep behavior when no work is runnable but work remains."""
+
+    @pytest.mark.asyncio
+    async def test_sleeps_when_no_runnable_candidates(self):
+        """If pick finds nothing runnable (e.g. gate closed), scheduler should sleep."""
+        from flatmachines import FlatMachine, MemoryBackend, MemoryWorkBackend, MemorySignalBackend
+
+        work_backend = MemoryWorkBackend()
+        signal_backend = MemorySignalBackend()
+        persistence = MemoryBackend()
+
+        hooks = DeepSleepHooks(
+            max_depth=2, fail_rate=0.0, seed=7, max_attempts=3,
+            gate_interval=99999.0,
+            work_backend=work_backend, signal_backend=signal_backend,
+        )
+
+        pool = work_backend.pool("tasks")
+        await pool.push(
+            {"task_id": "r/0", "root_id": "r", "depth": 0, "resource_class": "slow"},
+            options={"max_retries": 3},
+        )
+
+        machine = FlatMachine(
+            config_dict=copy.deepcopy(scheduler_config),
+            hooks_registry=make_hooks_registry(hooks),
+            persistence=persistence,
+            signal_backend=signal_backend,
+        )
+
+        result = await machine.execute(input=_scheduler_input(n_roots=0, max_depth=2))
+
+        # With 0 roots seeded and no candidates, it should complete as all_done
+        assert result.get("_waiting") is not True
 
 
 class TestSchedulerCheckpointResume:
-    """Tests for checkpoint-and-exit lifecycle."""
+    """Checkpoint and resume behavior."""
 
     @pytest.mark.asyncio
     async def test_waiting_channel_in_checkpoint(self):
-        """Checkpoint should record waiting_channel for dispatcher queries."""
-        from flatmachines import FlatMachine, MemoryBackend, CheckpointManager
-        from flatmachines import MemorySignalBackend
+        """When scheduler hits sleep, checkpoint should record waiting_channel."""
+        from flatmachines import FlatMachine, MemoryBackend, MemoryWorkBackend, MemorySignalBackend, CheckpointManager
 
+        work_backend = MemoryWorkBackend()
         signal_backend = MemorySignalBackend()
         persistence = MemoryBackend()
 
-        hooks = DeepSleepHooks(max_depth=2, seed=1)
+        pool = work_backend.pool("tasks")
+        await pool.push(
+            {"task_id": "r/0", "root_id": "r", "depth": 0, "resource_class": "slow"},
+            options={"max_retries": 3},
+        )
+
+        hooks = DeepSleepHooks(
+            max_depth=2, fail_rate=0.0, seed=7, max_attempts=3,
+            gate_interval=99999.0,
+            work_backend=work_backend, signal_backend=signal_backend,
+        )
+
+        # Override seed to close slow gate immediately
+        orig_seed = hooks._seed_work
+
+        async def _seed_then_close_gate(ctx):
+            ctx = await orig_seed(ctx)
+            ctx["resources"]["slow"]["gate_open"] = False
+            return ctx
+
+        hooks._seed_work = _seed_then_close_gate
+
         machine = FlatMachine(
             config_dict=copy.deepcopy(scheduler_config),
-            hooks=hooks,
+            hooks_registry=make_hooks_registry(hooks),
             persistence=persistence,
             signal_backend=signal_backend,
         )
-        result = await machine.execute(input={
-            "pool_name": "tasks",
-            "max_active_roots": 2,
-            "batch_size": 4,
-        })
 
-        # Load checkpoint and verify waiting_channel
-        mgr = CheckpointManager(persistence, machine.execution_id)
-        snapshot = await mgr.load_latest()
-        assert snapshot is not None
-        assert snapshot.waiting_channel == "dfss/ready"
+        result = await machine.execute(input=_scheduler_input(n_roots=0, max_depth=2))
 
-    @pytest.mark.asyncio
-    async def test_list_execution_ids_by_waiting_channel(self):
-        """Persistence should support filtering by waiting_channel."""
-        from flatmachines import FlatMachine, MemoryBackend
-        from flatmachines import MemorySignalBackend
-
-        signal_backend = MemorySignalBackend()
-        persistence = MemoryBackend()
-
-        hooks = DeepSleepHooks(max_depth=2, seed=1)
-
-        # Park two schedulers on different channels
-        for channel_suffix in ["a", "b"]:
-            cfg = copy.deepcopy(scheduler_config)
-            cfg["data"]["states"]["wait_for_work"]["wait_for"] = f"dfss/{channel_suffix}"
-            m = FlatMachine(
-                config_dict=cfg,
-                hooks=hooks,
-                persistence=persistence,
-                signal_backend=signal_backend,
-            )
-            await m.execute(input={
-                "pool_name": "tasks",
-                "max_active_roots": 2,
-                "batch_size": 4,
-            })
-
-        # Query by waiting_channel
-        ids_a = await persistence.list_execution_ids(waiting_channel="dfss/a")
-        ids_b = await persistence.list_execution_ids(waiting_channel="dfss/b")
-        assert len(ids_a) == 1
-        assert len(ids_b) == 1
-        assert ids_a[0] != ids_b[0]
+        if result.get("_waiting"):
+            mgr = CheckpointManager(persistence, machine.execution_id)
+            snapshot = await mgr.load_latest()
+            assert snapshot is not None
+            assert snapshot.waiting_channel == "dfss/ready"

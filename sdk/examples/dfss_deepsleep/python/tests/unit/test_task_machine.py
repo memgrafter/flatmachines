@@ -4,7 +4,7 @@ from __future__ import annotations
 import copy
 
 import pytest
-from _helpers import load_config, load_module
+from _helpers import load_config, load_module, make_hooks_registry
 
 task_config = load_config("task_machine.yml")
 hooks_mod = load_module("hooks.py", "deepsleep_hooks")
@@ -21,7 +21,7 @@ class TestTaskMachine:
         hooks = DeepSleepHooks(max_depth=3, fail_rate=0.0, seed=42)
         machine = FlatMachine(
             config_dict=copy.deepcopy(task_config),
-            hooks=hooks,
+            hooks_registry=make_hooks_registry(hooks),
             persistence=MemoryBackend(),
         )
 
@@ -43,7 +43,7 @@ class TestTaskMachine:
         hooks = DeepSleepHooks(max_depth=2, fail_rate=0.0, seed=42)
         machine = FlatMachine(
             config_dict=copy.deepcopy(task_config),
-            hooks=hooks,
+            hooks_registry=make_hooks_registry(hooks),
             persistence=MemoryBackend(),
         )
 
@@ -63,7 +63,7 @@ class TestTaskMachine:
         hooks = DeepSleepHooks(max_depth=3, fail_rate=1.0, seed=1)
         machine = FlatMachine(
             config_dict=copy.deepcopy(task_config),
-            hooks=hooks,
+            hooks_registry=make_hooks_registry(hooks),
             persistence=MemoryBackend(),
         )
 

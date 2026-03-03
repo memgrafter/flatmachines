@@ -6,6 +6,7 @@ VENV_PATH=".venv"
 
 # --- Parse Arguments ---
 LOCAL_INSTALL=false
+EXTRA_ARGS=()
 while [[ $# -gt 0 ]]; do
     case $1 in
         --local|-l)
@@ -13,6 +14,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         *)
+            EXTRA_ARGS+=("$1")
             shift
             ;;
     esac
@@ -82,9 +84,9 @@ echo "  - Installing dfss-deepsleep demo package..."
 uv pip install --python "$VENV_PATH/bin/python" -e "$SCRIPT_DIR"
 
 # 4. Run the Demo
-echo "🚀 Running demo..."
+echo "🚀 Running scheduler..."
 echo "---"
-"$VENV_PATH/bin/python" -m flatagent_dfss_deepsleep.main
+"$VENV_PATH/bin/python" -m flatagent_dfss_deepsleep.scheduler_main "${EXTRA_ARGS[@]}"
 echo "---"
 
-echo "✅ Demo complete!"
+echo "✅ Done!"

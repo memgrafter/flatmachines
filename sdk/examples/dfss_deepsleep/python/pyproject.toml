@@ -13,4 +13,5 @@ build-backend = "hatchling.build"
 allow-direct-references = true
 
 [project.scripts]
-dfss-deepsleep-demo = "flatagent_dfss_deepsleep.main:main"
+dfss-deepsleep-demo = "flatagent_dfss_deepsleep.scheduler_main:main"
+dfss-deepsleep-tree = "flatagent_dfss_deepsleep.tree_demo:main"
