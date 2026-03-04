@@ -780,6 +780,120 @@ export interface BackendConfig {
     aws_region?: string;
 }
 
+/**
+ * MACHINE API:
+ * ------------
+ * Runtime interface that exposes machine orchestration as tool calls.
+ *
+ * An agent running inside a tool_loop state can call these operations
+ * to introspect its own runtime, launch child machines, inspect their
+ * state, and coordinate via signals — all without SDK-specific code.
+ *
+ * The API is surfaced as LLM function-call tools. Each SDK provides a
+ * MachineAPIToolProvider that maps tool calls to the runtime primitives
+ * already defined in this spec (MachineInvoker, ResultBackend, etc.).
+ *
+ * Cross-SDK contract:
+ *   - Tool schemas are defined in YAML (language-agnostic)
+ *   - MachineAPI interface is the protocol each SDK implements
+ *   - Tool names and parameter shapes are stable across SDKs
+ *
+ * The agent sees tools like:
+ *   machine_launch(machine, input)      → execution_id
+ *   machine_invoke(machine, input)      → result
+ *   machine_status(execution_id)        → status snapshot
+ *   machine_inspect(execution_id)       → full checkpoint
+ *   context_read()                      → own context
+ *   context_write(key, value)           → updated context
+ *   signal_send(channel, data)          → signal_id
+ *   runtime_info()                      → available machines/agents
+ */
+export interface MachineAPI {
+    /**
+     * Read the agent's own machine context.
+     * Returns the full context dict visible to the current state.
+     */
+    contextRead(): Promise<Record<string, any>>;
+
+    /**
+     * Write a key-value pair into the agent's own machine context.
+     * The value persists across states and is available in templates.
+     */
+    contextWrite(key: string, value: any): Promise<void>;
+
+    /**
+     * List machines and agents available in the current config.
+     * Returns registry info the agent can use to decide what to launch.
+     */
+    runtimeInfo(): Promise<MachineAPIRuntimeInfo>;
+
+    /**
+     * Launch a child machine fire-and-forget.
+     * Returns immediately with the execution_id.
+     * Use machine_status / machine_inspect to check progress.
+     */
+    launch(
+        machine: string,
+        input: Record<string, any>,
+        options?: { debug?: boolean }
+    ): Promise<string>;
+
+    /**
+     * Launch a child machine and block until it completes.
+     * Returns the machine's final output.
+     */
+    invoke(
+        machine: string,
+        input: Record<string, any>,
+        options?: { timeout?: number; debug?: boolean }
+    ): Promise<Record<string, any>>;
+
+    /**
+     * Get the status of a launched machine by execution_id.
+     * Returns current state, step count, and whether it's finished.
+     */
+    status(executionId: string): Promise<MachineAPIStatus>;
+
+    /**
+     * Inspect a machine's full checkpoint snapshot.
+     * Returns context, output, pending launches, cost, etc.
+     * Use for debugging or verifying a child machine's behavior.
+     */
+    inspect(executionId: string): Promise<MachineSnapshot | null>;
+
+    /**
+     * Send a signal to a named channel.
+     * Wakes any machine waiting on that channel via wait_for.
+     */
+    signalSend(channel: string, data: any): Promise<string>;
+}
+
+export interface MachineAPIRuntimeInfo {
+    /** Machine names available in the current config's machines: map */
+    machines: string[];
+    /** Agent names available in the current config's agents: map */
+    agents: string[];
+    /** The current machine's name */
+    machine_name: string;
+    /** The current execution_id */
+    execution_id: string;
+    /** The current state name */
+    current_state: string;
+}
+
+export interface MachineAPIStatus {
+    execution_id: string;
+    machine_name: string;
+    current_state: string;
+    step: number;
+    /** Whether the machine has reached a final state */
+    finished: boolean;
+    /** Output if finished, null otherwise */
+    output?: Record<string, any> | null;
+    total_cost?: number;
+    total_api_calls?: number;
+}
+
 export const SPEC_VERSION = "2.0.0";
 
 export interface SDKRuntimeWrapper {
@@ -799,5 +913,6 @@ export interface SDKRuntimeWrapper {
     work_backend?: WorkBackend;
     signal_backend?: SignalBackend;
     trigger_backend?: TriggerBackend;
+    machine_api?: MachineAPI;
 }
 

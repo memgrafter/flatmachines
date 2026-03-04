@@ -1,0 +1,62 @@
+spec: flatmachine
+spec_version: "2.0.0"
+
+data:
+  name: writer-critic
+  profiles: ./profiles.yml
+
+  context:
+    topic: "{{ input.topic | default('technology') }}"
+    score: 0
+    round: 0
+    max_rounds: "{{ input.max_rounds | default(3) }}"
+
+  agents:
+    writer: ./target_writer_agent.yml
+    critic: ./target_critic_agent.yml
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: write
+
+    write:
+      agent: writer
+      execution:
+        type: retry
+        backoffs: [2, 8]
+        jitter: 0.1
+      input:
+        topic: "{{ context.topic }}"
+        feedback: "{{ context.feedback | default('') }}"
+      output_to_context:
+        tagline: "{{ output.tagline }}"
+      transitions:
+        - to: review
+
+    review:
+      agent: critic
+      input:
+        tagline: "{{ context.tagline }}"
+        topic: "{{ context.topic }}"
+      output_to_context:
+        score: "{{ output.score }}"
+        feedback: "{{ output.feedback }}"
+        round: "{{ context.round + 1 }}"
+      transitions:
+        - condition: "context.score >= 8"
+          to: done
+        - condition: "context.round >= context.max_rounds"
+          to: done
+        - to: write
+
+    done:
+      type: final
+      output:
+        tagline: "{{ context.tagline }}"
+        score: "{{ context.score }}"
+        rounds: "{{ context.round }}"
+
+metadata:
+  description: "Writer-critic loop. Iterates until score >= 8 or max rounds."

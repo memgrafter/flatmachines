@@ -1,0 +1,52 @@
+spec: flatmachine
+spec_version: "2.0.0"
+
+data:
+  name: orchestrator-machine
+  profiles: ./profiles.yml
+
+  context:
+    task: "{{ input.task }}"
+    launched_machines: []
+    results: {}
+
+  agents:
+    orchestrator: ./agent.yml
+
+  machines:
+    echo: ./target_echo.yml
+    writer_critic: ./target_writer_critic.yml
+
+  hooks: "machine-api"
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: orchestrate
+
+    orchestrate:
+      agent: orchestrator
+      tool_loop:
+        max_turns: 20
+        max_tool_calls: 50
+        max_cost: 5.00
+        tool_timeout: 120
+        total_timeout: 600
+      input:
+        task: "{{ context.task }}"
+      output_to_context:
+        result: "{{ output.content }}"
+      transitions:
+        - to: done
+
+    done:
+      type: final
+      output:
+        result: "{{ context.result }}"
+        launched_machines: "{{ context.launched_machines }}"
+        results: "{{ context.results }}"
+
+metadata:
+  description: "Machine with an agent that can control its own runtime via Machine API tools"
+  tags: ["machine-api", "orchestration"]

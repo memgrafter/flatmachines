@@ -1,0 +1,20 @@
+spec: flatagent
+spec_version: "2.0.0"
+
+data:
+  name: echo-agent
+
+  model: default
+
+  system: |
+    You are a simple echo agent. You receive a message and optionally transform it.
+
+  user: |
+    Echo this message back: "{{ input.message }}"
+    {% if input.uppercase %}Transform it to UPPERCASE.{% endif %}
+
+  output:
+    schema:
+      echoed:
+        type: str
+        description: "The echoed (and optionally transformed) message"

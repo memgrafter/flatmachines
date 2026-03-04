@@ -101,6 +101,32 @@ wait_for_approval:
     - to: rejected
 ```
 
+## Agent Machine API
+
+Let an agent control its own runtime via tool calls. The agent can launch child machines, inspect their state, read/write context, and send signals — all through standard function-calling tools.
+
+**Spec**: `MachineAPI` interface in `flatagents-runtime.d.ts`. Tool schemas in YAML (language-agnostic).
+
+**Tools**: `context_read`, `context_write`, `runtime_info`, `machine_launch`, `machine_invoke`, `machine_status`, `machine_inspect`, `signal_send`
+
+```yaml
+# Machine with agent that controls its own runtime
+states:
+  orchestrate:
+    agent: orchestrator
+    tool_loop:
+      max_turns: 20
+      max_tool_calls: 50
+    transitions:
+      - to: done
+```
+
+The agent sees tools and calls them: `machine_invoke(machine="echo", input={...})` → gets result. `machine_launch(machine="worker", input={...})` → gets execution_id, checks later with `machine_status`.
+
+**Cross-SDK**: Tool definitions are YAML. `MachineAPIToolProvider` implements `ToolProvider` protocol — each SDK implements the same tool names and parameter shapes.
+
+See `sdk/examples/agent_machine_api/` for a full example.
+
 ## Distributed Worker Pattern
 
 Use hook actions (e.g., `DistributedWorkerHooks`) with a `RegistrationBackend` + `WorkBackend` to build worker pools.

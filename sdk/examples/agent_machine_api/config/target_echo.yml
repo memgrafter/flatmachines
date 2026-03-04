@@ -1,0 +1,38 @@
+spec: flatmachine
+spec_version: "2.0.0"
+
+data:
+  name: echo
+  profiles: ./profiles.yml
+
+  context:
+    message: "{{ input.message | default('hello') }}"
+    uppercase: "{{ input.uppercase | default(false) }}"
+
+  agents:
+    echo_agent: ./target_echo_agent.yml
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: process
+
+    process:
+      agent: echo_agent
+      input:
+        message: "{{ context.message }}"
+        uppercase: "{{ context.uppercase }}"
+      output_to_context:
+        echoed: "{{ output.echoed }}"
+      transitions:
+        - to: done
+
+    done:
+      type: final
+      output:
+        echoed: "{{ context.echoed }}"
+        original: "{{ context.message }}"
+
+metadata:
+  description: "Simple echo machine — transforms a message. Good for testing launches."

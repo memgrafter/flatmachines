@@ -1,0 +1,155 @@
+# Machine API Tool Definitions
+# ============================
+#
+# Language-agnostic tool schemas for the Machine API.
+# These define the LLM function-call tools that let an agent
+# introspect and control its own FlatMachine runtime.
+#
+# Each SDK implements a MachineAPIToolProvider that maps these
+# tool calls to the runtime primitives (MachineInvoker, ResultBackend, etc.).
+#
+# spec: flatagents-runtime MachineAPI
+
+tools:
+  - type: function
+    function:
+      name: context_read
+      description: >
+        Read your own machine context. Returns the full context dict
+        visible to the current state, including values set by prior states
+        and output_to_context mappings.
+      parameters:
+        type: object
+        properties:
+          key:
+            type: string
+            description: "Optional: read a specific key. Omit to get the full context."
+        required: []
+
+  - type: function
+    function:
+      name: context_write
+      description: >
+        Write a key-value pair into your own machine context. The value
+        persists across states and is available in Jinja2 templates as
+        context.<key>. Use this to store intermediate results, flags,
+        or data for later states.
+      parameters:
+        type: object
+        properties:
+          key:
+            type: string
+            description: "Context key to write (e.g., 'analysis_result', 'should_retry')"
+          value:
+            description: "Value to store. Can be string, number, boolean, object, or array."
+        required: [key, value]
+
+  - type: function
+    function:
+      name: runtime_info
+      description: >
+        List machines and agents available in the current config.
+        Returns machine names, agent names, the current machine name,
+        execution_id, and current state. Use this to discover what
+        you can launch or invoke.
+      parameters:
+        type: object
+        properties: {}
+        required: []
+
+  - type: function
+    function:
+      name: machine_launch
+      description: >
+        Launch a child machine fire-and-forget. Returns immediately with
+        the execution_id. The child runs independently — use machine_status
+        or machine_inspect to check its progress later. Good for kicking
+        off work you'll check on later.
+      parameters:
+        type: object
+        properties:
+          machine:
+            type: string
+            description: "Name of the machine to launch (from machines: in your config)"
+          input:
+            type: object
+            description: "Input dict to pass to the child machine"
+          debug:
+            type: boolean
+            description: "If true, enable verbose checkpointing for inspection"
+        required: [machine, input]
+
+  - type: function
+    function:
+      name: machine_invoke
+      description: >
+        Launch a child machine and wait for it to complete. Returns the
+        machine's final output. Use this when you need the result before
+        continuing. The child machine runs through all its states and
+        returns its final state output.
+      parameters:
+        type: object
+        properties:
+          machine:
+            type: string
+            description: "Name of the machine to invoke (from machines: in your config)"
+          input:
+            type: object
+            description: "Input dict to pass to the child machine"
+          timeout:
+            type: number
+            description: "Timeout in seconds (0 = no timeout)"
+          debug:
+            type: boolean
+            description: "If true, enable verbose checkpointing for inspection"
+        required: [machine, input]
+
+  - type: function
+    function:
+      name: machine_status
+      description: >
+        Check the status of a previously launched machine by execution_id.
+        Returns its current state, step count, whether it's finished, and
+        output if complete. Use this to poll fire-and-forget launches.
+      parameters:
+        type: object
+        properties:
+          execution_id:
+            type: string
+            description: "Execution ID returned by machine_launch"
+        required: [execution_id]
+
+  - type: function
+    function:
+      name: machine_inspect
+      description: >
+        Get the full checkpoint snapshot of a machine. Returns its context,
+        output, pending launches, cost, API call count, and tool loop state.
+        Use this for debugging — you can see exactly what happened inside
+        the child machine at each step.
+      parameters:
+        type: object
+        properties:
+          execution_id:
+            type: string
+            description: "Execution ID of the machine to inspect"
+        required: [execution_id]
+
+  - type: function
+    function:
+      name: signal_send
+      description: >
+        Send a signal to a named channel. Wakes any machine that is paused
+        at a wait_for state listening on that channel. The signal data
+        becomes the wait_for state's output (accessible as output.* in
+        output_to_context templates).
+      parameters:
+        type: object
+        properties:
+          channel:
+            type: string
+            description: "Channel name (e.g., 'approval/task-001', 'quota/openai')"
+          data:
+            type: object
+            description: "Signal payload — becomes the output of the waiting state"
+        required: [channel, data]

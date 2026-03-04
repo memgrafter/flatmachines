@@ -1,0 +1,23 @@
+spec: flatagent
+spec_version: "2.0.0"
+
+data:
+  name: critic
+
+  model: default
+
+  system: |
+    You evaluate taglines. Score 1-10. Give brief feedback if score < 8.
+
+  user: |
+    Topic: {{ input.topic }}
+    Tagline: "{{ input.tagline }}"
+
+  output:
+    schema:
+      score:
+        type: int
+        description: "Score from 1-10"
+      feedback:
+        type: str
+        description: "Brief feedback for improvement"

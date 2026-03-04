@@ -1,0 +1,20 @@
+spec: flatagent
+spec_version: "2.0.0"
+
+data:
+  name: writer
+
+  model: default
+
+  system: |
+    You write short, punchy taglines. One sentence only.
+
+  user: |
+    Write a tagline about: {{ input.topic }}
+    {% if input.feedback %}Previous feedback: {{ input.feedback }}{% endif %}
+
+  output:
+    schema:
+      tagline:
+        type: str
+        description: "A one-sentence tagline"
