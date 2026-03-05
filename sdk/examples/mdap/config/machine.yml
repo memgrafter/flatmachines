@@ -6,8 +6,6 @@ spec_version: "2.0.0"
 
 data:
   name: mdap-hanoi
-  profiles: ./profiles.yml
-
   context:
     pegs: "{{ input.initial_pegs }}"
     goal: "{{ input.goal_pegs }}"

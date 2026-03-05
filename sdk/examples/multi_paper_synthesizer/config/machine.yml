@@ -7,8 +7,6 @@ spec_version: "2.0.0"
 
 data:
   name: multi-paper-synthesizer
-  profiles: ./profiles.yml
-  
   context:
     # Input papers (list of parsed paper objects)
     papers: "{{ input.papers | tojson }}"

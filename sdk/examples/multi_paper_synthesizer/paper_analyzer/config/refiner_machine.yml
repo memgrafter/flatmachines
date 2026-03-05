@@ -8,8 +8,6 @@ spec_version: "2.0.0"
 
 data:
   name: refiner
-  profiles: ./profiles.yml
-  
   context:
     # Input from parent (now receives full text analyses)
     title: "{{ input.title }}"

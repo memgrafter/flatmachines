@@ -3,8 +3,6 @@ spec_version: "2.0.0"
 
 data:
   name: cli-tool-loop
-  profiles: ./profiles.yml
-
   context:
     task: "{{ input.task }}"
     working_dir: "{{ input.working_dir }}"

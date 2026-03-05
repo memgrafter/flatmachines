@@ -6,8 +6,6 @@ spec_version: "2.0.0"
 
 data:
   name: character-card-chat
-  profiles: ./profiles.yml
-  
   context:
     # Card data loaded from PNG by hooks
     card_name: null

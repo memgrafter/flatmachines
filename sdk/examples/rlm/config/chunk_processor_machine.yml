@@ -7,8 +7,6 @@ spec_version: "2.0.0"
 
 data:
   name: chunk-processor
-  profiles: ./profiles.yml
-
   context:
     task: "{{ input.task }}"
     sub_task: "{{ input.sub_task }}"

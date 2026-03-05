@@ -168,8 +168,6 @@ spec_version: "X.X.X"  # Check flatmachine.d.ts SPEC_VERSION constant
 
 data:
   name: example-name
-  profiles: ./profiles.yml
-  
   context:
     key: "{{ input.key }}"
   
@@ -227,6 +225,9 @@ metadata:
 ```
 
 ### config/profiles.yml
+
+`profiles.yml` is auto-discovered from the machine config directory.
+Do not add `data.profiles` to `config/machine.yml`.
 
 ```yaml
 spec: flatprofiles
