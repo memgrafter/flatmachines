@@ -13,6 +13,8 @@ import json
 import os
 import re
 import time
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any, Dict, List, Optional
 
 try:
@@ -276,6 +278,23 @@ class FlatMachine:
         default_events = ['machine_start', 'state_enter', 'execute', 'state_exit', 'machine_end', 'waiting', 'tool_call']
         self.checkpoint_events = set(p_config.get('checkpoint_on', default_events))
 
+    def _build_machine_metadata(self, state_name: str) -> MappingProxyType:
+        """Build immutable machine metadata for context.machine."""
+        return MappingProxyType({
+            "execution_id": self.execution_id,
+            "machine_name": self.machine_name,
+            "parent_execution_id": self.parent_execution_id,
+            "spec_version": self.spec_version,
+            "step": self._current_step,
+            "current_state": state_name,
+            "total_api_calls": self.total_api_calls,
+            "total_cost": self.total_cost,
+        })
+
+    def _inject_machine_metadata(self, context: Dict[str, Any], state_name: str) -> Dict[str, Any]:
+        """Inject immutable context.machine into context. Overwrites any existing value."""
+        context["machine"] = self._build_machine_metadata(state_name)
+        return context
 
     def _load_config(
         self,
@@ -422,7 +441,7 @@ class FlatMachine:
         parts = path.split('.')
         value = variables
         for part in parts:
-            if isinstance(value, dict):
+            if isinstance(value, Mapping):
                 value = value.get(part)
             else:
                 return None
@@ -1523,12 +1542,17 @@ class FlatMachine:
         if event not in self.checkpoint_events:
             return
 
+        # Convert MappingProxyType to plain dict for JSON serialization
+        checkpoint_context = dict(context)
+        if "machine" in checkpoint_context and isinstance(checkpoint_context["machine"], MappingProxyType):
+            checkpoint_context["machine"] = dict(checkpoint_context["machine"])
+
         snapshot = MachineSnapshot(
             execution_id=self.execution_id,
             machine_name=self.machine_name,
             spec_version=self.spec_version,
             current_state=state_name,
-            context=context,
+            context=checkpoint_context,
             step=step,
             event=event,
             output=output,
@@ -1585,6 +1609,8 @@ class FlatMachine:
                     if snapshot.event == 'machine_end':
                         logger.info("Execution already completed.")
                         return snapshot.output or {}
+                    # Rebuild context.machine from live properties (discard stale snapshot copy)
+                    context = self._inject_machine_metadata(context, current_state)
                     logger.info(f"Restored from snapshot: step={step}, state={current_state}")
                 else:
                     logger.warning(f"No snapshot found for {resume_from}, starting fresh.")
@@ -1594,7 +1620,7 @@ class FlatMachine:
                 input = input or {}
                 variables = {"input": input}
                 context = self._render_dict(self.initial_context, variables)
-
+                context = self._inject_machine_metadata(context, current_state)
 
                 await self._save_checkpoint('machine_start', 'start', step, context)
                 context = await self._run_hook('on_machine_start', context)
@@ -1608,6 +1634,7 @@ class FlatMachine:
                 step += 1
                 self._current_step = step
                 is_final = current_state in self._final_states
+                context = self._inject_machine_metadata(context, current_state)
 
                 await self._save_checkpoint('state_enter', current_state, step, context)
                 context = await self._run_hook('on_state_enter', current_state, context)
@@ -1639,6 +1666,7 @@ class FlatMachine:
                     if recovery_state:
                         logger.warning(f"Error in {current_state}, transitioning to {recovery_state}: {e}")
                         current_state = recovery_state
+                        context = self._inject_machine_metadata(context, current_state)
                         continue
                     raise
 

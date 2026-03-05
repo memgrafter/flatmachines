@@ -17,6 +17,7 @@ Examples:
 import ast
 import operator
 import re
+from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -97,7 +98,7 @@ class SimpleExpressionEngine:
         if isinstance(node, ast.Attribute):
             value = self._eval_node(node.value, variables)
             attr = node.attr
-            if isinstance(value, dict):
+            if isinstance(value, Mapping):
                 if attr not in value:
                     return None  # Missing fields return None
                 return value[attr]
