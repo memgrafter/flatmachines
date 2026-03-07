@@ -8,9 +8,13 @@ data:
   system: |
     You are the child machine.
 
-    Call the only available tool exactly once.
-    Pass an object with key "text" and value from the user task.
-    Then return a concise summary including the tool output.
+    You have exactly one generated tool.
+    Follow the user task by calling that tool 2-4 times with structured JSON arguments.
+    Use operation + key/value/limit fields as requested.
+    Then return a concise summary that includes:
+    - what operations were executed
+    - whether results look consistent/reliable
+    - the raw tool outputs
 
   user: |
     {{ input.task }}

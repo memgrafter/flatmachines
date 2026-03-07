@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .telemetry import TelemetryLogger
+
 
 @dataclass
 class ChildLaunchResult:
@@ -31,10 +33,12 @@ class GeneratedToolSubprocessInvoker:
         python_executable: str | None = None,
         module: str = "clone_machine.child_runner",
         cwd: str | None = None,
+        telemetry: TelemetryLogger | None = None,
     ):
         self.python_executable = python_executable or sys.executable
         self.module = module
         self.cwd = cwd
+        self.telemetry = telemetry
 
     async def launch(
         self,
@@ -45,6 +49,7 @@ class GeneratedToolSubprocessInvoker:
         result_file: str,
         task: str,
         timeout_seconds: float,
+        telemetry_dir: str | None = None,
     ) -> ChildLaunchResult:
         cmd = [
             self.python_executable,
@@ -61,6 +66,17 @@ class GeneratedToolSubprocessInvoker:
             "--task",
             task,
         ]
+        if telemetry_dir:
+            cmd.extend(["--telemetry-dir", telemetry_dir])
+
+        if self.telemetry:
+            self.telemetry.log_event(
+                "subprocess_exec_start",
+                child_execution_id=child_execution_id,
+                cmd=cmd,
+                cwd=self.cwd,
+                timeout_seconds=timeout_seconds,
+            )
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -85,6 +101,8 @@ class GeneratedToolSubprocessInvoker:
                         await proc.wait()
                     except Exception:
                         pass
+            if self.telemetry:
+                self.telemetry.log_event("subprocess_exec_timeout", child_execution_id=child_execution_id)
             return ChildLaunchResult(
                 status="subprocess_timeout",
                 child_execution_id=child_execution_id,
@@ -93,7 +111,17 @@ class GeneratedToolSubprocessInvoker:
         stdout = stdout_b.decode("utf-8", errors="replace").strip()
         stderr = stderr_b.decode("utf-8", errors="replace").strip()
 
+        if self.telemetry:
+            self.telemetry.write_text(f"child/{child_execution_id}/subprocess_stdout.txt", stdout)
+            self.telemetry.write_text(f"child/{child_execution_id}/subprocess_stderr.txt", stderr)
+
         if proc.returncode != 0:
+            if self.telemetry:
+                self.telemetry.log_event(
+                    "subprocess_exec_failed",
+                    child_execution_id=child_execution_id,
+                    returncode=proc.returncode,
+                )
             return ChildLaunchResult(
                 status="subprocess_failed",
                 child_execution_id=child_execution_id,
@@ -104,6 +132,12 @@ class GeneratedToolSubprocessInvoker:
 
         result_path = Path(result_file)
         if not result_path.exists():
+            if self.telemetry:
+                self.telemetry.log_event(
+                    "subprocess_missing_child_result",
+                    child_execution_id=child_execution_id,
+                    result_file=str(result_path),
+                )
             return ChildLaunchResult(
                 status="missing_child_result",
                 child_execution_id=child_execution_id,
@@ -115,12 +149,28 @@ class GeneratedToolSubprocessInvoker:
         try:
             child_payload = json.loads(result_path.read_text())
         except Exception as e:
+            if self.telemetry:
+                self.telemetry.log_event(
+                    "subprocess_invalid_child_result",
+                    child_execution_id=child_execution_id,
+                    error=str(e),
+                    result_file=str(result_path),
+                )
             return ChildLaunchResult(
                 status="invalid_child_result",
                 child_execution_id=child_execution_id,
                 stdout=stdout,
                 stderr=f"failed to parse child result: {e}",
                 returncode=proc.returncode,
+            )
+
+        if self.telemetry:
+            self.telemetry.write_json(f"child/{child_execution_id}/result_file_payload.json", child_payload)
+            self.telemetry.log_event(
+                "subprocess_exec_success",
+                child_execution_id=child_execution_id,
+                returncode=proc.returncode,
+                result_file=str(result_path),
             )
 
         return ChildLaunchResult(

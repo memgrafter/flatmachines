@@ -90,6 +90,69 @@ async def test_generate_native_tool_writes_manifest_and_module():
 
 
 @pytest.mark.asyncio
+async def test_generated_tool_supports_durable_put_get_and_cross_run_reuse(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLONE_MACHINE_TOOL_STORE_DIR", str(tmp_path / "store"))
+
+    provider = ParentToolProvider()
+    _bind(provider)
+
+    generated = await provider.execute_tool(
+        "generate_native_tool",
+        "tc0",
+        {"namespace": "shared demo", "reuse_store": True},
+    )
+    generated_data = json.loads(generated.content)
+
+    first_artifact = Path(generated_data["artifact_dir"])
+    first_provider = GeneratedToolProvider(first_artifact)
+    tool_name = generated_data["tool_name"]
+
+    put = await first_provider.execute_tool(
+        tool_name,
+        "child1",
+        {"operation": "put", "key": "latest_run", "value": "abc123"},
+    )
+    get = await first_provider.execute_tool(
+        tool_name,
+        "child2",
+        {"operation": "get", "key": "latest_run"},
+    )
+    listing = await first_provider.execute_tool(tool_name, "child3", {"operation": "list", "limit": 5})
+
+    put_payload = json.loads(put.content)
+    get_payload = json.loads(get.content)
+    list_payload = json.loads(listing.content)
+
+    assert put_payload["status"] == "ok"
+    assert put_payload["operation"] == "put"
+    assert get_payload["status"] == "ok"
+    assert get_payload["found"] is True
+    assert get_payload["value"] == "abc123"
+    assert "latest_run" in list_payload["keys"]
+
+    generated_again = await provider.execute_tool(
+        "generate_native_tool",
+        "tc4",
+        {"namespace": "shared demo", "reuse_store": True},
+    )
+    generated_again_data = json.loads(generated_again.content)
+
+    second_artifact = Path(generated_again_data["artifact_dir"])
+    second_provider = GeneratedToolProvider(second_artifact)
+
+    reused_get = await second_provider.execute_tool(
+        generated_again_data["tool_name"],
+        "child4",
+        {"operation": "get", "key": "latest_run"},
+    )
+    reused_payload = json.loads(reused_get.content)
+
+    assert reused_payload["status"] == "ok"
+    assert reused_payload["found"] is True
+    assert reused_payload["value"] == "abc123"
+
+
+@pytest.mark.asyncio
 async def test_launch_generated_machine_requires_generation_first():
     provider = ParentToolProvider()
     _bind(provider)

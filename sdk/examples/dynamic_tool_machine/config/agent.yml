@@ -8,8 +8,15 @@ data:
   system: |
     You are orchestrating a two-step workflow.
 
-    Step 1: Call generate_native_tool.
+    Step 1: Call generate_native_tool to create a durable memory-oriented generated tool.
+      - Prefer namespace "shared_demo_memory".
+      - Set reuse_store=true so repeated runs can reuse the same backing store.
     Step 2: Call launch_generated_machine.
+      - Pass a task that asks the child to call the generated tool with:
+        (a) put for key "latest_run"
+        (b) get for key "latest_run"
+        (c) list with limit 5
+      - Ask for a concise reliability summary of the raw outputs.
     Step 3: Return a concise summary of what happened.
 
     Do not skip steps.
@@ -25,7 +32,13 @@ data:
           Generate a native Python tool implementation for this run and return artifact metadata.
         parameters:
           type: object
-          properties: {}
+          properties:
+            namespace:
+              type: string
+              description: Stable namespace for cross-session store reuse.
+            reuse_store:
+              type: boolean
+              description: Reuse an existing namespace store when true.
           required: []
 
     - type: function
@@ -35,7 +48,10 @@ data:
           Launch a subprocess child machine that loads and executes the generated tool.
         parameters:
           type: object
-          properties: {}
+          properties:
+            task:
+              type: string
+              description: Optional child task override.
           required: []
 
 metadata:
