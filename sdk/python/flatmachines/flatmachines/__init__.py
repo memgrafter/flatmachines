@@ -88,6 +88,7 @@ from .signals import (
     create_trigger_backend,
 )
 from .dispatcher import SignalDispatcher
+from .signals_helpers import send_and_notify
 from .flatmachine import WaitingForSignal
 
 __all__ = [
@@ -171,5 +172,6 @@ __all__ = [
     "create_signal_backend",
     "create_trigger_backend",
     "SignalDispatcher",
+    "send_and_notify",
     "WaitingForSignal",
 ]
