@@ -1,0 +1,20 @@
+spec: flatagent
+spec_version: "2.0.0"
+
+data:
+  name: clone-machine-child-orchestrator
+  model: default
+
+  system: |
+    You are the child machine.
+
+    Call the only available tool exactly once.
+    Pass an object with key "text" and value from the user task.
+    Then return a concise summary including the tool output.
+
+  user: |
+    {{ input.task }}
+
+metadata:
+  description: "Child orchestrator that uses the generated tool"
+  tags: ["tool-use", "child", "generated-tool"]

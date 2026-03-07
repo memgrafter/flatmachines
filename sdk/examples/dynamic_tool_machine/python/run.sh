@@ -52,4 +52,4 @@ fi
 
 uv pip install --python "$VENV_PATH/bin/python" -e "$SCRIPT_DIR"
 
-"$VENV_PATH/bin/python" -m dynamic_tool_machine.main "${PASSTHROUGH_ARGS[@]}"
+"$VENV_PATH/bin/python" -m clone_machine.main "${PASSTHROUGH_ARGS[@]}"

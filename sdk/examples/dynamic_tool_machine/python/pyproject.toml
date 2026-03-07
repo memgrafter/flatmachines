@@ -1,7 +1,7 @@
 [project]
-name = "dynamic_tool_machine"
+name = "clone_machine"
 version = "0.1.0"
-description = "Minimal machine-level tool loop with discovery"
+description = "Clone machine example: generate native tool, launch child in subprocess"
 dependencies = ["flatmachines[flatagents]", "flatagents[litellm]"]
 requires-python = ">=3.10"
 
@@ -13,4 +13,4 @@ build-backend = "hatchling.build"
 allow-direct-references = true
 
 [project.scripts]
-dynamic-tool-machine = "dynamic_tool_machine.main:main"
+clone-machine = "clone_machine.main:main"

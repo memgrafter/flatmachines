@@ -2,13 +2,13 @@ spec: flatmachine
 spec_version: "2.0.0"
 
 data:
-  name: clone-machine-parent
+  name: clone-machine-child
 
   context:
     task: "{{ input.task }}"
 
   agents:
-    orchestrator: ./agent.yml
+    child_orchestrator: ./child_agent.yml
 
   states:
     start:
@@ -17,13 +17,13 @@ data:
         - to: orchestrate
 
     orchestrate:
-      agent: orchestrator
+      agent: child_orchestrator
       tool_loop:
-        max_turns: 8
-        max_tool_calls: 8
+        max_turns: 6
+        max_tool_calls: 4
         max_cost: 1.0
-        tool_timeout: 60
-        total_timeout: 180
+        tool_timeout: 30
+        total_timeout: 120
       input:
         task: "{{ context.task }}"
       output_to_context:
@@ -37,5 +37,5 @@ data:
         result: "{{ context.result }}"
 
 metadata:
-  description: "Parent machine generates a native tool and launches a subprocess child"
-  tags: ["tool-loop", "subprocess", "codegen", "native-tool"]
+  description: "Subprocess child machine that executes generated native tool"
+  tags: ["tool-loop", "child", "generated-tool"]

@@ -2,17 +2,17 @@ spec: flatagent
 spec_version: "2.0.0"
 
 data:
-  name: dynamic-tool-orchestrator
+  name: clone-machine-parent-orchestrator
   model: default
 
   system: |
-    You are running inside a machine tool_loop.
+    You are orchestrating a two-step workflow.
 
-    Always call discover_machines first to see what's available and running.
-    If no other instance of your machine is running, call launch_machine targeting yourself.
-    If another instance is already running, report status and stop.
+    Step 1: Call generate_native_tool.
+    Step 2: Call launch_generated_machine.
+    Step 3: Return a concise summary of what happened.
 
-    Be concise.
+    Do not skip steps.
 
   user: |
     {{ input.task }}
@@ -20,9 +20,9 @@ data:
   tools:
     - type: function
       function:
-        name: discover_machines
+        name: generate_native_tool
         description: >
-          List registered machines and their running instances.
+          Generate a native Python tool implementation for this run and return artifact metadata.
         parameters:
           type: object
           properties: {}
@@ -30,18 +30,14 @@ data:
 
     - type: function
       function:
-        name: launch_machine
+        name: launch_generated_machine
         description: >
-          Launch a new instance of a registered machine by name.
-          Returns already_running if another instance of the target exists.
+          Launch a subprocess child machine that loads and executes the generated tool.
         parameters:
           type: object
-          properties:
-            target:
-              type: string
-              description: "Name of the machine to launch."
-          required: ["target"]
+          properties: {}
+          required: []
 
 metadata:
-  description: "Single-agent orchestrator with discovery and machine launch"
-  tags: ["tool-use", "machine-orchestration"]
+  description: "Parent orchestrator for deterministic native tool generation + subprocess launch"
+  tags: ["tool-use", "subprocess", "codegen"]
