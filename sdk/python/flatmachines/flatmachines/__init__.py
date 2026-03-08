@@ -93,7 +93,7 @@ from .signals import (
     create_trigger_backend,
 )
 from .dispatcher import SignalDispatcher
-from .resume import MachineResumer, ConfigStoreResumer, ConfigFileResumer
+from .resume import MachineResumer, ReferenceResolver, ConfigStoreResumer, ConfigFileResumer
 from .signals_helpers import send_and_notify
 from .flatmachine import WaitingForSignal
 
@@ -184,6 +184,7 @@ __all__ = [
     "create_trigger_backend",
     "SignalDispatcher",
     "MachineResumer",
+    "ReferenceResolver",
     "ConfigStoreResumer",
     "ConfigFileResumer",
     "send_and_notify",

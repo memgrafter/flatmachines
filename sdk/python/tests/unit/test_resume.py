@@ -84,6 +84,34 @@ data:
         tracked: "context.tracked"
 """
 
+_PATH_REFS_CONFIG = """\
+spec: flatmachine
+spec_version: "2.1.0"
+data:
+  name: path-refs-resume-test
+  agents:
+    writer: ./agents/writer.yml
+  machines:
+    reviewer: ./machines/reviewer.yml
+  context:
+    val: null
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: wait
+    wait:
+      wait_for: "test/ch"
+      output_to_context:
+        val: "{{ output.v }}"
+      transitions:
+        - to: done
+    done:
+      type: final
+      output:
+        val: "context.val"
+"""
+
 
 @pytest.fixture
 def config_file(tmp_path):
@@ -98,6 +126,14 @@ def hooks_config_file(tmp_path):
     """Write a wait_for machine config that references hooks by name."""
     p = tmp_path / "hooks_machine.yml"
     p.write_text(_HOOKS_CONFIG)
+    return str(p)
+
+
+@pytest.fixture
+def path_refs_config_file(tmp_path):
+    """Write a machine config that includes string/path refs."""
+    p = tmp_path / "path_refs_machine.yml"
+    p.write_text(_PATH_REFS_CONFIG)
     return str(p)
 
 
@@ -344,6 +380,64 @@ class TestConfigStoreResumer:
 
         with pytest.raises(RuntimeError, match="Config not found in store"):
             await resumer.resume(eid, {})
+
+
+# ---------------------------------------------------------------------------
+# Portable resume: string/path refs require resolver
+# ---------------------------------------------------------------------------
+
+class TestPortablePathRefs:
+
+    @pytest.mark.asyncio
+    async def test_path_refs_without_resolver_fails(
+        self,
+        path_refs_config_file,
+        backends,
+    ):
+        signal_backend, persistence, config_store = backends
+        eid = await _park(path_refs_config_file, signal_backend, persistence, config_store)
+
+        await signal_backend.send("test/ch", {"v": "x"})
+        resumer = ConfigStoreResumer(signal_backend, persistence, config_store)
+
+        with pytest.raises(RuntimeError, match="Portable resume does not support string/path refs"):
+            await resumer.resume(eid, {"v": "x"})
+
+    @pytest.mark.asyncio
+    async def test_path_refs_with_resolver_succeeds(
+        self,
+        path_refs_config_file,
+        backends,
+    ):
+        signal_backend, persistence, config_store = backends
+        eid = await _park(path_refs_config_file, signal_backend, persistence, config_store)
+
+        await signal_backend.send("test/ch", {"v": "ok"})
+
+        async def resolver(*, machine_name, config_hash, ref_kind, ref_name, ref_value):
+            # Return inline config dicts for any string ref
+            if ref_kind == "machine":
+                return {
+                    "spec": "flatmachine",
+                    "spec_version": "2.1.0",
+                    "data": {
+                        "name": f"resolved-{ref_name}",
+                        "states": {
+                            "start": {"type": "initial", "transitions": [{"to": "done"}]},
+                            "done": {"type": "final", "output": {}},
+                        },
+                    },
+                }
+            return {"spec": "flatagent", "spec_version": "2.1.0", "data": {"model": "dummy"}}
+
+        resumer = ConfigStoreResumer(
+            signal_backend,
+            persistence,
+            config_store,
+            ref_resolver=resolver,
+        )
+        result = await resumer.resume(eid, {"v": "ok"})
+        assert result["val"] == "ok"
 
 
 # ---------------------------------------------------------------------------

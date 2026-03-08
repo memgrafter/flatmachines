@@ -32,10 +32,11 @@ Usage (subclass for app-specific reconstruction):
             return machine
 """
 
+import inspect
 import json
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional, Protocol
 
 from .hooks import MachineHooks, HooksRegistry
 from .persistence import (
@@ -47,6 +48,27 @@ from .persistence import (
 from .signals import SignalBackend
 
 logger = logging.getLogger(__name__)
+
+
+class ReferenceResolver(Protocol):
+    """Resolve string refs in agents/machines during portable resume.
+
+    Called with the owner machine identity (name + config hash), the ref kind
+    ("agent" or "machine"), ref key name, and string ref value.
+
+    Return an inline config dict to replace the string ref, or None if unknown.
+    """
+
+    def __call__(
+        self,
+        *,
+        machine_name: str,
+        config_hash: str,
+        ref_kind: str,
+        ref_name: str,
+        ref_value: str,
+    ) -> Optional[Dict[str, Any]] | Awaitable[Optional[Dict[str, Any]]]:
+        ...
 
 
 class MachineResumer(ABC):
@@ -83,6 +105,8 @@ class ConfigStoreResumer(MachineResumer):
         signal_backend: Signal storage backend.
         persistence_backend: Checkpoint persistence backend.
         config_store: Content-addressed config store.
+        ref_resolver: Optional resolver for string refs in agents/machines.
+            Portable resume rejects path/string refs unless this is provided.
         hooks: Explicit MachineHooks instance (bypasses registry).
         hooks_registry: Registry for resolving hooks by name from config.
         tool_provider: Default ToolProvider for tool_loop states.
@@ -93,6 +117,7 @@ class ConfigStoreResumer(MachineResumer):
         signal_backend: SignalBackend,
         persistence_backend: PersistenceBackend,
         config_store: ConfigStore,
+        ref_resolver: Optional[ReferenceResolver] = None,
         hooks: Optional[MachineHooks] = None,
         hooks_registry: Optional[HooksRegistry] = None,
         tool_provider: Optional[Any] = None,
@@ -100,6 +125,7 @@ class ConfigStoreResumer(MachineResumer):
         self._signal_backend = signal_backend
         self._persistence = persistence_backend
         self._config_store = config_store
+        self._ref_resolver = ref_resolver
         self._hooks = hooks
         self._hooks_registry = hooks_registry
         self._tool_provider = tool_provider
@@ -112,6 +138,77 @@ class ConfigStoreResumer(MachineResumer):
         if not snapshot:
             raise RuntimeError(f"No checkpoint found for execution {execution_id}")
         return snapshot
+
+    async def _resolve_ref(
+        self,
+        *,
+        machine_name: str,
+        config_hash: str,
+        ref_kind: str,
+        ref_name: str,
+        ref_value: str,
+    ) -> Dict[str, Any]:
+        """Resolve a string ref using the optional registry callback."""
+        if self._ref_resolver is None:
+            raise RuntimeError(
+                "Portable resume does not support string/path refs without a ref_resolver. "
+                f"Found {ref_kind}s.{ref_name}={ref_value!r} in machine={machine_name} hash={config_hash}."
+            )
+
+        resolved = self._ref_resolver(
+            machine_name=machine_name,
+            config_hash=config_hash,
+            ref_kind=ref_kind,
+            ref_name=ref_name,
+            ref_value=ref_value,
+        )
+        if inspect.isawaitable(resolved):
+            resolved = await resolved
+
+        if resolved is None:
+            raise RuntimeError(
+                f"ref_resolver could not resolve {ref_kind}s.{ref_name}={ref_value!r} "
+                f"for machine={machine_name} hash={config_hash}."
+            )
+        if not isinstance(resolved, dict):
+            raise TypeError(
+                "ref_resolver must return a dict (inline config) or None; "
+                f"got {type(resolved)} for {ref_kind}s.{ref_name}."
+            )
+        return resolved
+
+    async def _materialize_string_refs(
+        self,
+        config_dict: Dict[str, Any],
+        *,
+        machine_name: str,
+        config_hash: str,
+    ) -> Dict[str, Any]:
+        """Materialize string refs in agents/machines via ref_resolver.
+
+        In portable/hash-based resume we do not guess path semantics (cwd/config_dir).
+        String refs are treated as unresolved references and require explicit resolution.
+        """
+        data = config_dict.get("data")
+        if not isinstance(data, dict):
+            return config_dict
+
+        for ref_kind, section in (("agent", "agents"), ("machine", "machines")):
+            refs = data.get(section)
+            if not isinstance(refs, dict):
+                continue
+            for ref_name, ref_value in list(refs.items()):
+                if not isinstance(ref_value, str):
+                    continue
+                refs[ref_name] = await self._resolve_ref(
+                    machine_name=machine_name,
+                    config_hash=config_hash,
+                    ref_kind=ref_kind,
+                    ref_name=ref_name,
+                    ref_value=ref_value,
+                )
+
+        return config_dict
 
     async def _load_config(self, snapshot: MachineSnapshot) -> Dict[str, Any]:
         """Load and parse config from the config store."""
@@ -132,9 +229,15 @@ class ConfigStoreResumer(MachineResumer):
         # Parse YAML or JSON
         try:
             import yaml
-            return yaml.safe_load(raw)
+            config_dict = yaml.safe_load(raw)
         except ImportError:
-            return json.loads(raw)
+            config_dict = json.loads(raw)
+
+        return await self._materialize_string_refs(
+            config_dict,
+            machine_name=snapshot.machine_name,
+            config_hash=snapshot.config_hash,
+        )
 
     async def build_machine(
         self,
@@ -182,6 +285,7 @@ ConfigFileResumer = ConfigStoreResumer
 
 __all__ = [
     "MachineResumer",
+    "ReferenceResolver",
     "ConfigStoreResumer",
     "ConfigFileResumer",
 ]
