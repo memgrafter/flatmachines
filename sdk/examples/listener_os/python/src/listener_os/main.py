@@ -189,6 +189,12 @@ def _resumer(signal_backend, persistence, config_store) -> ConfigStoreResumer:
     return ConfigStoreResumer(signal_backend, persistence, config_store)
 
 
+async def _pending_by_channel(signal_backend) -> Dict[str, int]:
+    """Return pending signal counts by channel."""
+    channels = await signal_backend.channels()
+    return {ch: len(await signal_backend.peek(ch)) for ch in channels}
+
+
 async def cmd_park(args) -> None:
     paths = _default_paths()
     db_path = Path(args.db_path) if args.db_path else paths["db"]
@@ -238,9 +244,18 @@ async def cmd_dispatch_once(args) -> None:
     db_path = Path(args.db_path) if args.db_path else paths["db"]
     signal_backend, persistence, config_store = _build_backends(db_path)
 
+    pending_before = await _pending_by_channel(signal_backend)
     resumer = _resumer(signal_backend, persistence, config_store)
     results = await run_once(signal_backend, persistence, resumer=resumer)
-    print(json.dumps(results, indent=2, default=str))
+    pending_after = await _pending_by_channel(signal_backend)
+
+    resumed_total = sum(len(ids) for ids in results.values())
+    print(json.dumps({
+        "resumed_by_channel": results,
+        "resumed_total": resumed_total,
+        "pending_before": pending_before,
+        "pending_after": pending_after,
+    }, indent=2, default=str))
 
 
 async def cmd_listen(args) -> None:
