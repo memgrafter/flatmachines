@@ -22,7 +22,7 @@
 ```yaml
 # profiles.yml — agents reference by name
 spec: flatprofiles
-spec_version: "2.2.1"
+spec_version: "2.2.2"
 data:
   model_profiles:
     fast: { provider: cerebras, name: zai-glm-4.6, temperature: 0.6 }
@@ -166,8 +166,18 @@ class MyHooks(MachineHooks):
 ## Persistence
 
 ```yaml
-persistence: { enabled: true, backend: local }  # local | memory
+persistence: { enabled: true, backend: local }  # local | memory | sqlite
 ```
+
+SQLite backend (durable, single-file, no external dependencies):
+```yaml
+persistence:
+  enabled: true
+  backend: sqlite
+  db_path: ./flatmachines.sqlite   # optional, defaults to flatmachines.sqlite
+```
+Auto-selects `SQLiteLeaseLock` and `SQLiteConfigStore` — no runner injection needed.
+
 Resume: `machine.execute(resume_from=execution_id)`
 
 ## SDKs

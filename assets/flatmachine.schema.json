@@ -707,7 +707,16 @@
           "type": "boolean"
         },
         "backend": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "local",
+            "sqlite",
+            "memory"
+          ]
+        },
+        "db_path": {
+          "type": "string",
+          "description": "Database file path for sqlite backend. Defaults to \"flatmachines.sqlite\"."
         },
         "checkpoint_on": {
           "type": "array",

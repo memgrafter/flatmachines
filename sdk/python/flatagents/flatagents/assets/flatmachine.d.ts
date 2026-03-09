@@ -240,7 +240,7 @@
  * PERSISTENCE (v0.2.0):
  * --------------------
  * MachineSnapshot    - Wire format for checkpoints (execution_id, state, context, step)
- * PersistenceConfig  - Backend config: {enabled: true, backend: "local"|"memory"}
+ * PersistenceConfig  - Backend config: {enabled: true, backend: "local"|"memory"|"sqlite"}
  * checkpoint_on      - Events to checkpoint: ["machine_start", "execute", "machine_end"]
  *
  * MACHINE LAUNCHING:
@@ -319,7 +319,7 @@
  * config_hash         - Content-addressed machine config key for cross-SDK resume (v2.1.0)
  */
 
-export const SPEC_VERSION = "2.2.1";
+export const SPEC_VERSION = "2.2.2";
 
 export interface MachineWrapper {
   spec: "flatmachine";
@@ -467,7 +467,9 @@ export interface MachineSnapshot {
 
 export interface PersistenceConfig {
   enabled: boolean;
-  backend: "local" | "redis" | "memory" | string;
+  backend: "local" | "sqlite" | "memory";
+  /** Database file path for sqlite backend. Defaults to "flatmachines.sqlite". */
+  db_path?: string;
   checkpoint_on?: string[];
   [key: string]: any;
 }

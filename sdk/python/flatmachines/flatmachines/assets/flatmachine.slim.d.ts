@@ -1,4 +1,4 @@
-export const SPEC_VERSION = "2.2.1";
+export const SPEC_VERSION = "2.2.2";
 export interface MachineWrapper {
     spec: "flatmachine";
     spec_version: string;
@@ -127,7 +127,8 @@ export interface MachineSnapshot {
 }
 export interface PersistenceConfig {
     enabled: boolean;
-    backend: "local" | "redis" | "memory" | string;
+    backend: "local" | "sqlite" | "memory";
+    db_path?: string;
     checkpoint_on?: string[];
     [key: string]: any;
 }
