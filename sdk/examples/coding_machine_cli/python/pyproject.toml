@@ -1,0 +1,16 @@
+[project]
+name = "tool_use_cli"
+version = "0.1.0"
+description = "CLI coding agent with FlatMachine tool loop — read, write, bash, edit"
+dependencies = ["flatmachines[flatagents]", "flatagents[litellm]"]
+requires-python = ">=3.10"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[project.scripts]
+tool-use-cli = "tool_use_cli.main:main"
