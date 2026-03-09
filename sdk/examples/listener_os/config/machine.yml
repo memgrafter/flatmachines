@@ -1,5 +1,5 @@
 spec: flatmachine
-spec_version: "2.1.0"
+spec_version: "2.2.1"
 
 data:
   name: listener-os-demo
@@ -7,6 +7,10 @@ data:
     task_id: "{{ input.task_id }}"
     approved: null
     reviewer: null
+
+  persistence:
+    enabled: true
+    backend: sqlite
 
   states:
     start:

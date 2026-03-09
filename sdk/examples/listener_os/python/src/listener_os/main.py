@@ -93,12 +93,22 @@ def _build_backends(db_path: Path):
     return signal_backend, persistence, config_store
 
 
-def _machine(config_path: Path, persistence, signal_backend, config_store) -> FlatMachine:
+def _machine(config_path: Path, db_path: Path, signal_backend) -> FlatMachine:
+    import yaml
+
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    data = config.setdefault("data", {})
+    existing = data.get("persistence") if isinstance(data.get("persistence"), dict) else {}
+    data["persistence"] = {
+        **existing,
+        "enabled": True,
+        "backend": "sqlite",
+        "db_path": str(db_path),
+    }
+
     return FlatMachine(
-        config_file=str(config_path),
-        persistence=persistence,
+        config_dict=config,
         signal_backend=signal_backend,
-        config_store=config_store,
     )
 
 
@@ -198,9 +208,9 @@ async def _pending_by_channel(signal_backend) -> Dict[str, int]:
 async def cmd_park(args) -> None:
     paths = _default_paths()
     db_path = Path(args.db_path) if args.db_path else paths["db"]
-    signal_backend, persistence, config_store = _build_backends(db_path)
+    signal_backend, _, _ = _build_backends(db_path)
 
-    machine = _machine(paths["machine"], persistence, signal_backend, config_store)
+    machine = _machine(paths["machine"], db_path, signal_backend)
     result = await machine.execute(input={"task_id": args.task_id})
 
     print(json.dumps({"execution_id": machine.execution_id, "result": result}, indent=2))
