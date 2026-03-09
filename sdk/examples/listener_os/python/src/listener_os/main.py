@@ -94,22 +94,19 @@ def _build_backends(db_path: Path):
 
 
 def _machine(config_path: Path, db_path: Path, signal_backend) -> FlatMachine:
-    import yaml
-
-    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    data = config.setdefault("data", {})
-    existing = data.get("persistence") if isinstance(data.get("persistence"), dict) else {}
-    data["persistence"] = {
-        **existing,
-        "enabled": True,
-        "backend": "sqlite",
-        "db_path": str(db_path),
-    }
-
-    return FlatMachine(
-        config_dict=config,
-        signal_backend=signal_backend,
-    )
+    """Build machine from file config, optionally overriding sqlite db path via env."""
+    prev_db_path = os.environ.get("FLATMACHINES_DB_PATH")
+    os.environ["FLATMACHINES_DB_PATH"] = str(db_path)
+    try:
+        return FlatMachine(
+            config_file=str(config_path),
+            signal_backend=signal_backend,
+        )
+    finally:
+        if prev_db_path is None:
+            os.environ.pop("FLATMACHINES_DB_PATH", None)
+        else:
+            os.environ["FLATMACHINES_DB_PATH"] = prev_db_path
 
 
 def _read_template(path: Path) -> str:
