@@ -122,6 +122,64 @@ async def test_refresh_success_after_initial_401(monkeypatch: pytest.MonkeyPatch
 
 
 @pytest.mark.asyncio
+async def test_refresh_success_via_auth_module_persists_new_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    auth_file = tmp_path / "auth.json"
+    stale_token = token_for_account("acc_start")
+    fresh_token = token_for_account("acc_fresh")
+    write_auth_file(auth_file, access_token=stale_token, refresh_token="refresh-old", expires=0)
+
+    auth_headers = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        auth_headers.append(request.headers.get("Authorization"))
+        if len(auth_headers) == 1:
+            return httpx.Response(401, text=json.dumps({"error": {"message": "expired"}}))
+        return httpx.Response(200, text=_sse_ok("refreshed"), headers={"content-type": "text/event-stream"})
+
+    async def fake_refresh_openai_codex_token(*args, **kwargs):
+        return {
+            "access": fresh_token,
+            "refresh": "refresh-new",
+            "expires": 9_999_999_999_999,
+        }
+
+    monkeypatch.setattr(
+        "openai_codex_oauth_example.openai_codex_auth.refresh_openai_codex_token",
+        fake_refresh_openai_codex_token,
+    )
+
+    client = CodexClient(
+        {
+            "provider": "openai-codex",
+            "base_url": "https://chatgpt.com/backend-api",
+            "codex_auth_file": str(auth_file),
+            "codex_originator": "pi",
+            "auth": {"type": "oauth", "provider": "openai-codex", "auth_file": str(auth_file)},
+        },
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = await client.call(
+        {
+            "model": "openai-codex/gpt-5.4",
+            "messages": [{"role": "user", "content": "ping"}],
+        }
+    )
+
+    assert result.content == "refreshed"
+    assert auth_headers[0] == f"Bearer {stale_token}"
+    assert auth_headers[1] == f"Bearer {fresh_token}"
+
+    disk = json.loads(auth_file.read_text(encoding="utf-8"))
+    assert disk["openai-codex"]["access"] == fresh_token
+    assert disk["openai-codex"]["refresh"] == "refresh-new"
+    assert disk["openai-codex"]["accountId"] == "acc_fresh"
+
+
+@pytest.mark.asyncio
 async def test_refresh_failure_surfaces_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, text=json.dumps({"error": {"message": "expired"}}))

@@ -11,6 +11,7 @@ from openai_codex_oauth_example.openai_codex_auth import (
     extract_account_id_from_access_token,
     is_expired,
     load_codex_credential,
+    refresh_codex_credential,
     refresh_openai_codex_token,
 )
 from conftest import token_for_account, write_auth_file
@@ -106,3 +107,76 @@ async def test_refresh_openai_codex_token_failure_raises(monkeypatch: pytest.Mon
 
     with pytest.raises(CodexAuthError):
         await refresh_openai_codex_token("refresh-old")
+
+
+def test_missing_provider_credential_prompts_login_guidance(tmp_path: Path) -> None:
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text(json.dumps({"other": {"type": "api_key", "key": "x"}}), encoding="utf-8")
+
+    store = PiAuthStore(str(auth_file))
+    with pytest.raises(CodexAuthError) as exc:
+        store.load_provider("openai-codex")
+
+    assert "Run pi login first" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_refresh_codex_credential_updates_auth_file_and_preserves_other_entries(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    stale_token = token_for_account("acc_old")
+    fresh_token = token_for_account("acc_new")
+    auth_file = tmp_path / "auth.json"
+    write_auth_file(auth_file, access_token=stale_token, refresh_token="refresh-old", expires=0)
+
+    async def fake_refresh_openai_codex_token(*args, **kwargs):
+        return {
+            "access": fresh_token,
+            "refresh": "refresh-new",
+            "expires": 9_999_999_999_999,
+        }
+
+    monkeypatch.setattr(
+        "openai_codex_oauth_example.openai_codex_auth.refresh_openai_codex_token",
+        fake_refresh_openai_codex_token,
+    )
+
+    store = PiAuthStore(str(auth_file))
+    cred = await refresh_codex_credential(store)
+
+    assert cred.access == fresh_token
+    assert cred.refresh == "refresh-new"
+    assert cred.account_id == "acc_new"
+
+    disk = json.loads(auth_file.read_text(encoding="utf-8"))
+    assert disk["openai-codex"]["access"] == fresh_token
+    assert disk["openai-codex"]["refresh"] == "refresh-new"
+    assert disk["openai-codex"]["accountId"] == "acc_new"
+    assert disk["other-provider"]["key"] == "abc"
+
+
+@pytest.mark.asyncio
+async def test_refresh_codex_credential_failure_does_not_mutate_auth_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    stale_token = token_for_account("acc_old")
+    auth_file = tmp_path / "auth.json"
+    write_auth_file(auth_file, access_token=stale_token, refresh_token="refresh-old", expires=0)
+    before = auth_file.read_text(encoding="utf-8")
+
+    async def fake_refresh_openai_codex_token(*args, **kwargs):
+        raise CodexAuthError("refresh failed")
+
+    monkeypatch.setattr(
+        "openai_codex_oauth_example.openai_codex_auth.refresh_openai_codex_token",
+        fake_refresh_openai_codex_token,
+    )
+
+    store = PiAuthStore(str(auth_file))
+    with pytest.raises(CodexAuthError):
+        await refresh_codex_credential(store)
+
+    after = auth_file.read_text(encoding="utf-8")
+    assert after == before
