@@ -2,8 +2,8 @@
 
 This example demonstrates an **example-only** `FlatAgent` subclass (`CodexFlatAgent`) that uses ChatGPT Plus/Pro Codex OAuth credentials from:
 
-- `~/.pi/agent/auth.json` (default)
-- or `FLATAGENTS_CODEX_AUTH_FILE`
+- `./config/auth.json` (default for this example)
+- or `--auth-file` / `FLATAGENTS_CODEX_AUTH_FILE`
 
 No FlatAgents core code is modified.
 
@@ -14,7 +14,7 @@ No FlatAgents core code is modified.
 - Required Codex headers (`Authorization`, `chatgpt-account-id`, `OpenAI-Beta`, `originator`)
 - SSE transport only (no websocket in this slice)
 - Retry/backoff on `429/5xx`
-- Stale-token behavior: request once with current token, then refresh-and-retry on `401/403`
+- Refresh behavior (pi parity): refresh before request when token is expired; still refresh-and-retry on `401/403` fallback
 - Response adaptation to a LiteLLM-like shape consumed by FlatAgent
 
 ## Config
@@ -27,13 +27,25 @@ No FlatAgents core code is modified.
 - `backend: codex`
 - `codex_*` runtime options
 
-## Prerequisite
+## Login (new in this slice)
 
-Authenticate in pi first:
+You can log in directly from this example now:
 
 ```bash
-pi
-# then run /login and choose openai-codex
+cd sdk/examples/openai_codex_oauth/python
+./run.sh -- --login
+```
+
+This opens the OpenAI OAuth flow in your browser (or you can paste the redirect URL/code manually).
+No email is requested by this CLI; authentication is handled by the OpenAI web flow.
+
+Credentials are saved to `./config/auth.json` by default (or `--auth-file` / `FLATAGENTS_CODEX_AUTH_FILE`).
+
+To bootstrap from your existing pi credentials:
+
+```bash
+cp ~/.pi/agent/auth.json ./config/auth.json
+chmod 600 ./config/auth.json
 ```
 
 ## Run

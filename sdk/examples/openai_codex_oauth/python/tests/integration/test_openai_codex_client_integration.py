@@ -12,9 +12,14 @@ from openai_codex_oauth_example.openai_codex_types import CodexOAuthCredential
 from conftest import token_for_account, write_auth_file
 
 
-def _build_client(tmp_path: Path, transport: httpx.AsyncBaseTransport) -> CodexClient:
+def _build_client(
+    tmp_path: Path,
+    transport: httpx.AsyncBaseTransport,
+    *,
+    expires: int = 9_999_999_999_999,
+) -> CodexClient:
     auth_file = tmp_path / "auth.json"
-    write_auth_file(auth_file, access_token=token_for_account("acc_start"), expires=0)
+    write_auth_file(auth_file, access_token=token_for_account("acc_start"), expires=expires)
     return CodexClient(
         {
             "provider": "openai-codex",
@@ -122,7 +127,7 @@ async def test_refresh_success_after_initial_401(monkeypatch: pytest.MonkeyPatch
 
 
 @pytest.mark.asyncio
-async def test_refresh_success_via_auth_module_persists_new_tokens(
+async def test_refresh_before_request_when_expired_persists_new_tokens(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -135,8 +140,6 @@ async def test_refresh_success_via_auth_module_persists_new_tokens(
 
     async def handler(request: httpx.Request) -> httpx.Response:
         auth_headers.append(request.headers.get("Authorization"))
-        if len(auth_headers) == 1:
-            return httpx.Response(401, text=json.dumps({"error": {"message": "expired"}}))
         return httpx.Response(200, text=_sse_ok("refreshed"), headers={"content-type": "text/event-stream"})
 
     async def fake_refresh_openai_codex_token(*args, **kwargs):
@@ -170,8 +173,8 @@ async def test_refresh_success_via_auth_module_persists_new_tokens(
     )
 
     assert result.content == "refreshed"
-    assert auth_headers[0] == f"Bearer {stale_token}"
-    assert auth_headers[1] == f"Bearer {fresh_token}"
+    assert len(auth_headers) == 1
+    assert auth_headers[0] == f"Bearer {fresh_token}"
 
     disk = json.loads(auth_file.read_text(encoding="utf-8"))
     assert disk["openai-codex"]["access"] == fresh_token

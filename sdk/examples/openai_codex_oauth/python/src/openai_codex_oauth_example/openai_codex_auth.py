@@ -61,7 +61,9 @@ def is_expired(expires_ms: int, skew_ms: int = 60_000) -> bool:
 class PiAuthStore:
     def __init__(self, auth_file: Optional[str] = None):
         self.auth_file = resolve_auth_file(auth_file)
-        self.lock_file = f"{self.auth_file}.lock"
+        # Use a FlatAgents-specific lock filename to avoid colliding with pi's
+        # proper-lockfile path (<auth>.lock), which expects a directory lock.
+        self.lock_file = f"{self.auth_file}.flatagents.lock"
 
     def _ensure_paths(self) -> None:
         auth_path = Path(self.auth_file)
