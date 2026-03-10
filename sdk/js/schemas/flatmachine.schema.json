@@ -245,11 +245,55 @@
         },
         "base_url": {
           "type": "string"
+        },
+        "backend": {
+          "type": "string",
+          "enum": [
+            "litellm",
+            "aisuite",
+            "codex"
+          ]
+        },
+        "api": {
+          "type": "string"
+        },
+        "oauth": {
+          "$ref": "#/definitions/OAuthConfig"
         }
       },
       "required": [
         "name"
       ],
+      "additionalProperties": false
+    },
+    "OAuthConfig": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "auth_file": {
+          "type": "string"
+        },
+        "refresh": {
+          "type": "boolean"
+        },
+        "originator": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "type": "number"
+        },
+        "max_retries": {
+          "type": "number"
+        },
+        "token_url": {
+          "type": "string"
+        },
+        "client_id": {
+          "type": "string"
+        }
+      },
       "additionalProperties": false
     },
     "ProfiledModelConfig": {
@@ -284,6 +328,20 @@
         },
         "base_url": {
           "type": "string"
+        },
+        "backend": {
+          "type": "string",
+          "enum": [
+            "litellm",
+            "aisuite",
+            "codex"
+          ]
+        },
+        "api": {
+          "type": "string"
+        },
+        "oauth": {
+          "$ref": "#/definitions/OAuthConfig"
         },
         "profile": {
           "type": "string"

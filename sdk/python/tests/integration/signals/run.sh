@@ -43,9 +43,9 @@ fi
 echo "📦 Installing dependencies..."
 if [ "$LOCAL_INSTALL" = true ]; then
     echo "  - Installing flatmachines from local source..."
-    uv pip install --python "$VENV_PATH/bin/python" -e "$SCRIPT_DIR/../../../../flatmachines[flatagents]"
+    uv pip install --python "$VENV_PATH/bin/python" -e "$SCRIPT_DIR/../../../flatmachines[flatagents]"
     echo "  - Installing flatagents from local source..."
-    uv pip install --python "$VENV_PATH/bin/python" -e "$SCRIPT_DIR/../../../../flatagents[litellm]"
+    uv pip install --python "$VENV_PATH/bin/python" -e "$SCRIPT_DIR/../../../flatagents[litellm]"
 else
     echo "  - Installing flatmachines from PyPI..."
     uv pip install --python "$VENV_PATH/bin/python" "flatmachines[flatagents]"

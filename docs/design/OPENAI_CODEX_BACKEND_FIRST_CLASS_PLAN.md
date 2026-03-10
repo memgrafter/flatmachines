@@ -25,6 +25,7 @@ This is the fastest path to productionizing ChatGPT Plus/Pro OAuth-backed Codex 
 2. WebSocket transport.
 3. Multi-provider OAuth abstraction beyond what is needed for `openai-codex`.
 4. Broad schema redesign.
+5. Any changes to the existing example implementation.
 
 ---
 
@@ -34,6 +35,7 @@ This is the fastest path to productionizing ChatGPT Plus/Pro OAuth-backed Codex 
   - `openai_codex_client.py`
   - `openai_codex_auth.py`
   - `openai_codex_login.py`
+  - `openai_codex_types.py`
 - Behavior is validated with unit + integration tests.
 - `run.sh -- --login` supports OAuth login flow and writes credentials.
 
@@ -61,25 +63,29 @@ Add native codex backend path in `sdk/python/flatagents/flatagents/flatagent.py`
 ---
 
 ## 2) Core Codex client module
-Create a core provider module, e.g.:
+Create core provider modules:
 - `flatagents/providers/openai_codex_client.py`
+- `flatagents/providers/openai_codex_types.py`
 
 Responsibilities:
 - Build request body with Codex parity fields:
   - `model`, `store:false`, `stream:true`, `instructions`, `input`
-  - `text.verbosity`, `include:["reasoning.encrypted_content"]`
+  - `text.verbosity` (default `"medium"`), `include:["reasoning.encrypted_content"]`
   - `prompt_cache_key` from `session_id`
   - optional `tools`, `reasoning`, `service_tier`, `temperature`
+  - `tool_choice:"auto"` and `parallel_tool_calls:true` (fixed defaults in Option A)
 - Build headers:
   - `Authorization: Bearer ...`
   - `chatgpt-account-id`
   - `OpenAI-Beta: responses=experimental`
   - `originator` (default `pi`)
+  - `User-Agent`
   - `accept: text/event-stream`, `content-type: application/json`
   - optional `session_id`
 - Retry/backoff:
   - retry on `429,500,502,503,504`
   - exponential backoff, default max retries 3
+  - **no jitter in Option A** (simple parity-first behavior)
 - Parse SSE stream and map to FlatAgent-compatible response object
   (`choices[0].message.content`, `tool_calls`, `usage`, `finish_reason`).
 
@@ -91,10 +97,12 @@ Create:
 
 Responsibilities:
 - Read/write auth credentials for provider `openai-codex`.
-- Resolve auth path from:
-  1. model config (`codex_auth_file` / auth field)
-  2. env (`FLATAGENTS_CODEX_AUTH_FILE`)
-  3. default (`~/.pi/agent/auth.json`) for compatibility
+- Resolve auth path with explicit precedence:
+  1. `model.oauth.auth_file` (new schema)
+  2. `model.codex_auth_file` (legacy)
+  3. `model.auth.auth_file` (legacy)
+  4. env (`FLATAGENTS_CODEX_AUTH_FILE`)
+  5. default (`~/.pi/agent/auth.json`) for compatibility
 - Extract account id from JWT claim path:
   - `payload["https://api.openai.com/auth"].chatgpt_account_id`
 - Refresh flow:
@@ -135,22 +143,44 @@ This plan must explicitly update canonical specs, because schema validation is d
 
 Derived assets are generated from these files (`scripts/generate-spec-assets.ts`) and copied into SDK assets.
 
-### Required additive fields (both profile + inline model config)
-For `ModelProfileConfig` in `profiles.d.ts` and `ModelConfig` in `flatagent.d.ts`:
-- `backend?: "litellm" | "aisuite" | "codex"`
-- `api?: string` (or narrow union including `"openai-codex-responses"`)
-- `auth?: {
-    type: "oauth" | "api_key";
-    provider?: string;
-    auth_file?: string;
-  }`
-- codex runtime hints used by client (optional):
-  - `codex_auth_file?: string`
-  - `codex_originator?: string`
-  - `codex_transport?: "sse"`
-  - `codex_refresh?: boolean`
-  - `codex_timeout_seconds?: number`
-  - `codex_max_retries?: number`
+### Schema direction (backend-driven, no required `api` switch)
+Routing is determined by `backend: "codex"`. `api` is not required for selection.
+
+#### Explicit additive schema changes
+For both `ModelProfileConfig` (`profiles.d.ts`) and `ModelConfig` (`flatagent.d.ts`):
+- add backend option:
+  - `backend?: "litellm" | "aisuite" | "codex"`
+- add optional oauth config block:
+  - `oauth?: OAuthConfig`
+
+Add new shared shape in both specs (or equivalent inline type):
+
+```ts
+interface OAuthConfig {
+  provider?: "openai-codex" | string;   // default openai-codex for backend=codex
+  auth_file?: string;                     // default resolver if omitted
+  refresh?: boolean;                      // default true
+  originator?: string;                    // default "pi"
+  timeout_seconds?: number;               // request timeout
+  max_retries?: number;                   // retry budget
+  token_url?: string;                     // default OpenAI token endpoint
+  client_id?: string;                     // default Codex OAuth client id
+}
+```
+
+Notes:
+- `api` may remain optional in schema for compatibility, but runtime does not require it for codex routing.
+- `oauth` being optional is acceptable; invalid/insufficient config fails at runtime with actionable errors.
+
+### Runtime mapping changes required for new schema
+`flatagent.py` / Codex client should read in this order:
+1. `model.oauth.*` (new first-class path)
+2. fallback to legacy keys for one migration cycle:
+   - `codex_*`
+   - `auth.*`
+
+For auth file specifically, enforce:
+`oauth.auth_file` → `codex_auth_file` → `auth.auth_file` → env → default.
 
 ### Versioning + generation requirements
 Because specs are lockstep-versioned in this repo:
@@ -167,10 +197,43 @@ Without this, `profiles.schema.json`/`flatagent.schema.json` will reject Codex f
 
 ---
 
+## 6) Explicit code changes (core)
+
+### FlatAgents runtime
+- `sdk/python/flatagents/flatagents/flatagent.py`
+  - allow `backend == "codex"` in `_init_backend()`
+  - route `_call_llm()` to codex client for this backend
+  - keep litellm/aisuite paths unchanged
+
+### New core provider modules
+- `sdk/python/flatagents/flatagents/providers/openai_codex_client.py`
+- `sdk/python/flatagents/flatagents/providers/openai_codex_auth.py`
+- `sdk/python/flatagents/flatagents/providers/openai_codex_login.py`
+- `sdk/python/flatagents/flatagents/providers/openai_codex_types.py`
+
+### Spec files (source of truth)
+- `profiles.d.ts`
+- `flatagent.d.ts`
+
+### Generated assets (derived)
+- `assets/*` generated schema + d.ts assets
+- `sdk/python/flatagents/flatagents/assets/*`
+- `sdk/js/schemas/*`
+
+### Tests/docs
+- Add codex backend tests under SDK Python tests
+- Update `README.md` + `sdk/python/flatagents/MACHINES.md` snippets for `backend: codex` + `oauth`
+
+### Non-goal for this Option A doc
+- **No required changes to the existing example implementation** to adopt this plan.
+- Example code/config/tests remain untouched in this phase.
+
+---
+
 ## Migration Path (from current example)
-1. Move/reuse logic from example modules into `flatagents/providers/*`.
-2. Keep example as thin wrapper that imports core modules.
-3. Add deprecation note in example modules after one release cycle.
+1. Copy/reuse logic from example modules into `flatagents/providers/*`.
+2. Keep the existing example unchanged and fully standalone.
+3. Optionally evaluate wrapper/deprecation strategy in a later, separate proposal.
 
 ---
 
@@ -186,7 +249,8 @@ Without this, `profiles.schema.json`/`flatagent.schema.json` will reject Codex f
 ## Integration (mock HTTP/SSE)
 - happy path stream
 - `429` retry then success
-- stale token `401` -> refresh -> success
+- expired token -> pre-request refresh -> success
+- `401/403` fallback refresh -> success
 - refresh failure path
 - terminal errors (usage/rate/auth friendly messaging)
 
@@ -200,7 +264,7 @@ Without this, `profiles.schema.json`/`flatagent.schema.json` will reject Codex f
 1. **Schema friction** (strict profile schema)
    - Mitigation: additive schema update, no breaking fields.
 2. **Auth path confusion** (pi file vs project-local)
-   - Mitigation: clear precedence and docs; recommend explicit `codex_auth_file`.
+   - Mitigation: explicit precedence rules and docs; recommend explicit `oauth.auth_file`.
 3. **Concurrency during refresh**
    - Mitigation: lock + atomic write + re-read-before-write pattern.
 4. **Transport drift from pi**
@@ -229,3 +293,4 @@ Without this, `profiles.schema.json`/`flatagent.schema.json` will reject Codex f
 3. SSE responses map through existing FlatAgent result path (content, usage, tool calls).
 4. Login helper can populate credentials for `openai-codex`.
 5. Existing backends remain behaviorally unchanged.
+6. Existing example remains unchanged and continues to run independently.

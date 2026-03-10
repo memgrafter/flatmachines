@@ -46,6 +46,8 @@
  * presence_penalty  - Presence penalty (-2.0 to 2.0)
  * seed              - Random seed for reproducibility
  * base_url          - Custom API base URL (for local models/proxies)
+ * backend           - Runtime backend override (litellm, aisuite, codex)
+ * oauth             - OAuth settings (used by codex backend)
  *
  * MODEL PROFILES:
  * ---------------
@@ -149,7 +151,7 @@
  * The profile field specifies which profile name to use as base.
  */
 
-export const SPEC_VERSION = "2.2.2";
+export const SPEC_VERSION = "2.3.0";
 
 export interface AgentWrapper {
   spec: "flatagent";
@@ -198,6 +200,17 @@ export interface ToolFilter {
   deny?: string[];
 }
 
+export interface OAuthConfig {
+  provider?: "openai-codex" | string;
+  auth_file?: string;
+  refresh?: boolean;
+  originator?: string;
+  timeout_seconds?: number;
+  max_retries?: number;
+  token_url?: string;
+  client_id?: string;
+}
+
 export interface ModelConfig {
   name: string;
   provider?: string;
@@ -209,6 +222,9 @@ export interface ModelConfig {
   presence_penalty?: number;
   seed?: number;
   base_url?: string;
+  backend?: "litellm" | "aisuite" | "codex";
+  api?: string;
+  oauth?: OAuthConfig;
 }
 
 export interface ProfiledModelConfig extends Partial<ModelConfig> {
