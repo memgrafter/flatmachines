@@ -1,3 +1,5 @@
 config/auth.json
+config/auth.json.lock
+config/auth.json.flatagents.lock
 .venv/
 .pytest_cache/
