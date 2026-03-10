@@ -1,0 +1,26 @@
+spec: flatprofiles
+spec_version: "2.2.2"
+
+data:
+  model_profiles:
+    codex-subscription:
+      provider: openai-codex
+      api: openai-codex-responses
+      name: gpt-5.4
+      backend: codex
+      base_url: https://chatgpt.com/backend-api
+
+      # Schema-extension fields consumed by this standalone example client.
+      auth:
+        type: oauth
+        provider: openai-codex
+        auth_file: ~/.pi/agent/auth.json
+
+      codex_auth_file: ~/.pi/agent/auth.json
+      codex_originator: flatagents
+      codex_transport: sse
+      codex_refresh: true
+      codex_timeout_seconds: 120
+      codex_max_retries: 3
+
+  default: codex-subscription
