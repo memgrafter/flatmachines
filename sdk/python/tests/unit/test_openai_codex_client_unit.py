@@ -67,3 +67,20 @@ def test_parse_error_response_maps_usage_limit(tmp_path: Path) -> None:
         json.dumps({"error": {"code": "usage_limit_reached", "message": "quota hit", "plan_type": "PLUS"}}),
     )
     assert "usage limit" in message.lower()
+
+
+def test_parse_sse_normalizes_long_function_call_id(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    long_call_id = "call_" + ("x" * 80)
+    payload = "\n\n".join(
+        [
+            f"data: {json.dumps({'type': 'response.function_call_arguments.delta', 'call_id': long_call_id, 'delta': '{\"k\":\"v\"}'})}",
+            f"data: {json.dumps({'type': 'response.output_item.done', 'item': {'type': 'function_call', 'call_id': long_call_id, 'id': 'fc_item', 'name': 'read', 'arguments': '{\"path\":\"a\"}'}})}",
+            f"data: {json.dumps({'type': 'response.completed', 'response': {'status': 'completed', 'usage': {'input_tokens': 1, 'output_tokens': 1, 'total_tokens': 2}}})}",
+            "data: [DONE]",
+        ]
+    ) + "\n\n"
+
+    result = client._parse_sse_to_result(payload)  # noqa: SLF001
+    assert result.tool_calls
+    assert len(result.tool_calls[0].id) <= 64

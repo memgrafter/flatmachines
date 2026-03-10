@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import platform
 from dataclasses import dataclass
@@ -213,7 +214,7 @@ class CodexClient:
             body["temperature"] = params["temperature"]
 
         if params.get("tools"):
-            body["tools"] = params["tools"]
+            body["tools"] = self._normalize_tools(params["tools"])
 
         reasoning = self._resolve_reasoning(params)
         if reasoning:
@@ -345,16 +346,16 @@ class CodexClient:
                                 text_parts.append(text_value)
 
                 if item_type == "function_call":
-                    call_id = str(item.get("call_id") or "call")
-                    item_id = str(item.get("id") or "fc")
+                    raw_call_id = str(item.get("call_id") or item.get("id") or "call")
+                    call_id = self._fit_call_id(raw_call_id)
                     arguments_json = item.get("arguments")
                     if not isinstance(arguments_json, str):
-                        arguments_json = tool_args_by_call.get(call_id, "{}")
+                        arguments_json = tool_args_by_call.get(raw_call_id, "{}")
                     if not arguments_json:
                         arguments_json = "{}"
                     result.tool_calls.append(
                         CodexToolCall(
-                            id=f"{call_id}|{item_id}",
+                            id=call_id,
                             name=str(item.get("name") or "unknown_tool"),
                             arguments_json=arguments_json,
                         )
@@ -417,7 +418,7 @@ class CodexClient:
                         function = tool_call.get("function") if isinstance(tool_call, dict) else None
                         if not isinstance(function, dict):
                             continue
-                        call_id = str(tool_call.get("id") or "call")
+                        call_id = self._fit_call_id(str(tool_call.get("id") or "call"))
                         input_items.append(
                             {
                                 "type": "function_call",
@@ -429,7 +430,7 @@ class CodexClient:
                 continue
 
             if role == "tool":
-                call_id = str(message.get("tool_call_id") or "call")
+                call_id = self._fit_call_id(str(message.get("tool_call_id") or "call"))
                 input_items.append(
                     {
                         "type": "function_call_output",
@@ -455,6 +456,41 @@ class CodexClient:
                     parts.append(item["text"])
             return "\n".join(parts)
         return str(content)
+
+    def _fit_call_id(self, call_id: str) -> str:
+        normalized = str(call_id or "call")
+        if len(normalized) <= 64:
+            return normalized
+        digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+        return f"{normalized[:47]}_{digest}"
+
+    def _normalize_tools(self, tools: Any) -> List[Dict[str, Any]]:
+        normalized: List[Dict[str, Any]] = []
+        if not isinstance(tools, list):
+            return normalized
+
+        for tool in tools:
+            if not isinstance(tool, dict):
+                continue
+            if tool.get("type") != "function":
+                normalized.append(tool)
+                continue
+
+            fn = tool.get("function") if isinstance(tool.get("function"), dict) else None
+            if not fn:
+                normalized.append(tool)
+                continue
+
+            normalized.append(
+                {
+                    "type": "function",
+                    "name": str(fn.get("name") or ""),
+                    "description": str(fn.get("description") or ""),
+                    "parameters": fn.get("parameters") or {"type": "object", "properties": {}},
+                }
+            )
+
+        return normalized
 
     def _resolve_reasoning(self, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         reasoning_obj = params.get("reasoning") if isinstance(params.get("reasoning"), dict) else {}
