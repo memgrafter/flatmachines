@@ -11,6 +11,7 @@ import httpx
 from .openai_codex_auth import (
     CodexAuthError,
     PiAuthStore,
+    is_expired,
     load_codex_credential,
     refresh_codex_credential,
 )
@@ -64,6 +65,25 @@ class CodexClient:
 
     async def call(self, params: Dict[str, Any]) -> CodexResult:
         credential = load_codex_credential(self._auth_store, self.config.provider)
+
+        # pi-mono parity: refresh before request when credential has expired.
+        if self.config.refresh_enabled and is_expired(credential.expires, skew_ms=0):
+            try:
+                credential = await refresh_codex_credential(
+                    self._auth_store,
+                    self.config.provider,
+                    timeout_seconds=min(self.config.timeout_seconds, 30.0),
+                    token_url=self.config.token_url,
+                    client_id=self.config.client_id,
+                )
+            except Exception:
+                # If refresh fails, re-read once in case another process already refreshed.
+                latest = load_codex_credential(self._auth_store, self.config.provider)
+                if not is_expired(latest.expires, skew_ms=0):
+                    credential = latest
+                else:
+                    raise
+
         session_id = self._resolve_session_id(params)
         body = self._build_request_body(params, session_id=session_id)
 

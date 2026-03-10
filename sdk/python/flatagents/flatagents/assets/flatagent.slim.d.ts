@@ -1,4 +1,4 @@
-export const SPEC_VERSION = "2.2.2";
+export const SPEC_VERSION = "2.3.0";
 export interface AgentWrapper {
     spec: "flatagent";
     spec_version: string;
@@ -40,6 +40,16 @@ export interface ToolFilter {
     allow?: string[];
     deny?: string[];
 }
+export interface OAuthConfig {
+    provider?: "openai-codex" | string;
+    auth_file?: string;
+    refresh?: boolean;
+    originator?: string;
+    timeout_seconds?: number;
+    max_retries?: number;
+    token_url?: string;
+    client_id?: string;
+}
 export interface ModelConfig {
     name: string;
     provider?: string;
@@ -51,6 +61,9 @@ export interface ModelConfig {
     presence_penalty?: number;
     seed?: number;
     base_url?: string;
+    backend?: "litellm" | "aisuite" | "codex";
+    api?: string;
+    oauth?: OAuthConfig;
 }
 export interface ProfiledModelConfig extends Partial<ModelConfig> {
     profile: string;

@@ -18,6 +18,9 @@ Example:
 from .cerebras import CerebrasRateLimits, extract_cerebras_rate_limits
 from .anthropic import AnthropicRateLimits, extract_anthropic_rate_limits
 from .openai import OpenAIRateLimits, extract_openai_rate_limits
+from .openai_codex_auth import CodexAuthError
+from .openai_codex_client import CodexClient, CodexClientError, CodexHTTPError
+from .openai_codex_types import CodexOAuthCredential, CodexResult, CodexToolCall, CodexUsage
 
 __all__ = [
     # Cerebras
@@ -29,4 +32,13 @@ __all__ = [
     # OpenAI
     "OpenAIRateLimits",
     "extract_openai_rate_limits",
+    # OpenAI Codex
+    "CodexAuthError",
+    "CodexClient",
+    "CodexClientError",
+    "CodexHTTPError",
+    "CodexOAuthCredential",
+    "CodexResult",
+    "CodexToolCall",
+    "CodexUsage",
 ]

@@ -121,7 +121,7 @@ async def test_codex_client_refreshes_after_auth_error(monkeypatch: pytest.Monke
     stale_token = _token_for_account("acc_old")
     fresh_token = _token_for_account("acc_new")
     auth_file = tmp_path / "auth.json"
-    _write_auth_file(auth_file, stale_token, expires=0)
+    _write_auth_file(auth_file, stale_token, expires=9_999_999_999_999)
 
     auth_headers = []
 

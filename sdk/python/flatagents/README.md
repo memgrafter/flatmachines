@@ -77,12 +77,30 @@ Resolution order: default → named profile → inline overrides → override.
 Built-in backends:
 - **LiteLLMBackend** (default, `litellm`)
 - **AISuiteBackend** (`aisuite`)
+- **Codex OAuth backend** (`codex`)
 
 Selection order:
 1. `backend` argument to `FlatAgent(...)`
 2. `data.model.backend`
 3. `FLATAGENTS_BACKEND` env var ("litellm" or "aisuite")
 4. Auto-detect installed backend (prefers litellm)
+
+Codex is explicit only (not auto-detected):
+
+```yaml
+model:
+  provider: openai-codex
+  name: gpt-5
+  backend: codex
+  oauth:
+    auth_file: ~/.pi/agent/auth.json
+```
+
+Login helper:
+
+```bash
+python -m flatagents.providers.openai_codex_login --auth-file ~/.pi/agent/auth.json
+```
 
 ## MCP Tools
 

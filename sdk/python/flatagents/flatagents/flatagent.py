@@ -10,6 +10,7 @@ A single-call agent executes one prompt/response cycle with optional:
 import asyncio
 import json
 import os
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import __version__
@@ -40,6 +41,8 @@ from .baseagent import (
     extract_status_code,
     is_retryable_error,
 )
+from .providers.openai_codex_client import CodexClient
+from .providers.openai_codex_types import CodexResult
 
 logger = get_logger(__name__)
 
@@ -146,10 +149,9 @@ class FlatAgent:
         self._validate_spec()
         self._parse_agent_config()
 
-        # Determine backend: explicit param > config > auto-detect
-        # model can be a string (profile name) or dict (inline config)
-        model_config = self.config.get('data', {}).get('model', {})
-        config_backend = model_config.get('backend') if isinstance(model_config, dict) else None
+        # Determine backend: explicit param > resolved model config > auto-detect
+        model_config = self._model_config_raw if isinstance(self._model_config_raw, dict) else {}
+        config_backend = model_config.get('backend')
         self._backend = backend or config_backend or self._auto_detect_backend()
         self._init_backend()
 
@@ -197,8 +199,10 @@ class FlatAgent:
         elif self._backend == "litellm":
             if litellm is None:
                 raise ImportError("litellm backend selected but not installed. Install with: pip install litellm")
+        elif self._backend == "codex":
+            self._codex_client = CodexClient(self._model_config_raw, config_dir=self._config_dir)
         else:
-            raise ValueError(f"Unknown backend: {self._backend}. Use 'aisuite' or 'litellm'.")
+            raise ValueError(f"Unknown backend: {self._backend}. Use 'aisuite', 'litellm', or 'codex'.")
 
     async def _call_llm(self, params: Dict[str, Any]) -> Any:
         """Call the LLM using the selected backend."""
@@ -206,6 +210,12 @@ class FlatAgent:
 
         if self._backend == "aisuite":
             return await self._call_aisuite(params)
+
+        if self._backend == "codex":
+            codex_result = await self._codex_client.call(params)
+            if isinstance(codex_result, CodexResult):
+                return self._adapt_codex_result(codex_result)
+            return codex_result
 
         if params.get("stream"):
             stream = await litellm.acompletion(**params)
@@ -272,6 +282,54 @@ class FlatAgent:
         )
 
         return response
+
+    def _adapt_codex_result(self, result: CodexResult) -> Any:
+        prompt_tokens_details = SimpleNamespace(cached_tokens=result.usage.cached_tokens)
+        usage = SimpleNamespace(
+            prompt_tokens=result.usage.input_tokens,
+            completion_tokens=result.usage.output_tokens,
+            total_tokens=result.usage.total_tokens,
+            prompt_tokens_details=prompt_tokens_details,
+        )
+
+        tool_calls = []
+        for tool_call in result.tool_calls:
+            tool_calls.append(
+                SimpleNamespace(
+                    id=tool_call.id,
+                    function=SimpleNamespace(
+                        name=tool_call.name,
+                        arguments=self._normalize_codex_tool_arguments(tool_call.arguments_json),
+                    ),
+                )
+            )
+
+        message = SimpleNamespace(
+            content=result.content,
+            tool_calls=tool_calls or None,
+        )
+        choice = SimpleNamespace(
+            message=message,
+            finish_reason=result.finish_reason,
+        )
+
+        return SimpleNamespace(
+            choices=[choice],
+            usage=usage,
+            _raw=result.raw_events,
+            _response_headers=result.response_headers or {},
+            _response_status_code=result.response_status_code,
+            _request_meta=result.request_meta or {},
+        )
+
+    def _normalize_codex_tool_arguments(self, arguments_json: str) -> str:
+        if not arguments_json:
+            return "{}"
+        try:
+            parsed = json.loads(arguments_json)
+            return json.dumps(parsed)
+        except json.JSONDecodeError:
+            return "{}"
 
     def _load_config(
         self,
@@ -729,7 +787,10 @@ class FlatAgent:
         if self.seed is not None:
             params["seed"] = self.seed
         if self.base_url is not None:
-            params["api_base"] = self.base_url  # litellm uses api_base
+            if self._backend == "codex":
+                params["base_url"] = self.base_url
+            else:
+                params["api_base"] = self.base_url  # litellm uses api_base
         if self.stream:
             params["stream"] = True
             if self.stream_options is not None:
@@ -742,6 +803,14 @@ class FlatAgent:
             'frequency_penalty', 'presence_penalty', 'seed', 'base_url', 'stream',
             'stream_options', 'profile', 'backend'
         }
+        if self._backend == "codex":
+            _KNOWN_MODEL_FIELDS.update({
+                'api', 'oauth', 'auth', 'headers', 'service_tier',
+                'codex_auth_file', 'codex_originator', 'codex_transport', 'codex_refresh',
+                'codex_timeout_seconds', 'codex_max_retries', 'codex_token_url',
+                'codex_client_id', 'codex_session_id', 'codex_reasoning_effort',
+                'codex_reasoning_summary', 'codex_text_verbosity'
+            })
         for key, value in self._model_config_raw.items():
             if key not in _KNOWN_MODEL_FIELDS and key not in params and value is not None:
                 params[key] = value

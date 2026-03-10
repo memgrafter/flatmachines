@@ -56,6 +56,8 @@ fi
 
 uv pip install --python "$VENV_PATH/bin/python" -e "$SCRIPT_DIR"
 
+export FLATAGENTS_CODEX_AUTH_FILE="$SCRIPT_DIR/config/auth.json"
+
 if [[ ${#PASSTHROUGH_ARGS[@]} -gt 0 ]]; then
   "$VENV_PATH/bin/python" -m openai_codex_oauth_example.main "${PASSTHROUGH_ARGS[@]}"
 else

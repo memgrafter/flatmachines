@@ -1,4 +1,4 @@
-__version__ = "2.2.2"
+__version__ = "2.3.0"
 
 from .baseagent import (
     # Base agent (abstract, for multi-step agents)
@@ -71,6 +71,14 @@ from .providers import (
     extract_anthropic_rate_limits,
     OpenAIRateLimits,
     extract_openai_rate_limits,
+    CodexAuthError,
+    CodexClient,
+    CodexClientError,
+    CodexHTTPError,
+    CodexOAuthCredential,
+    CodexResult,
+    CodexToolCall,
+    CodexUsage,
 )
 
 __all__ = [
@@ -113,6 +121,14 @@ __all__ = [
     "extract_anthropic_rate_limits",
     "OpenAIRateLimits",
     "extract_openai_rate_limits",
+    "CodexAuthError",
+    "CodexClient",
+    "CodexClientError",
+    "CodexHTTPError",
+    "CodexOAuthCredential",
+    "CodexResult",
+    "CodexToolCall",
+    "CodexUsage",
     # Validation
     "validate_flatagent_config",
     "get_flatagent_schema",
