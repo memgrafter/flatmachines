@@ -41,7 +41,7 @@ export interface ToolFilter {
     deny?: string[];
 }
 export interface OAuthConfig {
-    provider?: "openai-codex" | string;
+    provider?: "openai-codex" | "anthropic" | string;
     auth_file?: string;
     refresh?: boolean;
     originator?: string;
@@ -61,7 +61,7 @@ export interface ModelConfig {
     presence_penalty?: number;
     seed?: number;
     base_url?: string;
-    backend?: "litellm" | "aisuite" | "codex";
+    backend?: "litellm" | "aisuite" | "codex" | "claude_code";
     api?: string;
     oauth?: OAuthConfig;
 }

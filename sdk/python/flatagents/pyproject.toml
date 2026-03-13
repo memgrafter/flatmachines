@@ -45,6 +45,10 @@ all = [
     "opentelemetry-exporter-otlp>=1.20.0",
 ]
 
+[project.scripts]
+codex-login = "flatagents.providers.openai_codex_login:cli"
+claude-code-login = "flatagents.providers.anthropic_claude_code_login:cli"
+
 [project.urls]
 Homepage = "https://github.com/memgrafter/flatagents"
 Repository = "https://github.com/memgrafter/flatagents"

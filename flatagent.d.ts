@@ -46,8 +46,8 @@
  * presence_penalty  - Presence penalty (-2.0 to 2.0)
  * seed              - Random seed for reproducibility
  * base_url          - Custom API base URL (for local models/proxies)
- * backend           - Runtime backend override (litellm, aisuite, codex)
- * oauth             - OAuth settings (used by codex backend)
+ * backend           - Runtime backend override (litellm, aisuite, codex, claude_code)
+ * oauth             - OAuth settings (used by codex and claude_code backends)
  *
  * MODEL PROFILES:
  * ---------------
@@ -201,7 +201,7 @@ export interface ToolFilter {
 }
 
 export interface OAuthConfig {
-  provider?: "openai-codex" | string;
+  provider?: "openai-codex" | "anthropic" | string;
   auth_file?: string;
   refresh?: boolean;
   originator?: string;
@@ -222,7 +222,7 @@ export interface ModelConfig {
   presence_penalty?: number;
   seed?: number;
   base_url?: string;
-  backend?: "litellm" | "aisuite" | "codex";
+  backend?: "litellm" | "aisuite" | "codex" | "claude_code";
   api?: string;
   oauth?: OAuthConfig;
 }

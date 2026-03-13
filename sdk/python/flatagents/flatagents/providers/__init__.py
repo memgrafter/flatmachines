@@ -21,6 +21,9 @@ from .openai import OpenAIRateLimits, extract_openai_rate_limits
 from .openai_codex_auth import CodexAuthError
 from .openai_codex_client import CodexClient, CodexClientError, CodexHTTPError
 from .openai_codex_types import CodexOAuthCredential, CodexResult, CodexToolCall, CodexUsage
+from .anthropic_claude_code_auth import ClaudeCodeAuthError
+from .anthropic_claude_code_client import ClaudeCodeClient, ClaudeCodeClientError, ClaudeCodeHTTPError
+from .anthropic_claude_code_types import ClaudeCodeOAuthCredential, ClaudeCodeResult, ClaudeCodeToolCall, ClaudeCodeUsage
 
 __all__ = [
     # Cerebras
@@ -41,4 +44,13 @@ __all__ = [
     "CodexResult",
     "CodexToolCall",
     "CodexUsage",
+    # Anthropic Claude Code
+    "ClaudeCodeAuthError",
+    "ClaudeCodeClient",
+    "ClaudeCodeClientError",
+    "ClaudeCodeHTTPError",
+    "ClaudeCodeOAuthCredential",
+    "ClaudeCodeResult",
+    "ClaudeCodeToolCall",
+    "ClaudeCodeUsage",
 ]
