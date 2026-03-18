@@ -129,18 +129,40 @@ class SessionHoldback:
 
         return result
 
-    async def adopt(self, session_id: str) -> None:
+    async def adopt(
+        self,
+        session_id: str,
+        context: Optional[Dict[str, Any]] = None,
+        auto_warm: bool = True,
+    ) -> Optional[AgentResult]:
         """Adopt an existing session as the holdback.
 
         Use this when you have a session from a prior machine execution
         and want to fork from it without re-seeding.
 
+        Runs a warm() fork by default to prime the API cache (same
+        reason as seed auto-warm).  Pass auto_warm=False to skip.
+
         Args:
             session_id: Existing Claude Code session ID
+            context: Optional context for working_dir resolution
+            auto_warm: Run a warm() fork to prime cache (default True)
+
+        Returns:
+            AgentResult from warm if auto_warm, else None
         """
         self.session_id = session_id
         self._seeded = True
         logger.info("Holdback adopted: session=%s", session_id)
+
+        if auto_warm:
+            warm_result = await self.warm(context)
+            logger.info(
+                "Holdback adopt-warm: cache_read=%s",
+                (warm_result.usage or {}).get("cache_read_tokens", 0),
+            )
+            return warm_result
+        return None
 
     async def fork(
         self,
@@ -162,7 +184,14 @@ class SessionHoldback:
         if not self._seeded:
             raise RuntimeError("Holdback not seeded — call seed() or adopt() first")
 
-        result = await self._fork_once(task, context)
+        result = await self.executor._invoke_once(
+            task=task,
+            session_id=self.session_id,
+            resume=True,
+            context=context,
+            fork_session=True,
+        )
+
         self._fork_count += 1
         self._accumulate_cost(result)
 
@@ -260,7 +289,14 @@ class SessionHoldback:
         if not self._seeded:
             raise RuntimeError("Holdback not seeded — call seed() or adopt() first")
 
-        result = await self._fork_once("test", context)
+        result = await self.executor._invoke_once(
+            task="test",
+            session_id=self.session_id,
+            resume=True,
+            context=context,
+            fork_session=True,
+        )
+
         self._accumulate_cost(result)
 
         usage = result.usage or {}
@@ -283,128 +319,6 @@ class SessionHoldback:
         }
 
     # -- Internal -----------------------------------------------------------
-
-    async def _fork_once(
-        self,
-        task: str,
-        context: Optional[Dict[str, Any]] = None,
-    ) -> AgentResult:
-        """Execute a single fork from the holdback.
-
-        Builds args manually to inject --fork-session, which the
-        standard _invoke_once doesn't support.
-        """
-        import asyncio as _asyncio
-        import json
-        import os
-        import signal as _signal
-
-        cfg = self.executor._merged
-        claude_bin = cfg.get("claude_bin", "claude")
-        timeout = cfg.get("timeout", 0)
-
-        # Build args — like _build_args but with --resume + --fork-session
-        args = [claude_bin, "-p", task, "--output-format", "stream-json", "--verbose"]
-        args += ["--resume", self.session_id, "--fork-session"]
-
-        model = cfg.get("model", "opus")
-        args += ["--model", model]
-
-        permission_mode = cfg.get("permission_mode")
-        if permission_mode:
-            args += ["--permission-mode", permission_mode]
-
-        system_prompt = cfg.get("system_prompt")
-        append_system_prompt = cfg.get("append_system_prompt")
-        if system_prompt:
-            args += ["--system-prompt", system_prompt]
-        elif append_system_prompt:
-            args += ["--append-system-prompt", append_system_prompt]
-
-        tools = cfg.get("tools")
-        if tools:
-            args += ["--tools"] + list(tools)
-
-        max_budget = cfg.get("max_budget_usd", 0)
-        if max_budget and float(max_budget) > 0:
-            args += ["--max-budget-usd", str(max_budget)]
-
-        effort = cfg.get("effort", "high")
-        args += ["--effort", effort]
-
-        # Resolve working directory
-        working_dir = cfg.get("working_dir")
-        if working_dir and context:
-            if "{{" in str(working_dir):
-                try:
-                    from jinja2 import Template
-                    working_dir = Template(str(working_dir)).render(context=context)
-                except Exception:
-                    pass
-        if working_dir:
-            working_dir = os.path.abspath(working_dir)
-        else:
-            working_dir = self.executor._config_dir
-
-        logger.debug("Holdback fork args: %s", args)
-
-        proc = await _asyncio.create_subprocess_exec(
-            *args,
-            stdout=_asyncio.subprocess.PIPE,
-            stderr=_asyncio.subprocess.PIPE,
-            cwd=working_dir,
-            env=os.environ.copy(),
-        )
-
-        from .claude_code import _StreamCollector, _SIGTERM_GRACE_SECONDS
-
-        collector = _StreamCollector()
-        try:
-            if timeout and timeout > 0:
-                stderr_data = await _asyncio.wait_for(
-                    self.executor._read_stream(proc, collector),
-                    timeout=timeout,
-                )
-            else:
-                stderr_data = await self.executor._read_stream(proc, collector)
-        except _asyncio.TimeoutError:
-            try:
-                proc.send_signal(_signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                await _asyncio.wait_for(proc.wait(), timeout=_SIGTERM_GRACE_SECONDS)
-            except _asyncio.TimeoutError:
-                try:
-                    proc.kill()
-                except ProcessLookupError:
-                    pass
-                await proc.wait()
-            raise TimeoutError(
-                f"Claude Code fork timed out after {timeout}s "
-                f"(holdback={self.session_id})"
-            )
-
-        await proc.wait()
-        stderr_text = stderr_data.decode("utf-8", errors="replace")
-
-        if collector.result_event is None:
-            return AgentResult(
-                error={
-                    "code": "server_error",
-                    "type": "ClaudeCodeError",
-                    "message": f"No result event from fork\nstderr: {stderr_text}",
-                    "retryable": False,
-                },
-                finish_reason="error",
-                metadata={
-                    "session_id": collector.session_id or "",
-                    "stream_events": collector.events,
-                    "stderr": stderr_text,
-                },
-            )
-
-        return self.executor._build_result(collector, self.session_id, stderr_text)
 
     def _accumulate_cost(self, result: AgentResult) -> None:
         if result.cost is not None:

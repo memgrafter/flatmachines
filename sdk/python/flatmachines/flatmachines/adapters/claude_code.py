@@ -345,10 +345,19 @@ class ClaudeCodeExecutor(AgentExecutor):
         session_id: str,
         resume: bool,
         context: Optional[Dict[str, Any]] = None,
+        fork_session: bool = False,
     ) -> AgentResult:
-        """Run a single claude -p invocation and return AgentResult."""
+        """Run a single claude -p invocation and return AgentResult.
+
+        Args:
+            task: Prompt text
+            session_id: Session UUID (new or existing)
+            resume: Use --resume instead of --session-id
+            context: Optional context for working_dir resolution
+            fork_session: Add --fork-session (new ID, preserves history)
+        """
         cfg = self._merged
-        args = self._build_args(task, session_id, resume)
+        args = self._build_args(task, session_id, resume, fork_session=fork_session)
 
         # Resolve working directory
         working_dir = cfg.get("working_dir")
@@ -497,8 +506,16 @@ class ClaudeCodeExecutor(AgentExecutor):
         task: str,
         session_id: str,
         resume: bool,
+        fork_session: bool = False,
     ) -> List[str]:
-        """Build CLI argument list."""
+        """Build CLI argument list.
+
+        Args:
+            task: Prompt text
+            session_id: Session UUID
+            resume: Use --resume instead of --session-id
+            fork_session: Add --fork-session (requires resume=True)
+        """
         cfg = self._merged
         claude_bin = cfg.get("claude_bin", "claude")
 
@@ -506,6 +523,8 @@ class ClaudeCodeExecutor(AgentExecutor):
 
         if resume:
             args += ["--resume", session_id]
+            if fork_session:
+                args += ["--fork-session"]
         else:
             args += ["--session-id", session_id]
 

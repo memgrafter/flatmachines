@@ -2,7 +2,7 @@
 """
 Burn-in test for the session holdback pattern.
 
-Exercises: seed → fork × 3 (parallel) → warm → fork again.
+Exercises: seed (+ auto-warm) → fork × 3 (parallel) → warm → fork again.
 Prints cache metrics at every step.
 
 Usage:
@@ -75,9 +75,9 @@ async def main():
 
     holdback = SessionHoldback(executor=executor)
 
-    # --- Seed ---
+    # --- Seed (includes auto-warm) ---
     print("─" * 70)
-    print("SEED: Establish holdback session")
+    print("SEED + AUTO-WARM: Establish holdback session and prime cache")
     print("─" * 70)
     seed_result = await holdback.seed(
         "You are a coding assistant. The project uses Python 3.12 with FastAPI. "
@@ -91,7 +91,7 @@ async def main():
 
     # --- Parallel fork × 3 ---
     print("─" * 70)
-    print("FORK × 3: Parallel fan-out from holdback")
+    print("FORK × 3: Parallel fan-out from holdback (cache should be warm)")
     print("─" * 70)
     tasks = [
         "What framework does this project use? Reply in one word.",
@@ -154,14 +154,18 @@ async def main():
     ]
     seed_write = (seed_result.usage or {}).get("cache_write_tokens", 0)
 
-    if all(cr > 0 for cr in fork_reads):
-        print("  ✓ All forks hit cache")
+    if all(cr > 6500 for cr in fork_reads):
+        print("  ✓ All parallel forks hit conversation cache (not just system prompt)")
+    elif all(cr > 0 for cr in fork_reads):
+        print("  ~ All forks hit system prompt cache, but conversation may have missed")
     else:
-        print("  ✗ Some forks missed cache")
+        print("  ✗ Some forks missed cache entirely")
 
     post_cr = (post_warm.result.usage or {}).get("cache_read_tokens", 0)
-    if post_cr > 0:
-        print("  ✓ Post-warm fork still hits cache")
+    if post_cr > 6500:
+        print("  ✓ Post-warm fork hits full cache")
+    elif post_cr > 0:
+        print("  ~ Post-warm fork hits partial cache")
     else:
         print("  ✗ Post-warm fork missed cache")
 

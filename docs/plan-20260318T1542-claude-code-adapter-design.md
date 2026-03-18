@@ -454,6 +454,7 @@ class ClaudeCodeHooks(MachineHooks):
 sdk/python/flatmachines/flatmachines/adapters/
   __init__.py                    # Add ClaudeCodeAdapter registration
   claude_code.py                 # ClaudeCodeAdapter + ClaudeCodeExecutor
+  claude_code_sessions.py        # SessionHoldback for cache-warm fan-out
 
 sdk/examples/claude_code_adapter/
   config/
@@ -470,20 +471,64 @@ sdk/examples/claude_code_adapter/
 
 ---
 
-## 9. What We're NOT Building
+## 9. Session Holdback (Cache-Warm Fan-Out)
 
-| Feature | Why deferred |
-|---------|-------------|
-| Session fan-out / holdback | Requires cache behavior validation (checklist §1). Build after v1 with empirical data. |
-| `--json-schema` support | Design rule: no structured output on CLI adapter. Use extractor agents. |
-| MCP / plugins / `--agent` | Future investigation (checklist §5). |
-| Real-time streaming hooks | v1 stores events, replays in `on_state_exit`. Real-time adds complexity to hook contract. |
-| `execute_with_tools()` | Claude Code owns its tool loop. `NotImplementedError`. |
-| `--input-format stream-json` | Bidirectional piping is experimental. `--resume` is simpler and proven. |
+Implemented in `claude_code_sessions.py`. Empirically validated.
+
+### How It Works
+
+```python
+holdback = SessionHoldback(executor)
+await holdback.seed("Read the codebase...")   # new session + auto-warm
+results = await holdback.fork_n(["task1", "task2", "task3"])  # parallel, all hit cache
+```
+
+- `seed()` creates the holdback session, then runs a sequential `warm()` fork
+  to ensure the API prefix cache is written before parallel fan-out.
+- `fork()` uses `--resume <holdback_id> --fork-session` — gets a new session
+  ID but sees the full holdback conversation. Holdback is never advanced.
+- `fork_n()` runs N forks in parallel with optional concurrency limit.
+- `warm()` sends a minimal fork ("test") to keep the API cache within 1hr TTL.
+- `adopt()` takes an existing session ID as holdback (with auto-warm).
+
+### Cache Findings
+
+API cache writes are **asynchronous**. Without the auto-warm after seed,
+parallel forks miss the conversation body cache:
+
+| Pattern | cache_read | cache_write | Notes |
+|---------|-----------|-------------|-------|
+| Seed | 6,469 | 3,283 | System prompt cached, conversation written |
+| Fork (no warm) | 6,469 | 4,055 | Missed conversation — re-wrote it |
+| Fork (after warm) | 9,752 | 30 | Full cache hit |
+
+The auto-warm is a sequential fork that forces the API to finalize the
+cache write. After that, parallel forks all hit the full prefix cache.
+
+### What the Cache Covers
+
+- **System prompt** (~6.5K tokens): Always cached across all sessions with
+  the same tools/model config.
+- **Conversation body**: Cached after seed + warm. Each fork reads it from
+  cache and writes only its new user message (~20-30 tokens).
+- **Cache TTL**: 1 hour on Claude Max plan. `warm()` resets it.
 
 ---
 
-## 10. Testing Strategy
+## 10. Scope Boundaries
+
+| Feature | Status |
+|---------|--------|
+| Session fan-out / holdback | **Implemented.** `SessionHoldback` in `claude_code_sessions.py`. Validated with live cache metrics. |
+| `--json-schema` support | Not building. Design rule: no structured output on CLI adapter. Use extractor agents. |
+| MCP / plugins / `--agent` | Future investigation (checklist §5). |
+| Real-time streaming hooks | v1 stores events, replays in `on_state_exit`. Real-time adds complexity to hook contract. |
+| `execute_with_tools()` | Not building. Claude Code owns its tool loop. `NotImplementedError`. |
+| `--input-format stream-json` | Not building. Bidirectional piping is experimental. `--resume` is simpler and proven. |
+
+---
+
+## 11. Testing Strategy
 
 ### Unit Tests (no claude binary needed)
 
@@ -512,7 +557,7 @@ canned NDJSON streams. Fixture files in `tests/fixtures/claude_code/`:
 
 ---
 
-## 11. Implementation Order
+## 12. Implementation Order
 
 1. **`claude_code.py`** — Adapter + Executor skeleton with `_build_args`
 2. **Stream parser** — NDJSON reader + event dispatch
