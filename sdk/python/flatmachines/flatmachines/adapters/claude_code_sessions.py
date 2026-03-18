@@ -9,9 +9,15 @@ Cache mechanics:
   - Fork sends the same prefix as the holdback → API cache hit
   - Periodic warm() keeps the prefix in API cache without advancing holdback
 
+Important: API cache writes from the seed are asynchronous.  The first
+fork after seed must be sequential to ensure the cache is populated
+before parallel fan-out.  seed() does this automatically by calling
+warm() after the initial invocation.
+
 Usage:
     holdback = SessionHoldback(executor)
     await holdback.seed("Read the codebase and understand the architecture.")
+    # seed() already warmed — cache is ready for parallel fan-out
 
     # Fan out — each gets full context, hits cache
     results = await holdback.fork_n([
@@ -72,15 +78,23 @@ class SessionHoldback:
         self,
         task: str,
         context: Optional[Dict[str, Any]] = None,
+        auto_warm: bool = True,
     ) -> AgentResult:
         """Create the holdback session with initial content.
 
         This is the only call that uses --session-id (new session).
         All subsequent operations use --fork-session.
 
+        After seeding, a sequential warm() fork is executed to ensure
+        the API prefix cache is populated before parallel fan-out.
+        Without this, the first batch of parallel forks would all miss
+        the conversation cache (API cache writes are asynchronous).
+        Pass auto_warm=False to skip if you'll warm manually.
+
         Args:
             task: Initial prompt to seed the session with
             context: Optional context for working_dir resolution
+            auto_warm: Run a warm() fork after seed to prime cache (default True)
 
         Returns:
             AgentResult from the seed invocation
@@ -103,6 +117,16 @@ class SessionHoldback:
             self.session_id,
             (result.usage or {}).get("cache_write_tokens", 0),
         )
+
+        # Auto-warm: sequential fork to ensure API cache is written
+        # before any parallel fan-out
+        if auto_warm and not result.error:
+            warm_result = await self.warm(context)
+            logger.info(
+                "Holdback auto-warm: cache_read=%s",
+                (warm_result.usage or {}).get("cache_read_tokens", 0),
+            )
+
         return result
 
     async def adopt(self, session_id: str) -> None:
