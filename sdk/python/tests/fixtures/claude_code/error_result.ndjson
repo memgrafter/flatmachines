@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","cwd":"/tmp","session_id":"sess-err-1","tools":["Bash","Read"],"model":"claude-opus-4-6","permissionMode":"bypassPermissions"}
+{"type":"result","subtype":"error","is_error":true,"duration_ms":200,"duration_api_ms":180,"num_turns":0,"result":"Rate limit exceeded. Please try again later.","stop_reason":"error","session_id":"sess-err-1","total_cost_usd":0.0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}

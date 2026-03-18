@@ -1,0 +1,57 @@
+spec: flatmachine
+spec_version: "2.0.0"
+
+data:
+  name: claude-code-example
+  context:
+    task: "{{ input.task }}"
+    working_dir: "{{ input.working_dir }}"
+    session_id: ""
+
+  agents:
+    coder:
+      type: claude-code
+      config:
+        model: opus
+        effort: high
+        permission_mode: bypassPermissions
+        tools:
+          - Bash
+          - Read
+          - Write
+          - Edit
+          - Glob
+          - Grep
+        append_system_prompt: |
+          You are an expert coding agent working in a sandboxed environment.
+          When you have completed the task fully, include <<AGENT_EXIT>> on
+          its own line in your final response. Do not include it until all
+          work is done.
+        max_continuations: 100
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: work
+
+    work:
+      agent: coder
+      input:
+        task: "{{ context.task }}"
+        resume_session: "{{ context.session_id }}"
+      output_to_context:
+        result: "{{ output.result }}"
+        session_id: "{{ output.session_id }}"
+      transitions:
+        - to: done
+
+    done:
+      type: final
+      output:
+        result: "{{ context.result }}"
+        session_id: "{{ context.session_id }}"
+
+metadata:
+  description: "Claude Code CLI adapter example — single-shot coding task"
+  tags: ["claude-code", "cli", "coding"]

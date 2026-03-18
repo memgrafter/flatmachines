@@ -30,6 +30,13 @@ def register_builtin_adapters(registry: AgentAdapterRegistry) -> None:
     except ImportError:
         pass
 
+    try:
+        from .claude_code import ClaudeCodeAdapter
+
+        registry.register(ClaudeCodeAdapter())
+    except ImportError:
+        pass
+
 
 def create_registry(with_builtins: bool = True) -> AgentAdapterRegistry:
     registry = AgentAdapterRegistry()
