@@ -67,6 +67,15 @@
 - Every transformation must justify itself in one line.
 - If not necessary for control flow, remove it.
 
+### Non-truncation invariant (hard rule)
+- **Never truncate data** from LLM outputs or from inputs passed into LLMs.
+- If there is concern about fitting/token limits, **consult the user** before changing data shape.
+- Acceptable strategies when size is a problem:
+  - enforce size limits in `agent.yaml` prompts
+  - reject oversized payloads and retry with a compliant output
+  - route oversized payloads to a repair/compaction LLM stage
+- Silent or automatic truncation is forbidden, ever.
+
 ---
 
 ## 3) Prioritization anecdote → future DFS-style optimizer
@@ -171,6 +180,7 @@ ORDER BY bytes DESC;
 
 ## Data Flow Quality
 - Pass full `paper_text` end-to-end; avoid excerpt-only paths.
+- Never truncate LLM inputs/outputs; if size is a concern, consult the user and use prompt limits/retry/repair flows instead.
 - Keep machine I/O mappings explicit and simple.
 - Verify wrapper machine context propagation carefully.
 
