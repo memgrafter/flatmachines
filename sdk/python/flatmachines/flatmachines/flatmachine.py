@@ -1300,6 +1300,22 @@ class FlatMachine:
 
                 self._accumulate_agent_metrics(agent_result)
 
+                # Fire observational tool hooks for adapters that report
+                # tool activity (e.g. Claude Code, which owns its own
+                # tool loop).  These are informational — _abort_tool_loop
+                # and _skip_tools have no effect since the tools have
+                # already executed.
+                if agent_result.tool_calls:
+                    context = await self._run_hook(
+                        'on_tool_calls', state_name, agent_result.tool_calls, context,
+                    )
+                _tool_results = (agent_result.metadata or {}).get('tool_results')
+                if _tool_results:
+                    for _tr in _tool_results:
+                        context = await self._run_hook(
+                            'on_tool_result', state_name, _tr, context,
+                        )
+
                 output_mapping = state.get('output_to_context', {})
                 if output_mapping:
                     variables = {"context": context, "output": output, "input": context}

@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","cwd":"/tmp","session_id":"sess-rl-1","tools":["Bash"],"model":"claude-opus-4-6","permissionMode":"bypassPermissions"}
+{"type":"rate_limit_event","rate_limit_info":{"requests_remaining":5,"requests_limit":50,"tokens_remaining":40000,"tokens_limit":80000,"retry_after_seconds":30}}
+{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"Done."}],"usage":{"input_tokens":10,"cache_read_input_tokens":3000,"output_tokens":5}},"session_id":"sess-rl-1"}
+{"type":"result","subtype":"success","is_error":false,"duration_ms":1000,"duration_api_ms":900,"num_turns":1,"result":"Done.","stop_reason":"end_turn","session_id":"sess-rl-1","total_cost_usd":0.01,"usage":{"input_tokens":10,"cache_creation_input_tokens":200,"cache_read_input_tokens":3000,"output_tokens":5}}

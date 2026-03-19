@@ -26,6 +26,7 @@ Config keys (agent config or global settings.agent_runners.claude_code):
   max_continuations   Max continuation attempts (default: 100, 0 = disabled)
   exit_sentinel       Sentinel text to detect completion (default: <<AGENT_EXIT>>)
   continuation_prompt  Prompt for continuation turns
+  mcp_config          Path to MCP server configuration JSON file
   rate_limit_delay   Base seconds between CLI calls (default 0 = disabled)
   rate_limit_jitter  ±seconds jitter added to delay (default 0)
 """
@@ -99,12 +100,62 @@ def _build_error(event: Dict[str, Any], stderr: str = "") -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Rate limit mapping
+# ---------------------------------------------------------------------------
+
+def _build_rate_limit_from_events(
+    rl_events: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Build a normalised RateLimitState from Claude Code rate_limit_event info.
+
+    Returns None if no rate limit events were observed.
+    """
+    if not rl_events:
+        return None
+
+    # Use the last (most recent) event
+    info = rl_events[-1]
+
+    windows: List[Dict[str, Any]] = []
+
+    # Map known fields to RateLimitWindow dicts
+    for resource in ("requests", "tokens"):
+        remaining = info.get(f"{resource}_remaining")
+        limit = info.get(f"{resource}_limit")
+        if remaining is not None or limit is not None:
+            window: Dict[str, Any] = {
+                "name": resource,
+                "resource": resource,
+            }
+            if remaining is not None:
+                window["remaining"] = remaining
+            if limit is not None:
+                window["limit"] = limit
+            windows.append(window)
+
+    limited = any(w.get("remaining") == 0 for w in windows)
+    retry_after = info.get("retry_after_seconds")
+
+    state: Dict[str, Any] = {"limited": limited}
+    if retry_after is not None:
+        state["retry_after"] = retry_after
+    if windows:
+        state["windows"] = windows
+
+    return state
+
+
+# ---------------------------------------------------------------------------
 # Stream event collector
 # ---------------------------------------------------------------------------
 
 class _StreamCollector:
     """Collects NDJSON stream events and tracks tool_use blocks for
-    matching against subsequent tool_result blocks."""
+    matching against subsequent tool_result blocks.
+
+    Also detects StructuredOutput tool_use blocks and rate_limit_event
+    data for surfacing to AgentResult.
+    """
 
     def __init__(self) -> None:
         self.events: List[Dict[str, Any]] = []
@@ -113,6 +164,13 @@ class _StreamCollector:
         self.system_meta: Optional[Dict[str, Any]] = None
         # Map tool_use_id -> {name, input} for matching results
         self._pending_tools: Dict[str, Dict[str, Any]] = {}
+        # Ordered tool call / result lists for hook integration
+        self.ordered_tool_calls: List[Dict[str, Any]] = []
+        self.ordered_tool_results: List[Dict[str, Any]] = []
+        # StructuredOutput detection
+        self.structured_output: Optional[Dict[str, Any]] = None
+        # Rate limit info from rate_limit_event(s)
+        self.rate_limit_events: List[Dict[str, Any]] = []
 
     def ingest(self, event: Dict[str, Any]) -> None:
         """Ingest a single parsed NDJSON event."""
@@ -133,13 +191,36 @@ class _StreamCollector:
             for block in message.get("content", []):
                 if block.get("type") == "tool_use":
                     tool_id = block.get("id", "")
+                    tool_name = block.get("name", "")
+                    tool_input = block.get("input", {})
                     self._pending_tools[tool_id] = {
-                        "name": block.get("name", ""),
-                        "input": block.get("input", {}),
+                        "name": tool_name,
+                        "input": tool_input,
                     }
+                    self.ordered_tool_calls.append({
+                        "id": tool_id,
+                        "name": tool_name,
+                        "arguments": tool_input,
+                    })
+                    # Detect StructuredOutput tool_use
+                    if tool_name == "StructuredOutput":
+                        self.structured_output = tool_input
             self.events.append(event)
 
         elif etype == "user":
+            # Extract tool results and add to ordered list
+            message = event.get("message", {})
+            for block in message.get("content", []):
+                if block.get("type") == "tool_result":
+                    tool_id = block.get("tool_use_id", "")
+                    pending = self._pending_tools.get(tool_id, {})
+                    self.ordered_tool_results.append({
+                        "tool_call_id": tool_id,
+                        "name": pending.get("name", ""),
+                        "arguments": pending.get("input", {}),
+                        "content": block.get("content", ""),
+                        "is_error": block.get("is_error", False),
+                    })
             self.events.append(event)
 
         elif etype == "result":
@@ -150,7 +231,9 @@ class _StreamCollector:
             self.events.append(event)
 
         elif etype == "rate_limit_event":
-            logger.info("Claude Code rate limit event: %s", event.get("rate_limit_info"))
+            rl_info = event.get("rate_limit_info", {})
+            logger.info("Claude Code rate limit event: %s", rl_info)
+            self.rate_limit_events.append(rl_info)
             self.events.append(event)
 
         else:
@@ -219,6 +302,9 @@ class ClaudeCodeExecutor(AgentExecutor):
                 jitter=float(self._merged.get(
                     "rate_limit_jitter", _DEFAULT_RATE_LIMIT_JITTER)),
             )
+
+        # Running subprocess reference for cancellation
+        self._process: Optional[asyncio.subprocess.Process] = None
 
     @property
     def metadata(self) -> Dict[str, Any]:
@@ -383,6 +469,38 @@ class ClaudeCodeExecutor(AgentExecutor):
             "Remove tool_loop from the state config."
         )
 
+    # -- Cancellation -------------------------------------------------------
+
+    async def cancel(self) -> bool:
+        """Cancel the running subprocess with SIGTERM → grace → SIGKILL.
+
+        Returns True if a process was signalled, False if nothing was running.
+        """
+        proc = self._process
+        if proc is None:
+            return False
+
+        logger.info("Claude Code cancel: sending SIGTERM to pid %s", proc.pid)
+        try:
+            proc.send_signal(signal.SIGTERM)
+        except ProcessLookupError:
+            return False
+
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=_SIGTERM_GRACE_SECONDS)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Claude Code cancel: SIGTERM grace expired, sending SIGKILL to pid %s",
+                proc.pid,
+            )
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            await proc.wait()
+
+        return True
+
     # -- Metrics helper -----------------------------------------------------
 
     @staticmethod
@@ -479,6 +597,7 @@ class ClaudeCodeExecutor(AgentExecutor):
                 cwd=working_dir,
                 env=os.environ.copy(),
             )
+            self._process = proc
 
             collector = _StreamCollector()
             stderr_data = b""
@@ -512,6 +631,7 @@ class ClaudeCodeExecutor(AgentExecutor):
 
             # Wait for process exit
             await proc.wait()
+            self._process = None
 
             stderr_text = stderr_data.decode("utf-8", errors="replace")
 
@@ -654,6 +774,11 @@ class ClaudeCodeExecutor(AgentExecutor):
         if tools:
             args += ["--tools"] + list(tools)
 
+        # MCP server configuration
+        mcp_config = cfg.get("mcp_config")
+        if mcp_config:
+            args += ["--mcp-config", str(mcp_config)]
+
         # Budget (0 = disabled)
         max_budget = cfg.get("max_budget_usd", 0)
         if max_budget and float(max_budget) > 0:
@@ -693,17 +818,32 @@ class ClaudeCodeExecutor(AgentExecutor):
         if event.get("is_error"):
             error = _build_error(event, stderr_text)
 
-        return AgentResult(
-            output={
+        # Output: prefer StructuredOutput if detected, otherwise text result
+        if collector.structured_output is not None:
+            output = {
+                **collector.structured_output,
+                "session_id": resolved_session,
+                "_raw_result": event.get("result"),
+            }
+        else:
+            output = {
                 "result": event.get("result"),
                 "session_id": resolved_session,
-            },
+            }
+
+        # Rate limit state from rate_limit_event(s)
+        rate_limit = _build_rate_limit_from_events(collector.rate_limit_events)
+
+        return AgentResult(
+            output=output,
             content=event.get("result"),
             raw=event,
             usage=usage,
             cost=event.get("total_cost_usd"),
             finish_reason=_map_stop_reason(event.get("stop_reason")),
             error=error,
+            rate_limit=rate_limit,
+            tool_calls=collector.ordered_tool_calls or None,
             metadata={
                 "num_turns": event.get("num_turns"),
                 "duration_ms": event.get("duration_ms"),
@@ -711,6 +851,7 @@ class ClaudeCodeExecutor(AgentExecutor):
                 "session_id": resolved_session,
                 "stream_events": collector.events,
                 "stderr": stderr_text,
+                "tool_results": collector.ordered_tool_results or None,
             },
             provider_data=event.get("modelUsage"),
         )

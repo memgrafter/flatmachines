@@ -957,3 +957,262 @@ class TestAgentMonitorMetrics:
         summary_msgs = [r.message for r in caplog.records
                         if "continuation complete" in r.message]
         assert len(summary_msgs) == 0
+
+
+# ---------------------------------------------------------------------------
+# Ordered tool calls / results tracking
+# ---------------------------------------------------------------------------
+
+class TestOrderedToolTracking:
+    def test_tool_calls_collected(self):
+        lines = _load_fixture("tool_use_session.ndjson")
+        collector = _StreamCollector()
+        for line in lines:
+            collector.ingest(json.loads(line))
+
+        assert len(collector.ordered_tool_calls) == 2
+        assert collector.ordered_tool_calls[0]["name"] == "Read"
+        assert collector.ordered_tool_calls[0]["id"] == "toolu_001"
+        assert collector.ordered_tool_calls[1]["name"] == "Edit"
+        assert collector.ordered_tool_calls[1]["id"] == "toolu_002"
+
+    def test_tool_results_collected(self):
+        lines = _load_fixture("tool_use_session.ndjson")
+        collector = _StreamCollector()
+        for line in lines:
+            collector.ingest(json.loads(line))
+
+        assert len(collector.ordered_tool_results) == 2
+        assert collector.ordered_tool_results[0]["name"] == "Read"
+        assert collector.ordered_tool_results[0]["tool_call_id"] == "toolu_001"
+        assert "def main" in collector.ordered_tool_results[0]["content"]
+        assert collector.ordered_tool_results[1]["name"] == "Edit"
+        assert collector.ordered_tool_results[1]["tool_call_id"] == "toolu_002"
+
+    def test_tool_calls_on_agent_result(self):
+        """tool_calls field populated on AgentResult from tool_use events."""
+        lines = _load_fixture("tool_use_session.ndjson")
+        collector = _StreamCollector()
+        for line in lines:
+            collector.ingest(json.loads(line))
+
+        executor = _make_executor()
+        result = executor._build_result(collector, "sess-tool-1", "")
+
+        assert result.tool_calls is not None
+        assert len(result.tool_calls) == 2
+        assert result.tool_calls[0]["name"] == "Read"
+        assert result.tool_calls[1]["name"] == "Edit"
+
+    def test_tool_results_in_metadata(self):
+        """tool_results present in metadata from tool_result events."""
+        lines = _load_fixture("tool_use_session.ndjson")
+        collector = _StreamCollector()
+        for line in lines:
+            collector.ingest(json.loads(line))
+
+        executor = _make_executor()
+        result = executor._build_result(collector, "sess-tool-1", "")
+
+        tool_results = result.metadata["tool_results"]
+        assert tool_results is not None
+        assert len(tool_results) == 2
+        assert tool_results[0]["name"] == "Read"
+        assert tool_results[1]["name"] == "Edit"
+
+    def test_no_tool_calls_returns_none(self):
+        """Simple result without tools should have tool_calls=None."""
+        lines = _load_fixture("simple_result.ndjson")
+        collector = _StreamCollector()
+        for line in lines:
+            collector.ingest(json.loads(line))
+
+        executor = _make_executor()
+        result = executor._build_result(collector, "abc-123", "")
+
+        assert result.tool_calls is None
+        assert result.metadata["tool_results"] is None
+
+
+# ---------------------------------------------------------------------------
+# StructuredOutput detection
+# ---------------------------------------------------------------------------
+
+class TestStructuredOutput:
+    def test_structured_output_detected(self):
+        lines = _load_fixture("structured_output.ndjson")
+        collector = _StreamCollector()
+        for line in lines:
+            collector.ingest(json.loads(line))
+
+        assert collector.structured_output is not None
+        assert collector.structured_output["score"] == 9
+        assert collector.structured_output["summary"] == "Excellent code quality"
+        assert collector.structured_output["issues"] == []
+
+    def test_structured_output_in_result(self):
+        """StructuredOutput fields become top-level output keys."""
+        lines = _load_fixture("structured_output.ndjson")
+        collector = _StreamCollector()
+        for line in lines:
+            collector.ingest(json.loads(line))
+
+        executor = _make_executor()
+        result = executor._build_result(collector, "sess-struct-1", "")
+
+        assert result.output["score"] == 9
+        assert result.output["summary"] == "Excellent code quality"
+        assert result.output["issues"] == []
+        assert result.output["session_id"] == "sess-struct-1"
+        assert result.output["_raw_result"] == "Here is the analysis."
+        # Text content still preserved
+        assert result.content == "Here is the analysis."
+
+    def test_no_structured_output_uses_result_text(self):
+        """Without StructuredOutput, output uses text result."""
+        lines = _load_fixture("simple_result.ndjson")
+        collector = _StreamCollector()
+        for line in lines:
+            collector.ingest(json.loads(line))
+
+        executor = _make_executor()
+        result = executor._build_result(collector, "abc-123", "")
+
+        assert result.output["result"] == "2 + 2 = 4."
+        assert "_raw_result" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# Rate limit surfacing
+# ---------------------------------------------------------------------------
+
+class TestRateLimitSurfacing:
+    def test_rate_limit_events_collected(self):
+        lines = _load_fixture("rate_limit_session.ndjson")
+        collector = _StreamCollector()
+        for line in lines:
+            collector.ingest(json.loads(line))
+
+        assert len(collector.rate_limit_events) == 1
+        assert collector.rate_limit_events[0]["requests_remaining"] == 5
+        assert collector.rate_limit_events[0]["tokens_remaining"] == 40000
+
+    def test_rate_limit_on_agent_result(self):
+        """rate_limit field populated from rate_limit_event."""
+        lines = _load_fixture("rate_limit_session.ndjson")
+        collector = _StreamCollector()
+        for line in lines:
+            collector.ingest(json.loads(line))
+
+        executor = _make_executor()
+        result = executor._build_result(collector, "sess-rl-1", "")
+
+        assert result.rate_limit is not None
+        assert result.rate_limit["limited"] is False
+        assert result.rate_limit["retry_after"] == 30
+        assert len(result.rate_limit["windows"]) == 2
+        # requests window
+        req_window = result.rate_limit["windows"][0]
+        assert req_window["name"] == "requests"
+        assert req_window["remaining"] == 5
+        assert req_window["limit"] == 50
+        # tokens window
+        tok_window = result.rate_limit["windows"][1]
+        assert tok_window["name"] == "tokens"
+        assert tok_window["remaining"] == 40000
+        assert tok_window["limit"] == 80000
+
+    def test_no_rate_limit_returns_none(self):
+        """Without rate_limit_event, rate_limit should be None."""
+        lines = _load_fixture("simple_result.ndjson")
+        collector = _StreamCollector()
+        for line in lines:
+            collector.ingest(json.loads(line))
+
+        executor = _make_executor()
+        result = executor._build_result(collector, "abc-123", "")
+
+        assert result.rate_limit is None
+
+    def test_rate_limit_limited_when_zero_remaining(self):
+        """limited=True when any window has remaining=0."""
+        from flatmachines.adapters.claude_code import _build_rate_limit_from_events
+        rl = _build_rate_limit_from_events([{
+            "requests_remaining": 0,
+            "requests_limit": 50,
+            "tokens_remaining": 40000,
+            "tokens_limit": 80000,
+        }])
+        assert rl is not None
+        assert rl["limited"] is True
+
+
+# ---------------------------------------------------------------------------
+# --mcp-config support
+# ---------------------------------------------------------------------------
+
+class TestMcpConfig:
+    def test_mcp_config_arg(self):
+        executor = _make_executor({"mcp_config": "/path/to/mcp.json"})
+        args = executor._build_args("task", "s1", resume=False)
+        idx = args.index("--mcp-config")
+        assert args[idx + 1] == "/path/to/mcp.json"
+
+    def test_mcp_config_absent(self):
+        executor = _make_executor()
+        args = executor._build_args("task", "s1", resume=False)
+        assert "--mcp-config" not in args
+
+
+# ---------------------------------------------------------------------------
+# cancel() tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+class TestCancel:
+    async def test_cancel_no_process(self):
+        """cancel() with no running process returns False."""
+        executor = _make_executor()
+        result = await executor.cancel()
+        assert result is False
+
+    async def test_cancel_running_process(self):
+        """cancel() sends SIGTERM and returns True."""
+        lines = _load_fixture("simple_result.ndjson")
+        proc = FakeProcess(lines)
+        proc.pid = 12345
+
+        executor = _make_executor()
+        executor._process = proc
+
+        result = await executor.cancel()
+        assert result is True
+        assert proc._killed is True
+
+    async def test_cancel_process_already_dead(self):
+        """cancel() handles ProcessLookupError gracefully."""
+        executor = _make_executor()
+
+        class DeadProcess:
+            pid = 99999
+            def send_signal(self, sig):
+                raise ProcessLookupError()
+            async def wait(self):
+                pass
+
+        executor._process = DeadProcess()
+        result = await executor.cancel()
+        assert result is False
+
+    async def test_process_ref_cleared_after_invocation(self):
+        """_process is None after _invoke_once completes."""
+        lines = _load_fixture("simple_result.ndjson")
+        proc = FakeProcess(lines)
+
+        executor = _make_executor()
+        with patch("asyncio.create_subprocess_exec", return_value=proc):
+            await executor._invoke_once(
+                task="hello", session_id="s1", resume=False,
+            )
+
+        assert executor._process is None

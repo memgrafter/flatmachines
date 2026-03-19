@@ -66,12 +66,12 @@
 - Codified as a design rule in the module docstring
 - No --json-schema arg generation anywhere in the adapter
 
-#### 8. Unit Tests — 95 tests, all passing
+#### 8. Unit Tests — 114 tests, all passing
 
-- test_claude_code_adapter.py — arg builder (incl. dangerously_skip_permissions, add_dirs, throttle defaults), stream collector, result mapping, execute flow, continuation loop, timeout, errors, monitor metrics, registration
+- test_claude_code_adapter.py — arg builder (incl. dangerously_skip_permissions, add_dirs, throttle defaults, mcp_config), stream collector, result mapping, execute flow, continuation loop, timeout, errors, monitor metrics, registration, ordered tool tracking, structured output extraction, rate limit surfacing, cancellation
 - test_claude_code_sessions.py — seed, adopt, fork, fork_n, warm, stats, build_args fork_session
 - test_call_throttle.py — disabled/enabled, first call no-wait, second call waits, jitter randomness, jitter range, reset, negative clamping, serialised gate stagger, throttle_from_config
-- 5 NDJSON fixture files for replay-based testing
+- 7 NDJSON fixture files for replay-based testing (incl. structured_output, rate_limit_session)
 
 #### 9. Live Integration Tests — 14 tests, all passing (--live flag)
 
@@ -91,7 +91,7 @@
     13. Cache metrics — all cache fields populated, non-zero
     14. Minimal prompt + 4 tools — pi-style system prompt, exact tool restriction, token footprint measured
 
-#### 10. Rate Limiting — CallThrottle
+#### 10. Rate Limiting — CallThrottle (16 tests)
 
 - call_throttle.py — Standalone async rate limiter:
     - asyncio.Lock serialised gate — concurrent callers stagger, subprocesses run concurrently
@@ -127,6 +127,7 @@
 
 - ✅ --add-dir support implemented (config key: add_dirs)
 - ✅ --dangerously-skip-permissions support implemented (config key: dangerously_skip_permissions)
+- ✅ --mcp-config support implemented (config key: mcp_config)
 
 #### 16. Cache Behavior Investigation ✅
 
@@ -141,7 +142,51 @@
 
 ────────────────────────────────────────────────────────────────────────────────
 
-### ⏳ NOT YET DONE / OPEN INVESTIGATION
+### ✅ NEWLY COMPLETED (productionisation pass)
+
+#### 17. Hook Event Firing — on_tool_calls / on_tool_result ✅
+
+- ✅ _StreamCollector now builds ordered_tool_calls and ordered_tool_results lists during stream parsing
+- ✅ _build_result populates AgentResult.tool_calls from ordered_tool_calls
+- ✅ _build_result populates metadata.tool_results from ordered_tool_results
+- ✅ FlatMachine._execute_state fires observational on_tool_calls/on_tool_result hooks in the non-tool-loop agent path when AgentResult.tool_calls is populated
+- ✅ Hooks are informational — _abort_tool_loop and _skip_tools have no effect since Claude Code owns the tool loop (documented in code comment)
+- ✅ Generic implementation: any adapter that populates tool_calls/tool_results gets hooks fired (not CC-specific)
+
+#### 18. Structured Output Extraction (StructuredOutput tool_use) ✅
+
+- ✅ _StreamCollector detects tool_use blocks with name=="StructuredOutput" and captures the input dict
+- ✅ _build_result: when StructuredOutput detected, its fields become top-level output keys (e.g. output.score, output.summary) with session_id preserved and _raw_result for the text
+- ✅ Without StructuredOutput, output falls back to {result: text, session_id: ...} (backward compatible)
+- ✅ New fixture: structured_output.ndjson
+- ✅ 3 unit tests covering detection, result mapping, and fallback
+
+#### 19. Rate Limit Events → AgentResult.rate_limit ✅
+
+- ✅ _StreamCollector collects rate_limit_info from rate_limit_event(s) into rate_limit_events list
+- ✅ _build_rate_limit_from_events() maps CC rate limit info to normalised RateLimitState format (windows, limited, retry_after)
+- ✅ _build_result sets AgentResult.rate_limit from collected events
+- ✅ None when no rate limit events observed (backward compatible)
+- ✅ New fixture: rate_limit_session.ndjson
+- ✅ 4 unit tests covering collection, mapping, absence, and limited detection
+
+#### 20. --mcp-config Support ✅
+
+- ✅ _build_args() generates --mcp-config <path> from config key mcp_config
+- ✅ Config key documented in module docstring
+- ✅ 2 unit tests (present / absent)
+
+#### 21. Subprocess Cancellation ✅
+
+- ✅ ClaudeCodeExecutor._process tracks running subprocess
+- ✅ cancel() method: SIGTERM → 5s grace → SIGKILL, returns True/False
+- ✅ _process cleared after _invoke_once completes
+- ✅ ProcessLookupError handled gracefully
+- ✅ 4 unit tests (no process, running process, already dead, ref cleared)
+
+────────────────────────────────────────────────────────────────────────────────
+
+### ⏳ REMAINING — Investigation / Deferred
 
 #### Checklist Item #1 — Session Management & Cache (remaining)
 
@@ -154,36 +199,30 @@
 
 - ❌ Declarative tool/prompt config in FlatMachine schema — config keys exist but no schema validation or documentation as part of the spec
 
-#### Checklist Item #5 — Future: MCP, Plugins, --agent
+#### Checklist Item #5 — Future: Plugins, --agent
 
-- ❌ All parked — --mcp-config, --plugin-dir, --agent / --agents not investigated
-- --mcp-config is listed in the analysis doc's config mapping table but not implemented in _build_args()
+- ❌ --plugin-dir, --agent / --agents not investigated (--mcp-config now implemented)
 
 #### Checklist Item #7 — Experimental Validation (remaining)
 
 - ❌ Burn-in results not documented — scripts exist and work, but output not captured in docs
-- ❌ Structured output validation — --json-schema + StructuredOutput tool_use interception not tested live
+- ❌ Structured output validation — StructuredOutput tool_use interception not tested live (unit-tested only)
 
-#### Other Gaps
+#### Other Remaining
 
-- ❌ Hook event firing — the stream collector can extract tool_calls and tool_results, but execute() and _invoke_once() don't actually call hooks.on_tool_calls() or hooks.on_tool_result(). The _StreamCollector has the methods but they're not wired to the FlatMachine hook system.
-- ❌ Structured output extraction — the analysis doc describes intercepting StructuredOutput tool_use blocks, but the adapter code doesn't implement this. There's no special handling for name == "StructuredOutput" in the stream collector.
-- ❌ Rate limit handling — rate_limit_events are logged but not surfaced to AgentResult.rate_limit field or used for backoff decisions.
-- ❌ --mcp-config support — listed in mapping table but not in _build_args().
-- ❌ Cancellation from FlatMachine — the analysis doc describes SIGTERM on abort signal, but there's no integration with FlatMachine's cancellation mechanism.
+- ❌ FlatMachine-initiated cancellation — cancel() method exists on executor, but FlatMachine has no orchestration-level cancel signal to trigger it. Requires FlatMachine API extension.
 
 ────────────────────────────────────────────────────────────────────────────────
 
 ### Summary
 
-**Done:** Core adapter, 95 unit tests, 14 live integration tests (all passing), rate limiting, permission mode validation, tool restriction validation, cache behavior analysis with full token breakdown, --add-dir and --dangerously-skip-permissions support, documentation.
+**Done:** Core adapter, 114 unit tests (78 adapter + 12 session + 16 throttle + 8 new), 14 live integration tests (all passing), rate limiting, permission mode validation, tool restriction validation, cache behavior analysis with full token breakdown, --add-dir / --dangerously-skip-permissions / --mcp-config support, hook event firing (on_tool_calls/on_tool_result), structured output extraction, rate limit surfacing, subprocess cancellation, documentation.
 
-**Remaining gaps:**
-1. Hook events (on_tool_calls/on_tool_result) parsed but never fired to FlatMachine hooks
-2. Structured output extraction (StructuredOutput tool_use interception)
-3. Rate limit events not surfaced to AgentResult.rate_limit
-4. --mcp-config not implemented
-5. FlatMachine cancellation not wired to subprocess SIGTERM
-6. Cache breakpoints investigation
-7. Schema validation for tool/prompt config in FlatMachine spec
-8. Burn-in test results not captured in docs
+**Remaining (investigation / deferred):**
+1. Cache breakpoints investigation
+2. Session forking read-only semantics
+3. Holdback keep-alive timing
+4. Schema validation for tool/prompt config in FlatMachine spec
+5. FlatMachine-initiated cancellation (executor cancel() exists, needs FM API)
+6. Burn-in test results not captured in docs
+7. Live validation of StructuredOutput interception
