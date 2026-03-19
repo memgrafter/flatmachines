@@ -1,0 +1,7 @@
+[Unit]
+Description=Listener OS dispatch once
+
+[Service]
+Type=oneshot
+WorkingDirectory={{WORKDIR}}
+ExecStart={{PYTHON}} -m listener_os.main dispatch-once --db-path {{DB_PATH}}

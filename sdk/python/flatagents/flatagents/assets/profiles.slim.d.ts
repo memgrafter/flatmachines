@@ -1,4 +1,4 @@
-export const SPEC_VERSION = "2.0.0";
+export const SPEC_VERSION = "2.3.0";
 export interface ProfilesWrapper {
     spec: "flatprofiles";
     spec_version: string;
@@ -9,6 +9,16 @@ export interface ProfilesData {
     model_profiles: Record<string, ModelProfileConfig>;
     default?: string;
     override?: string;
+}
+export interface OAuthConfig {
+    provider?: "openai-codex" | string;
+    auth_file?: string;
+    refresh?: boolean;
+    originator?: string;
+    timeout_seconds?: number;
+    max_retries?: number;
+    token_url?: string;
+    client_id?: string;
 }
 export interface ModelProfileConfig {
     name: string;
@@ -22,5 +32,8 @@ export interface ModelProfileConfig {
     seed?: number;
     base_url?: string;
     stream?: boolean;
+    backend?: "litellm" | "aisuite" | "codex";
+    api?: string;
+    oauth?: OAuthConfig;
 }
 export type FlatprofilesConfig = ProfilesWrapper;

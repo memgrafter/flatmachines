@@ -16,8 +16,9 @@ import socket
 from pathlib import Path
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 
-from .persistence import PersistenceBackend, CheckpointManager
-from .signals import SignalBackend, TriggerBackend
+from .persistence import PersistenceBackend
+from .resume import MachineResumer
+from .signals import SignalBackend
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,12 @@ class SignalDispatcher:
 
     Consumes signals from the signal backend, finds machines whose latest
     checkpoint has a matching waiting_channel, and calls the resume callback.
+
+    Resume can be provided as either:
+    - A ``MachineResumer`` instance (preferred): ``resumer=ConfigFileResumer(...)``
+    - A bare async callback: ``resume_fn=my_async_fn``
+
+    If both are provided, ``resumer`` takes precedence.
     """
 
     def __init__(
@@ -34,6 +41,8 @@ class SignalDispatcher:
         signal_backend: SignalBackend,
         persistence_backend: PersistenceBackend,
         resume_fn: Optional[Callable[[str, Any], Coroutine]] = None,
+        *,
+        resumer: Optional[MachineResumer] = None,
     ):
         """
         Args:
@@ -41,15 +50,22 @@ class SignalDispatcher:
             persistence_backend: Where machine checkpoints live
             resume_fn: async callback(execution_id, signal_data) to resume a machine.
                        If None, dispatcher just returns the IDs to resume.
+            resumer: MachineResumer instance (preferred over resume_fn).
         """
         self.signal_backend = signal_backend
         self.persistence_backend = persistence_backend
-        self.resume_fn = resume_fn
+        if resumer is not None:
+            self.resume_fn = resumer.resume
+        else:
+            self.resume_fn = resume_fn
 
     async def dispatch(self, channel: str) -> List[str]:
         """Process one signal on a channel.
 
-        Consumes the signal, fans out one copy per waiting machine,
+        If no machines are currently waiting on this channel, leaves queued
+        signals untouched (durable backlog) and returns immediately.
+
+        Otherwise consumes one signal, fans out one copy per waiting machine,
         then resumes each. Each machine consumes its copy on resume.
 
         Works for both addressed (1 waiter) and broadcast (N waiters).
@@ -57,21 +73,21 @@ class SignalDispatcher:
         Returns:
             List of execution IDs that were resumed
         """
-        signal = await self.signal_backend.consume(channel)
-        if signal is None:
-            return []
-
-        # Find machines waiting on this channel
+        # Find machines waiting on this channel first. If none, avoid
+        # consume+requeue churn and preserve backlog order in signal storage.
         execution_ids = await self.persistence_backend.list_execution_ids(
             waiting_channel=channel
         )
 
         if not execution_ids:
-            logger.warning(
-                f"Signal on '{channel}' but no waiting machines. "
-                f"Re-queuing signal."
+            logger.debug(
+                f"No waiting machines on '{channel}'. "
+                f"Leaving queued signals untouched."
             )
-            await self.signal_backend.send(channel, signal.data)
+            return []
+
+        signal = await self.signal_backend.consume(channel)
+        if signal is None:
             return []
 
         # Fan out: one copy per waiter so each machine can consume on resume
@@ -92,8 +108,50 @@ class SignalDispatcher:
 
         return resumed
 
+    async def dispatch_channel(
+        self,
+        channel: str,
+        *,
+        max_signals: Optional[int] = None,
+    ) -> List[str]:
+        """Drain a channel by dispatching until no progress is possible.
+
+        Stops when:
+        - no resume occurred for the next dispatch attempt, or
+        - ``max_signals`` dispatches have been processed.
+
+        Args:
+            channel: Channel name to drain.
+            max_signals: Optional per-call cap to prevent unbounded work.
+
+        Returns:
+            Flat list of resumed execution IDs across all drained dispatches.
+        """
+        resumed_all: List[str] = []
+        processed = 0
+
+        while True:
+            if max_signals is not None and processed >= max_signals:
+                break
+
+            resumed = await self.dispatch(channel)
+            if not resumed:
+                break
+
+            resumed_all.extend(resumed)
+            processed += 1
+
+        return resumed_all
+
     async def dispatch_all(self) -> Dict[str, List[str]]:
         """Process all pending signals across all channels.
+
+        Drains each discovered channel until no further resumes are possible,
+        allowing a single wake/run to clear backlog.
+
+        To avoid pathological infinite loops with custom/non-consuming resume
+        callbacks, each channel drain is capped to the channel's backlog size
+        observed at the start of dispatch_all().
 
         Returns:
             Dict of channel -> list of resumed execution IDs
@@ -101,7 +159,9 @@ class SignalDispatcher:
         results = {}
         channels = await self.signal_backend.channels()
         for channel in channels:
-            resumed = await self.dispatch(channel)
+            pending = await self.signal_backend.peek(channel)
+            max_signals = len(pending) if pending else 1
+            resumed = await self.dispatch_channel(channel, max_signals=max_signals)
             if resumed:
                 results[channel] = resumed
         return results
@@ -154,7 +214,9 @@ class SignalDispatcher:
                 channel = data.decode("utf-8").strip()
                 if channel:
                     logger.debug(f"Trigger received for channel: {channel}")
-                    await self.dispatch(channel)
+                    pending = await self.signal_backend.peek(channel)
+                    max_signals = len(pending) if pending else 1
+                    await self.dispatch_channel(channel, max_signals=max_signals)
         finally:
             sock.close()
             path.unlink(missing_ok=True)

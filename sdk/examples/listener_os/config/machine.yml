@@ -1,0 +1,48 @@
+spec: flatmachine
+spec_version: "2.2.1"
+
+data:
+  name: listener-os-demo
+  context:
+    task_id: "{{ input.task_id }}"
+    approved: null
+    reviewer: null
+
+  persistence:
+    enabled: true
+    backend: sqlite
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: wait_for_approval
+
+    wait_for_approval:
+      wait_for: "approval/{{ context.task_id }}"
+      timeout: 86400
+      output_to_context:
+        approved: "{{ output.approved }}"
+        reviewer: "{{ output.reviewer }}"
+      transitions:
+        - condition: "context.approved == 'True'"
+          to: approved
+        - to: rejected
+
+    approved:
+      type: final
+      output:
+        task_id: "context.task_id"
+        status: approved
+        reviewer: "context.reviewer"
+
+    rejected:
+      type: final
+      output:
+        task_id: "context.task_id"
+        status: rejected
+        reviewer: "context.reviewer"
+
+metadata:
+  description: "OS listener activation demo (wait_for + send_and_notify + dispatcher runtime)"
+  tags: [signals, trigger, launchd, systemd]

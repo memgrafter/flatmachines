@@ -1,3 +1,4 @@
+import hashlib
 import json
 import fcntl
 import asyncio
@@ -35,6 +36,8 @@ class MachineSnapshot:
     waiting_channel: Optional[str] = None  # Signal channel this machine is blocked on
     # Tool loop state (v1.2.0)
     tool_loop_state: Optional[Dict[str, Any]] = None  # {chain, turns, tool_calls_count, loop_cost}
+    # Config hash (v2.1.0) — content-addressed key into config store for cross-SDK resume
+    config_hash: Optional[str] = None  # SHA-256 of normalized config YAML
 
 class PersistenceBackend(ABC):
     """Abstract storage backend for checkpoints."""
@@ -73,6 +76,156 @@ class PersistenceBackend(ABC):
     async def delete_execution(self, execution_id: str) -> None:
         """Remove all checkpoint data for an execution."""
         pass
+
+
+# ---------------------------------------------------------------------------
+# Config store — content-addressed storage for machine configs
+# ---------------------------------------------------------------------------
+
+def config_hash(config_raw: str) -> str:
+    """Compute SHA-256 hash of a raw config string."""
+    return hashlib.sha256(config_raw.encode("utf-8")).hexdigest()
+
+
+class ConfigStore(ABC):
+    """Content-addressed store for machine configuration YAML/JSON.
+
+    Configs are stored once by their SHA-256 hash and referenced from
+    checkpoints via ``config_hash``.  This avoids duplicating the config
+    in every checkpoint while keeping snapshots self-contained for
+    cross-SDK resume.
+    """
+
+    @abstractmethod
+    async def put(self, raw: str) -> str:
+        """Store config text, return its hash. Idempotent."""
+        ...
+
+    @abstractmethod
+    async def get(self, hash_key: str) -> Optional[str]:
+        """Retrieve config text by hash. None if not found."""
+        ...
+
+    @abstractmethod
+    async def delete(self, hash_key: str) -> None:
+        """Remove a config entry."""
+        ...
+
+
+class MemoryConfigStore(ConfigStore):
+    """In-memory config store for testing."""
+
+    def __init__(self):
+        self._store: Dict[str, str] = {}
+
+    async def put(self, raw: str) -> str:
+        h = config_hash(raw)
+        self._store[h] = raw
+        return h
+
+    async def get(self, hash_key: str) -> Optional[str]:
+        return self._store.get(hash_key)
+
+    async def delete(self, hash_key: str) -> None:
+        self._store.pop(hash_key, None)
+
+
+class LocalFileConfigStore(ConfigStore):
+    """File-based config store. One file per hash under base_dir/_configs/."""
+
+    def __init__(self, base_dir: str = ".checkpoints"):
+        self._dir = Path(base_dir) / "_configs"
+        self._dir.mkdir(parents=True, exist_ok=True)
+
+    async def put(self, raw: str) -> str:
+        h = config_hash(raw)
+        path = self._dir / f"{h}.yml"
+        if not path.exists():
+            tmp = path.with_suffix(".tmp")
+            async with aiofiles.open(tmp, "w", encoding="utf-8") as f:
+                await f.write(raw)
+            tmp.replace(path)
+        return h
+
+    async def get(self, hash_key: str) -> Optional[str]:
+        path = self._dir / f"{hash_key}.yml"
+        if not path.exists():
+            return None
+        async with aiofiles.open(path, "r", encoding="utf-8") as f:
+            return await f.read()
+
+    async def delete(self, hash_key: str) -> None:
+        path = self._dir / f"{hash_key}.yml"
+        path.unlink(missing_ok=True)
+
+
+class SQLiteConfigStore(ConfigStore):
+    """SQLite-backed config store. Shares a connection with SQLiteCheckpointBackend."""
+
+    def __init__(self, conn: sqlite3.Connection, op_lock: asyncio.Lock):
+        self._conn = conn
+        self._op_lock = op_lock
+        self._ensure_schema()
+
+    def _ensure_schema(self) -> None:
+        self._conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS machine_configs (
+                config_hash  TEXT PRIMARY KEY,
+                machine_name TEXT,
+                spec_version TEXT,
+                config_raw   TEXT NOT NULL,
+                created_at   TEXT NOT NULL
+            );
+            """
+        )
+        self._conn.commit()
+
+    async def put(self, raw: str) -> str:
+        h = config_hash(raw)
+        now = _utc_now_iso()
+        # Parse metadata for indexed columns
+        machine_name = None
+        spec_version = None
+        try:
+            import yaml
+            parsed = yaml.safe_load(raw)
+            if isinstance(parsed, dict):
+                data = parsed.get("data", {})
+                machine_name = data.get("name") if isinstance(data, dict) else None
+                spec_version = parsed.get("spec_version")
+        except Exception:
+            pass
+        async with self._op_lock:
+            self._conn.execute(
+                """
+                INSERT INTO machine_configs (config_hash, machine_name, spec_version, config_raw, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(config_hash) DO NOTHING
+                """,
+                (h, machine_name, spec_version, raw, now),
+            )
+            self._conn.commit()
+        return h
+
+    async def get(self, hash_key: str) -> Optional[str]:
+        async with self._op_lock:
+            row = self._conn.execute(
+                "SELECT config_raw FROM machine_configs WHERE config_hash = ?",
+                (hash_key,),
+            ).fetchone()
+        if not row:
+            return None
+        return row[0] if not isinstance(row, sqlite3.Row) else row["config_raw"]
+
+    async def delete(self, hash_key: str) -> None:
+        async with self._op_lock:
+            self._conn.execute(
+                "DELETE FROM machine_configs WHERE config_hash = ?",
+                (hash_key,),
+            )
+            self._conn.commit()
+
 
 class LocalFileBackend(PersistenceBackend):
     """File-based persistence backend."""
@@ -369,6 +522,14 @@ class SQLiteCheckpointBackend(PersistenceBackend):
         self._conn.execute("PRAGMA busy_timeout = 10000")
         self._ensure_schema()
         self._op_lock = asyncio.Lock()
+        self._config_store: Optional[SQLiteConfigStore] = None
+
+    @property
+    def config_store(self) -> SQLiteConfigStore:
+        """Lazily create a config store sharing this backend's connection."""
+        if self._config_store is None:
+            self._config_store = SQLiteConfigStore(self._conn, self._op_lock)
+        return self._config_store
 
     def _ensure_schema(self) -> None:
         self._conn.executescript(

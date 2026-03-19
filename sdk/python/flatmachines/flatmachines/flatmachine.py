@@ -47,8 +47,11 @@ from .persistence import (
     PersistenceBackend,
     LocalFileBackend,
     MemoryBackend,
+    SQLiteCheckpointBackend,
     CheckpointManager,
-    MachineSnapshot
+    ConfigStore,
+    MachineSnapshot,
+    config_hash,
 )
 from .backends import (
     ResultBackend,
@@ -57,7 +60,7 @@ from .backends import (
     make_uri,
     get_default_result_backend,
 )
-from .locking import ExecutionLock, LocalFileLock, NoOpLock
+from .locking import ExecutionLock, LocalFileLock, NoOpLock, SQLiteLeaseLock
 from .signals import SignalBackend, TriggerBackend, NoOpTrigger
 from .actions import (
     Action,
@@ -109,6 +112,7 @@ class FlatMachine:
         agent_adapters: Optional[list] = None,
         profiles_file: Optional[str] = None,
         tool_provider=None,
+        config_store: Optional[ConfigStore] = None,
         **kwargs
     ):
         """
@@ -129,6 +133,7 @@ class FlatMachine:
             agent_adapters: List of agent adapters to register (optional)
             profiles_file: Optional profiles.yml path for adapters that use it
             tool_provider: Default ToolProvider for tool_loop states (optional)
+            config_store: Content-addressed config store for cross-SDK resume (optional)
             **kwargs: Override config values
         """
         if Template is None:
@@ -146,6 +151,10 @@ class FlatMachine:
         self._profiles_file = profiles_file or kwargs.pop('_profiles_file', None)
 
         self._load_config(config_file, config_dict)
+
+        # Capture raw config for content-addressed config store
+        self._config_raw: Optional[str] = self._capture_config_raw(config_file, config_dict)
+        self._config_hash: Optional[str] = None  # Set on first checkpoint save
 
         # Allow launcher to override config_dir for launched machines
         if config_dir_override:
@@ -201,6 +210,10 @@ class FlatMachine:
         self.total_api_calls = 0
         self.total_cost = 0.0
 
+        # Config store for cross-SDK resume (content-addressed)
+        # Set before _initialize_persistence so sqlite can auto-wire it.
+        self._config_store = config_store
+
         # Persistence & Locking
         self._initialize_persistence(persistence, lock)
 
@@ -237,43 +250,70 @@ class FlatMachine:
         persistence: Optional[PersistenceBackend],
         lock: Optional[ExecutionLock]
     ) -> None:
-        """Initialize persistence and locking components."""
+        """Initialize persistence and locking components.
+
+        Supports declarative backend selection via config:
+            backend: "memory" | "local" | "sqlite"
+
+        For sqlite, reads ``db_path`` from config (falls back to
+        env ``FLATMACHINES_DB_PATH``, then ``flatmachines.sqlite``).
+
+        Raises ``ValueError`` for unrecognized backend types to prevent
+        silent misconfiguration.
+        """
         # Get config
         p_config = self.data.get('persistence', {})
-        # Global features config override (simulated for now, would be in kwargs/settings)
-        # For now, rely on machine.yml or defaults
-        
-        enabled = p_config.get('enabled', True) # Default enabled? Or disable? 
-        # Plan says: "Global Defaults... backend: local".
-        # Let's default to enabled=False for backward compat if not configured? 
-        # Or follow plan default? Plan implies explicit configure.
-        # Let's default to MemoryBackend if enabled but no backend specified
-        
+
+        enabled = p_config.get('enabled', True)
         backend_type = p_config.get('backend', 'memory')
-        
+
+        # Resolve db_path for sqlite (config → env → default)
+        db_path = (
+            p_config.get('db_path')
+            or os.environ.get('FLATMACHINES_DB_PATH')
+            or 'flatmachines.sqlite'
+        )
+
         # Persistence Backend
         if persistence:
             self.persistence = persistence
         elif not enabled:
-            self.persistence = MemoryBackend() # Fallback, unsaved
+            self.persistence = MemoryBackend()
         elif backend_type == 'local':
             self.persistence = LocalFileBackend()
         elif backend_type == 'memory':
             self.persistence = MemoryBackend()
+        elif backend_type == 'sqlite':
+            self.persistence = SQLiteCheckpointBackend(db_path=db_path)
         else:
-            logger.warning(f"Unknown backend '{backend_type}', using memory")
-            self.persistence = MemoryBackend()
-            
+            raise ValueError(
+                f"Unknown persistence backend '{backend_type}'. "
+                f"Supported backends: 'memory', 'local', 'sqlite'."
+            )
+
         # Lock
         if lock:
             self.lock = lock
         elif not enabled:
             self.lock = NoOpLock()
         elif backend_type == 'local':
-            self.lock = LocalFileLock() 
+            self.lock = LocalFileLock()
+        elif backend_type == 'sqlite':
+            self.lock = SQLiteLeaseLock(
+                db_path=db_path,
+                owner_id=self.execution_id,
+                phase="machine",
+            )
         else:
             self.lock = NoOpLock()
-            
+
+        # Auto-wire config_store from SQLite persistence when absent
+        if (
+            self._config_store is None
+            and isinstance(self.persistence, SQLiteCheckpointBackend)
+        ):
+            self._config_store = self.persistence.config_store
+
         # Checkpoint events (default set)
         default_events = ['machine_start', 'state_enter', 'execute', 'state_exit', 'machine_end', 'waiting', 'tool_call']
         self.checkpoint_events = set(p_config.get('checkpoint_on', default_events))
@@ -325,6 +365,25 @@ class FlatMachine:
             raise ValueError("Must provide config_file or config_dict")
 
         self.config = config
+
+    @staticmethod
+    def _capture_config_raw(
+        config_file: Optional[str],
+        config_dict: Optional[Dict],
+    ) -> Optional[str]:
+        """Capture the raw config as a normalized YAML string.
+
+        For file-based configs, reads the file verbatim.
+        For dict-based configs, serializes to YAML.
+        """
+        if config_file is not None:
+            with open(config_file, "r") as f:
+                return f.read()
+        if config_dict is not None:
+            if yaml is None:
+                return json.dumps(config_dict, indent=2, default=str)
+            return yaml.dump(config_dict, default_flow_style=False, sort_keys=False)
+        return None
 
     def _validate_spec(self) -> None:
         """Validate the spec envelope."""
@@ -686,6 +745,7 @@ class FlatMachine:
             agent_registry=self.agent_registry,
             persistence=self.persistence,
             lock=self.lock,
+            config_store=self._config_store,
             _config_dir=peer_config_dir,
             _execution_id=child_id,
             _parent_execution_id=self.execution_id,
@@ -1279,10 +1339,18 @@ class FlatMachine:
         variables = {"context": context, "input": context}
         agent_input = self._render_dict(input_spec, variables)
 
-        # Restore chain from prior round if available (preserves prefix cache)
+        # Restore chain from prior round only when state+agent identity matches.
+        # This preserves prefix cache for same-state continuation while preventing
+        # cross-state/agent chain bleed.
         saved_chain = context.pop('_tool_loop_chain', None)
-        has_prior_chain = bool(saved_chain)
-        chain: List[Dict[str, Any]] = saved_chain if saved_chain else []
+        saved_chain_state = context.pop('_tool_loop_chain_state', None)
+        saved_chain_agent = context.pop('_tool_loop_chain_agent', None)
+        has_prior_chain = bool(
+            saved_chain
+            and saved_chain_state == state_name
+            and saved_chain_agent == agent_name
+        )
+        chain: List[Dict[str, Any]] = saved_chain if has_prior_chain else []
         turns = 0
         tool_calls_count = 0
         loop_cost = 0.0
@@ -1338,7 +1406,7 @@ class FlatMachine:
                 )
 
             # --- Seed chain on first turn ---
-            if turns == 1 and result.rendered_user_prompt:
+            if turns == 1 and not has_prior_chain and result.rendered_user_prompt:
                 chain.append({"role": "user", "content": result.rendered_user_prompt})
 
             # --- Build assistant message and append to chain ---
@@ -1480,8 +1548,10 @@ class FlatMachine:
                 for msg in steering:
                     chain.append(msg)
 
-        # Save chain to context for potential continuation (preserves prefix cache)
+        # Save chain identity for potential continuation (preserves prefix cache)
         context['_tool_loop_chain'] = chain
+        context['_tool_loop_chain_state'] = state_name
+        context['_tool_loop_chain_agent'] = agent_name
 
         # --- Build output ---
         output = {
@@ -1547,6 +1617,10 @@ class FlatMachine:
         if "machine" in checkpoint_context and isinstance(checkpoint_context["machine"], MappingProxyType):
             checkpoint_context["machine"] = dict(checkpoint_context["machine"])
 
+        # Store config in content-addressed store on first checkpoint
+        if self._config_hash is None and self._config_raw and self._config_store:
+            self._config_hash = await self._config_store.put(self._config_raw)
+
         snapshot = MachineSnapshot(
             execution_id=self.execution_id,
             machine_name=self.machine_name,
@@ -1562,6 +1636,7 @@ class FlatMachine:
             pending_launches=self._get_pending_intents() if self._pending_launches else None,
             waiting_channel=waiting_channel,
             tool_loop_state=tool_loop_state,
+            config_hash=self._config_hash,
         )
 
         manager = CheckpointManager(self.persistence, self.execution_id)

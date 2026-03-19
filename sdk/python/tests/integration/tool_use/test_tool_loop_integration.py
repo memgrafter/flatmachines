@@ -13,7 +13,8 @@ Coverage:
 - Guardrails stopping a runaway loop
 - Tool loop with denied tools and policy skip
 - Standalone ToolLoopAgent end-to-end with real tools
-- Chain preservation across states (prefix cache pattern)
+- Chain preservation for same-state continuation (prefix cache pattern)
+- Cross-state tool-loop chain isolation
 """
 
 import asyncio
@@ -798,3 +799,84 @@ class TestChainPreservation:
         roles = [m["role"] for m in chain]
         assert "user" in roles
         assert "tool" in roles
+
+
+# ---------------------------------------------------------------------------
+# Test: Cross-state isolation for tool-loop chain
+# ---------------------------------------------------------------------------
+
+class TestCrossStateChainIsolation:
+    """A tool-loop state must not reuse another state's chain."""
+
+    @pytest.mark.asyncio
+    async def test_second_tool_loop_state_starts_fresh(self, tmp_work_dir):
+        provider = FilesystemToolProvider(tmp_work_dir)
+
+        cfg = {
+            "spec": "flatmachine",
+            "spec_version": "1.1.1",
+            "data": {
+                "name": "cross-state-chain-isolation",
+                "context": {"task": "{{ input.task }}"},
+                "agents": {"coder": "./agent.yml"},
+                "states": {
+                    "start": {"type": "initial", "transitions": [{"to": "work_a"}]},
+                    "work_a": {
+                        "agent": "coder",
+                        "tool_loop": True,
+                        "input": {
+                            "task": "{{ context.task }}",
+                            "phase": "A",
+                        },
+                        "output_to_context": {"result_a": "{{ output.content }}"},
+                        "transitions": [{"to": "work_b"}],
+                    },
+                    "work_b": {
+                        "agent": "coder",
+                        "tool_loop": True,
+                        "input": {
+                            "task": "{{ context.task }}",
+                            "phase": "B",
+                        },
+                        "output_to_context": {"result_b": "{{ output.content }}"},
+                        "transitions": [{"to": "done"}],
+                    },
+                    "done": {
+                        "type": "final",
+                        "output": {
+                            "result_a": "{{ context.result_a }}",
+                            "result_b": "{{ context.result_b }}",
+                        },
+                    },
+                },
+            },
+        }
+
+        executor = ScriptedExecutor([
+            AgentResult(content="phase A done", finish_reason="stop", rendered_user_prompt="rendered-a"),
+            AgentResult(content="phase B done", finish_reason="stop", rendered_user_prompt="rendered-b"),
+        ])
+
+        machine = FlatMachine(
+            config_dict=cfg,
+            tool_provider=provider,
+            persistence=MemoryBackend(),
+        )
+        machine._agents = {"coder": executor}
+
+        result = await machine.execute(input={"task": "integration task"})
+
+        assert result["result_a"] == "phase A done"
+        assert result["result_b"] == "phase B done"
+        assert len(executor.calls) == 2
+
+        first = executor.calls[0]
+        second = executor.calls[1]
+
+        assert first["method"] == "execute_with_tools"
+        assert first["input_data"] == {"task": "integration task", "phase": "A"}
+        assert first["messages"] is None
+
+        assert second["method"] == "execute_with_tools"
+        assert second["input_data"] == {"task": "integration task", "phase": "B"}
+        assert second["messages"] is None

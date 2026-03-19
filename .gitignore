@@ -13,3 +13,5 @@ data
 .checkpoints
 
 logs
+
+.aider.tags.cache.v4/

@@ -190,16 +190,35 @@ python -m flatmachines.run --config machine.yml --input '{"key": "value"}'
 
 This is used by `SubprocessInvoker` for isolated execution.
 
+## Signals & Dispatch
+
+Machine pauses at `wait_for` → checkpoints → process exits. Signal resumes it.
+
+**Send signals** (use `send_and_notify` to avoid forgetting the trigger):
+```python
+from flatmachines import send_and_notify
+await send_and_notify(signal_backend, trigger_backend, "approval/task-001", {"approved": True})
+```
+
+**Dispatch** (process pending signals, resume waiting machines):
+```bash
+python -m flatmachines.dispatch_signals --once --resumer config-store
+python -m flatmachines.dispatch_signals --listen --resumer config-store --socket-path /tmp/flatmachines/trigger.sock
+# diagnostics only (no-op resume):
+python -m flatmachines.dispatch_signals --once --allow-noop-resume
+```
+
+**Backends**: `SignalBackend` (memory, sqlite) × `TriggerBackend` (none, file, socket).
+
+**OS activation** (zero processes while idle):
+- **macOS**: launchd `WatchPaths` + `FileTrigger` + `--once`
+- **Linux**: systemd `.path` + `FileTrigger` + `--once`, or `.socket` + `--listen`
+- **Cloud**: `NoOpTrigger` — infra‑native activation (Streams/Lambda/queues)
+
 ## Distributed Worker Pattern
 
-FlatMachines includes the worker orchestration helpers:
-- `DistributedWorkerHooks`
-- `RegistrationBackend` + `WorkBackend` (SQLite or in‑memory)
+`DistributedWorkerHooks` + `RegistrationBackend` + `WorkBackend` (SQLite or in‑memory) power **checker/worker/reaper** topologies.
 
-This powers **checker/worker/reaper** topologies in the examples.
+## Compatibility
 
-## Compatibility Notes
-
-- FlatMachines is **agent‑framework‑agnostic**. It requires adapters for execution.
-- Install with `flatmachines[flatagents]` to use FlatAgent configs directly.
-- Agent and machine schemas remain lockstep with repository versions.
+Agent‑framework‑agnostic. Install `flatmachines[flatagents]` for FlatAgent configs. Schemas lockstep with repo versions.

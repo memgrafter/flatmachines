@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>{{LABEL}}</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>{{PYTHON}}</string>
+      <string>-m</string>
+      <string>listener_os.main</string>
+      <string>dispatch-once</string>
+      <string>--db-path</string>
+      <string>{{DB_PATH}}</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>{{WORKDIR}}</string>
+
+    <key>WatchPaths</key>
+    <array>
+      <string>{{TRIGGER_FILE}}</string>
+    </array>
+
+    <key>ThrottleInterval</key>
+    <integer>1</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>{{OUT_LOG}}</string>
+
+    <key>StandardErrorPath</key>
+    <string>{{ERR_LOG}}</string>
+  </dict>
+</plist>

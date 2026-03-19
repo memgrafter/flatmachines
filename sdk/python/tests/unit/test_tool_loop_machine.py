@@ -296,6 +296,123 @@ class TestBasicMachineToolLoop:
 
 
 # ---------------------------------------------------------------------------
+# Tests: Chain isolation + continuation behavior
+# ---------------------------------------------------------------------------
+
+class TestToolLoopChainScoping:
+
+    @pytest.mark.asyncio
+    async def test_cross_state_tool_loop_chain_isolation(self):
+        """State B should not reuse State A's chain (fresh input render expected)."""
+        cfg = {
+            "spec": "flatmachine",
+            "spec_version": "1.1.1",
+            "data": {
+                "name": "chain-scope",
+                "context": {},
+                "agents": {"coder": "./agent.yml"},
+                "states": {
+                    "start": {"type": "initial", "transitions": [{"to": "work_a"}]},
+                    "work_a": {
+                        "agent": "coder",
+                        "tool_loop": True,
+                        "input": {"task": "state-a"},
+                        "transitions": [{"to": "work_b"}],
+                    },
+                    "work_b": {
+                        "agent": "coder",
+                        "tool_loop": True,
+                        "input": {"task": "state-b"},
+                        "transitions": [{"to": "done"}],
+                    },
+                    "done": {"type": "final", "output": {"ok": True}},
+                },
+            },
+        }
+
+        machine, executor = _build_machine(
+            executor_responses=[
+                _make_agent_result(content="a", rendered_user_prompt="prompt-a"),
+                _make_agent_result(content="b", rendered_user_prompt="prompt-b"),
+            ],
+            tool_provider=MockToolProvider(),
+            config=cfg,
+        )
+
+        await machine.execute(input={})
+
+        assert len(executor.calls) == 2
+        assert executor.calls[0]["input_data"] == {"task": "state-a"}
+        assert executor.calls[0]["messages"] is None
+        assert executor.calls[1]["input_data"] == {"task": "state-b"}
+        assert executor.calls[1]["messages"] is None
+
+    @pytest.mark.asyncio
+    async def test_same_state_continuation_reuses_chain(self):
+        """Same state+agent continuation should reuse saved chain."""
+        machine, executor = _build_machine(
+            executor_responses=[_make_agent_result(content="continued")],
+            tool_provider=MockToolProvider(),
+        )
+
+        seed_chain = [
+            {"role": "user", "content": "prior prompt"},
+            {"role": "assistant", "content": "prior answer"},
+        ]
+        context = {
+            "task": "resume",
+            "_tool_loop_chain": [*seed_chain],
+            "_tool_loop_chain_state": "work",
+            "_tool_loop_chain_agent": "coder",
+        }
+
+        updated_context, _ = await machine._execute_tool_loop(
+            "work", machine.states["work"], "coder", context
+        )
+
+        assert executor.calls[0]["input_data"] == {}
+        assert executor.calls[0]["messages"] is not None
+        assert executor.calls[0]["messages"][0]["content"] == "prior prompt"
+        assert updated_context["_tool_loop_chain_state"] == "work"
+        assert updated_context["_tool_loop_chain_agent"] == "coder"
+
+    @pytest.mark.asyncio
+    async def test_continuation_does_not_append_synthetic_user_prompt(self):
+        """Continuation turn should not append rendered_user_prompt into existing chain."""
+        machine, _ = _build_machine(
+            executor_responses=[
+                _make_agent_result(
+                    content="continued answer",
+                    rendered_user_prompt="SHOULD_NOT_APPEND",
+                )
+            ],
+            tool_provider=MockToolProvider(),
+        )
+
+        seed_chain = [
+            {"role": "user", "content": "prior prompt"},
+            {"role": "assistant", "content": "prior answer"},
+        ]
+        context = {
+            "task": "resume",
+            "_tool_loop_chain": [*seed_chain],
+            "_tool_loop_chain_state": "work",
+            "_tool_loop_chain_agent": "coder",
+        }
+
+        updated_context, _ = await machine._execute_tool_loop(
+            "work", machine.states["work"], "coder", context
+        )
+
+        final_chain = updated_context["_tool_loop_chain"]
+        assert len(final_chain) == 3
+        assert not any(
+            m.get("role") == "user" and m.get("content") == "SHOULD_NOT_APPEND"
+            for m in final_chain
+        )
+
+
+# ---------------------------------------------------------------------------
 # Tests: Guardrails
 # ---------------------------------------------------------------------------
 

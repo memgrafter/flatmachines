@@ -72,9 +72,10 @@ Common fields supported by the Python runtime:
 - `provider`, `name` (combined into `provider/name` if needed)
 - `temperature`, `max_tokens`, `top_p`, `top_k`
 - `frequency_penalty`, `presence_penalty`, `seed`
-- `base_url` (passed as `api_base` to LiteLLM)
+- `base_url` (passed as `api_base` to LiteLLM, or Codex base URL for `backend: codex`)
 - `stream` (bool), `stream_options`
-- `backend` ("litellm" | "aisuite")
+- `backend` ("litellm" | "aisuite" | "codex")
+- `oauth` (Codex auth config: `auth_file`, `originator`, `refresh`, `timeout_seconds`, `max_retries`, `token_url`, `client_id`)
 
 ## Python Runtime Behavior
 
@@ -114,6 +115,7 @@ print(result.output, result.content)
 The Python SDK supports:
 - **LiteLLMBackend** (default; `litellm`)
 - **AISuiteBackend** (`aisuite`)
+- **Codex OAuth backend** (`codex`)
 - **LLMBackend** protocol for custom providers
 
 Backend selection order:
@@ -121,6 +123,13 @@ Backend selection order:
 2. `data.model.backend` field
 3. `FLATAGENTS_BACKEND` env var ("litellm" or "aisuite")
 4. Auto-detect installed backend (prefers litellm)
+
+Codex is never auto-detected; configure it explicitly via `backend: codex`.
+
+Codex login helper:
+```bash
+python -m flatagents.providers.openai_codex_login --auth-file ~/.pi/agent/auth.json
+```
 
 ## MCP Tooling
 

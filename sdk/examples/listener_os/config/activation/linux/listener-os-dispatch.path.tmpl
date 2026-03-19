@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch listener_os trigger file
+
+[Path]
+PathChanged={{TRIGGER_FILE}}
+Unit={{SERVICE_NAME}}.service
+
+[Install]
+WantedBy=default.target

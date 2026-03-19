@@ -80,7 +80,7 @@ print(result.output)
 **reviewer.yml**
 ```yaml
 spec: flatagent
-spec_version: "2.0.0"
+spec_version: "2.3.0"
 
 data:
   name: code-reviewer
@@ -123,7 +123,7 @@ Centralize model configurations in `profiles.yml` and reference them by name:
 **profiles.yml**
 ```yaml
 spec: flatprofiles
-spec_version: "2.0.0"
+spec_version: "2.3.0"
 
 data:
   model_profiles:
@@ -251,6 +251,25 @@ agent = FlatAgent(config_file="agent.yml")
 # AISuite
 backend = AISuiteBackend(model="openai:gpt-4o")
 agent = FlatAgent(config_file="agent.yml", backend=backend)
+```
+
+Codex OAuth backend (ChatGPT Plus/Pro credentials):
+
+```yaml
+model:
+  provider: openai-codex
+  name: gpt-5
+  backend: codex
+  oauth:
+    auth_file: ~/.pi/agent/auth.json
+    originator: pi
+    refresh: true
+```
+
+Login helper:
+
+```bash
+python -m flatagents.providers.openai_codex_login --auth-file ~/.pi/agent/auth.json
 ```
 
 ### Hooks

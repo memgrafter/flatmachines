@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flatmachines"
-version = "2.0.0"
+version = "2.3.0"
 description = "State machine orchestration for agent workflows."
 readme = "README.md"
 license = "Apache-2.0"

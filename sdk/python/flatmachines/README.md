@@ -99,9 +99,27 @@ Supported: `default`, `retry`, `parallel`, `mdap_voting`.
 ```yaml
 persistence:
   enabled: true
-  backend: local  # local | memory
+  backend: local  # local | memory | sqlite
   checkpoint_on: [machine_start, state_enter, execute, state_exit, machine_end]
 ```
+
+### SQLite backend (recommended for durable single-file persistence)
+
+```yaml
+persistence:
+  enabled: true
+  backend: sqlite
+  db_path: ./flatmachines.sqlite   # optional, defaults to flatmachines.sqlite
+```
+
+When `backend: sqlite` is declared, the SDK automatically selects:
+- `SQLiteCheckpointBackend` for checkpoint storage
+- `SQLiteLeaseLock` for concurrency control
+- `SQLiteConfigStore` for content-addressed config storage (auto-wired when no explicit `config_store` is passed)
+
+No imperative runner injection required — everything is driven from config.
+
+`db_path` resolution order: config field → `FLATMACHINES_DB_PATH` env var → `flatmachines.sqlite`.
 
 Resume with `machine.execute(resume_from=execution_id)`. Checkpoints store `MachineSnapshot` including pending launches.
 
