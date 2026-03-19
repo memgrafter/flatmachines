@@ -20,6 +20,8 @@ from flatmachines.adapters.claude_code import (
     _DEFAULT_MODEL,
     _DEFAULT_EFFORT,
     _DEFAULT_MAX_CONTINUATIONS,
+    _DEFAULT_RATE_LIMIT_DELAY,
+    _DEFAULT_RATE_LIMIT_JITTER,
 )
 from flatagents.monitoring import AgentMonitor
 from flatmachines.agents import AgentAdapterContext, AgentRef, AgentResult
@@ -38,10 +40,12 @@ def _load_fixture(name: str) -> List[str]:
 
 
 def _make_executor(config: Optional[Dict[str, Any]] = None) -> ClaudeCodeExecutor:
+    from flatmachines.adapters.call_throttle import CallThrottle
     return ClaudeCodeExecutor(
         config=config or {},
         config_dir="/tmp/test",
         settings={},
+        throttle=CallThrottle(),  # disabled — unit tests shouldn't sleep
     )
 
 
@@ -215,6 +219,47 @@ class TestBuildArgs:
         executor = _make_executor({"add_dirs": []})
         args = executor._build_args("task", "s1", resume=False)
         assert "--add-dir" not in args
+
+
+class TestThrottleDefaults:
+    def test_default_throttle_enabled(self):
+        """Executor created without injected throttle uses adapter defaults."""
+        executor = ClaudeCodeExecutor(
+            config={},
+            config_dir="/tmp/test",
+            settings={},
+        )
+        assert executor._throttle.enabled
+        assert executor._throttle._delay == _DEFAULT_RATE_LIMIT_DELAY
+        assert executor._throttle._jitter == _DEFAULT_RATE_LIMIT_JITTER
+
+    def test_throttle_override_from_config(self):
+        executor = ClaudeCodeExecutor(
+            config={"rate_limit_delay": 1.0, "rate_limit_jitter": 0.5},
+            config_dir="/tmp/test",
+            settings={},
+        )
+        assert executor._throttle._delay == 1.0
+        assert executor._throttle._jitter == 0.5
+
+    def test_throttle_disabled_via_config(self):
+        executor = ClaudeCodeExecutor(
+            config={"rate_limit_delay": 0, "rate_limit_jitter": 0},
+            config_dir="/tmp/test",
+            settings={},
+        )
+        assert not executor._throttle.enabled
+
+    def test_injected_throttle_wins(self):
+        from flatmachines.adapters.call_throttle import CallThrottle
+        custom = CallThrottle(delay=99.0, jitter=0.0)
+        executor = ClaudeCodeExecutor(
+            config={},
+            config_dir="/tmp/test",
+            settings={},
+            throttle=custom,
+        )
+        assert executor._throttle is custom
 
 
 # ---------------------------------------------------------------------------

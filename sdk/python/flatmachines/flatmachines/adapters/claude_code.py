@@ -64,6 +64,8 @@ _DEFAULT_CONTINUATION_PROMPT = (
     "Continue working. When fully done, emit <<AGENT_EXIT>> on its own line."
 )
 _DEFAULT_MAX_CONTINUATIONS = 100
+_DEFAULT_RATE_LIMIT_DELAY = 3.0   # seconds between CLI calls
+_DEFAULT_RATE_LIMIT_JITTER = 4.0  # ±4s → uniform(0, 8) added → [3, 11]s total
 _SIGTERM_GRACE_SECONDS = 5
 
 
@@ -207,8 +209,16 @@ class ClaudeCodeExecutor(AgentExecutor):
         # Merge settings (global) under config (per-agent), config wins
         self._merged: Dict[str, Any] = {**settings, **config}
 
-        # Rate limiter — injected or built from config
-        self._throttle = throttle or throttle_from_config(self._merged)
+        # Rate limiter — injected or built from config (defaults on)
+        if throttle is not None:
+            self._throttle = throttle
+        else:
+            self._throttle = CallThrottle(
+                delay=float(self._merged.get(
+                    "rate_limit_delay", _DEFAULT_RATE_LIMIT_DELAY)),
+                jitter=float(self._merged.get(
+                    "rate_limit_jitter", _DEFAULT_RATE_LIMIT_JITTER)),
+            )
 
     @property
     def metadata(self) -> Dict[str, Any]:
