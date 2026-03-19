@@ -75,6 +75,8 @@ _BASE_CONFIG = {
     "effort": "low",
     "permission_mode": "bypassPermissions",
     "max_continuations": 0,  # disable auto-continue unless explicitly tested
+    "rate_limit_delay": 3.0,   # 3s base between CLI calls
+    "rate_limit_jitter": 4.0,  # ±4s → uniform(0, 8) added → [3, 11]s total
 }
 
 _WORK_DIR: Optional[str] = None

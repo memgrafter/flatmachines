@@ -26,6 +26,8 @@ Config keys (agent config or global settings.agent_runners.claude_code):
   max_continuations   Max continuation attempts (default: 100, 0 = disabled)
   exit_sentinel       Sentinel text to detect completion (default: <<AGENT_EXIT>>)
   continuation_prompt  Prompt for continuation turns
+  rate_limit_delay   Base seconds between CLI calls (default 0 = disabled)
+  rate_limit_jitter  ±seconds jitter added to delay (default 0)
 """
 
 from __future__ import annotations
@@ -47,6 +49,7 @@ from ..agents import (
     AgentRef,
     AgentResult,
 )
+from .call_throttle import CallThrottle, throttle_from_config
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +198,7 @@ class ClaudeCodeExecutor(AgentExecutor):
         config: Dict[str, Any],
         config_dir: str,
         settings: Dict[str, Any],
+        throttle: Optional[CallThrottle] = None,
     ) -> None:
         self._config = config
         self._config_dir = config_dir
@@ -202,6 +206,9 @@ class ClaudeCodeExecutor(AgentExecutor):
 
         # Merge settings (global) under config (per-agent), config wins
         self._merged: Dict[str, Any] = {**settings, **config}
+
+        # Rate limiter — injected or built from config
+        self._throttle = throttle or throttle_from_config(self._merged)
 
     @property
     def metadata(self) -> Dict[str, Any]:
@@ -416,6 +423,11 @@ class ClaudeCodeExecutor(AgentExecutor):
             context: Optional context for working_dir resolution
             fork_session: Add --fork-session (new ID, preserves history)
         """
+        # Rate-limit gate (serialised — concurrent callers stagger)
+        waited = await self._throttle.wait()
+        if waited > 0:
+            logger.info("Claude Code throttle: waited %.3fs before call", waited)
+
         cfg = self._merged
         model = cfg.get("model", _DEFAULT_MODEL)
         agent_id = f"claude-code/{model}"
