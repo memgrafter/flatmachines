@@ -43,6 +43,18 @@ Resolution: default → profile → overrides → override
 - Token handling: pre-request refresh on expiry; if refresh fails, re-read auth store once for cross-process refresh; fallback refresh+retry on `401/403`.
 - Transport: SSE only; retries on `429/500/502/503/504` with exponential backoff (no jitter).
 
+## Claude Code Backend Behavior
+
+- `backend: claude_code` is **explicit-only** (never auto-detected).
+- Uses standard Anthropic Messages API with OAuth Bearer auth (not API key auth).
+- Login via `claude-code-login` CLI: PKCE authorization code flow through `claude.ai/oauth/authorize`.
+- Auth file precedence: `oauth.auth_file` → `auth.auth_file` → `FLATAGENTS_CLAUDE_CODE_AUTH_FILE` → `FLATAGENTS_CODEX_AUTH_FILE` → `~/.pi/agent/auth.json`.
+- Token handling: identical to Codex — pre-request refresh, cross-process re-read, fallback refresh+retry on `401/403`.
+- Access tokens use `sk-ant-oat` prefix; token exchange/refresh uses JSON content type (not form-encoded).
+- Claude Code identity: required headers (`anthropic-beta: claude-code-20250219,oauth-2025-04-20`, `user-agent: claude-cli/<version>`, `x-app: cli`) and system prompt prefix (`"You are Claude Code, Anthropic's official CLI for Claude."`).
+- Tool names: mapped to Claude Code canonical casing on request (`read`→`Read`, `bash`→`Bash`), reverse-mapped on response.
+- Transport: SSE streaming via Anthropic event format; retries on `429/500/502/503/504` with exponential backoff.
+
 ## Agent References
 
 `data.agents` values may be:
