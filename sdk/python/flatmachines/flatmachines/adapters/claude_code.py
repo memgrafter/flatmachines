@@ -322,6 +322,15 @@ class ClaudeCodeExecutor(AgentExecutor):
             },
             provider_data=last_result.provider_data,
         )
+
+        # Log aggregated summary when continuations were used
+        if attempt > 1:
+            logger.info(
+                "Claude Code execute complete: continuations=%s total_cache_read=%s "
+                "total_cache_write=%s total_cost=%s",
+                attempt, total_cache_read, total_cache_write, total_cost,
+            )
+
         return final
 
     async def execute_with_tools(
@@ -460,7 +469,25 @@ class ClaudeCodeExecutor(AgentExecutor):
                 },
             )
 
-        return self._build_result(collector, session_id, stderr_text)
+        result = self._build_result(collector, session_id, stderr_text)
+
+        # Log cache metrics for every invocation
+        usage = result.usage or {}
+        logger.info(
+            "Claude Code result: session=%s cache_read=%s cache_write=%s "
+            "input=%s output=%s cost=%s turns=%s duration_ms=%s%s",
+            (result.metadata or {}).get("session_id", session_id),
+            usage.get("cache_read_tokens", 0),
+            usage.get("cache_write_tokens", 0),
+            usage.get("input_tokens", 0),
+            usage.get("output_tokens", 0),
+            result.cost,
+            (result.metadata or {}).get("num_turns"),
+            (result.metadata or {}).get("duration_ms"),
+            " ERROR" if result.error else "",
+        )
+
+        return result
 
     async def _read_stream(
         self,
