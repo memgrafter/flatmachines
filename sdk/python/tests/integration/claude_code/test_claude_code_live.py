@@ -579,3 +579,91 @@ async def test_cache_metrics_populated(work_dir):
     # (system prompt is always cached)
     cache_total = u.get("cache_read_tokens", 0) + u.get("cache_write_tokens", 0)
     assert cache_total > 0, f"No cache activity detected: {u}"
+
+
+# ---------------------------------------------------------------------------
+# 14. Minimal system prompt + restricted tools (pi-style)
+# ---------------------------------------------------------------------------
+
+# Pi's system prompt (from pi-mono/packages/coding-agent/src/core/system-prompt.ts)
+# stripped to the base template with 4 tools, no pi docs / context / skills.
+_PI_SYSTEM_PROMPT = """\
+You are an expert coding assistant. You help users by reading files, \
+executing commands, editing code, and writing new files.
+
+Available tools:
+- bash: Execute bash commands (ls, grep, find, etc.)
+- read: Read file contents
+- edit: Make surgical edits to files (find exact text and replace)
+- write: Create or overwrite files
+
+Guidelines:
+- Use bash for file operations like ls, rg, find
+- Use read to examine files before editing
+- Use edit for precise changes (old text must match exactly)
+- Use write only for new files or complete rewrites
+- When summarizing your actions, output plain text directly
+- Be concise in your responses
+- Show file paths clearly when working with files"""
+
+
+@pytest.mark.asyncio
+async def test_minimal_prompt_restricted_tools(work_dir):
+    """4 tools + pi system prompt: verify it works and measure token footprint."""
+    # Create test files
+    test_file = os.path.join(work_dir, "pi_test.txt")
+    with open(test_file, "w") as f:
+        f.write("The answer is 99.\n")
+
+    executor = _make_executor(
+        config_overrides={
+            "system_prompt": _PI_SYSTEM_PROMPT,
+            "tools": ["Bash", "Read", "Write", "Edit"],
+        },
+        work_dir=work_dir,
+    )
+
+    result = await executor.execute({
+        "task": "Read pi_test.txt and tell me the answer. Reply with just the number.",
+    })
+
+    assert result.error is None, f"Error: {result.error}"
+    assert result.content is not None
+    assert "99" in result.content, f"Expected 99 in response. Got: {result.content}"
+
+    # Verify tool use happened
+    events = result.metadata.get("stream_events", [])
+    tool_use_found = any(
+        block.get("type") == "tool_use" and block.get("name") == "Read"
+        for e in events if e.get("type") == "assistant"
+        for block in e.get("message", {}).get("content", [])
+    )
+    assert tool_use_found, "Expected Read tool_use in stream events"
+
+    # Verify system event shows exactly 4 tools
+    sys_events = [e for e in events if e.get("type") == "system"]
+    assert len(sys_events) > 0
+    reported_tools = set(sys_events[0].get("tools", []))
+    expected_tools = {"Bash", "Read", "Write", "Edit"}
+    assert reported_tools == expected_tools, \
+        f"Expected exactly {expected_tools}, got {reported_tools}"
+
+    # Measure token footprint.
+    # NOTE: --system-prompt replaces the user-visible portion but Claude Code
+    # still prepends its own internal system content (safety rules, tool defs,
+    # internal instructions).  With 4 tools the total is still ~15-22K tokens.
+    # --system-prompt does NOT reduce the internal overhead.
+    u = result.usage
+    cache_total = u.get("cache_read_tokens", 0) + u.get("cache_write_tokens", 0)
+    input_tokens = u.get("input_tokens", 0)
+
+    print(f"\n  Pi-style prompt token footprint:")
+    print(f"    cache_read:  {u.get('cache_read_tokens', 0):,}")
+    print(f"    cache_write: {u.get('cache_write_tokens', 0):,}")
+    print(f"    input:       {input_tokens:,}")
+    print(f"    output:      {u.get('output_tokens', 0):,}")
+    print(f"    total cache: {cache_total:,}")
+    print(f"    cost:        ${result.cost}")
+
+    # Sanity: cache should be populated (system prompt is always cached)
+    assert cache_total > 0, f"No cache activity detected: {u}"
