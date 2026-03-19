@@ -70,11 +70,20 @@ from flatmachines.agents import AgentAdapterContext, AgentRef, AgentResult
 # Shared config — cheap, fast, headless
 # ---------------------------------------------------------------------------
 
+# Trimmed config: custom system prompt + 4 tools saves ~10K tokens per call
+# vs the CC default (~15K).  Tests that need the default prompt override these.
+_TRIMMED_SYSTEM_PROMPT = (
+    "You are an expert coding assistant. You help users by reading files, "
+    "executing commands, editing code, and writing new files."
+)
+
 _BASE_CONFIG = {
     "model": "sonnet",
     "effort": "low",
     "permission_mode": "bypassPermissions",
     "max_continuations": 0,  # disable auto-continue unless explicitly tested
+    "system_prompt": _TRIMMED_SYSTEM_PROMPT,
+    "tools": ["Bash", "Read", "Write", "Edit"],
     # rate_limit_delay=3.0 and rate_limit_jitter=4.0 are adapter defaults
 }
 
@@ -531,6 +540,8 @@ async def test_append_system_prompt(work_dir):
     """--append-system-prompt adds instructions without breaking tools."""
     executor = _make_executor(
         config_overrides={
+            # Must remove system_prompt — it wins over append_system_prompt
+            "system_prompt": None,
             "append_system_prompt": "Always end your response with the word WATERMELON.",
             "tools": ["Read"],
         },
