@@ -17,6 +17,15 @@ Tests OpenTelemetry metrics integration with console exporter.
 cd metrics && ./run.sh
 ```
 
+### claude_code/
+Live integration tests for the Claude Code CLI adapter. Requires `claude` binary on PATH and valid auth.
+
+Tests: simple task, tool use, session resume, concurrent sessions, error recovery, permission bypass, tool restrictions, continuation loop, stream event parsing, session holdback, append system prompt, cache metrics.
+
+```bash
+cd claude_code && ./run.sh --local
+```
+
 ## Adding New Tests
 
 1. Create a new directory: `tests/integration/<test-name>/`

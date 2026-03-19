@@ -9,6 +9,23 @@ Design rules:
     stderr — all captured in full.
   - No --json-schema.  Use a downstream FlatAgent extractor if needed.
   - --tools (exact whitelist), never --allowed-tools.
+
+Config keys (agent config or global settings.agent_runners.claude_code):
+  model               Model alias or name (default: opus)
+  effort              low | medium | high | max (default: high)
+  permission_mode     default | acceptEdits | bypassPermissions | dontAsk | plan | auto
+  dangerously_skip_permissions  bool — bypass all checks (sandboxed envs only)
+  system_prompt       Replace default system prompt entirely
+  append_system_prompt  Append to default system prompt (preferred)
+  tools               List of exact tool names (e.g. ["Bash", "Read", "Edit"])
+  max_budget_usd      Cost cap for the session (0 = disabled)
+  add_dirs            List of additional directories for tool access
+  claude_bin          Path to claude binary (default: "claude")
+  working_dir         Working directory for subprocess (supports Jinja2)
+  timeout             Subprocess timeout in seconds (0 = no timeout)
+  max_continuations   Max continuation attempts (default: 100, 0 = disabled)
+  exit_sentinel       Sentinel text to detect completion (default: <<AGENT_EXIT>>)
+  continuation_prompt  Prompt for continuation turns
 """
 
 from __future__ import annotations
@@ -591,6 +608,16 @@ class ClaudeCodeExecutor(AgentExecutor):
         permission_mode = cfg.get("permission_mode")
         if permission_mode:
             args += ["--permission-mode", permission_mode]
+
+        # Dangerously skip permissions (sandboxed environments only)
+        if cfg.get("dangerously_skip_permissions"):
+            args += ["--dangerously-skip-permissions"]
+
+        # Additional directories for tool access
+        add_dirs = cfg.get("add_dirs")
+        if add_dirs:
+            for d in add_dirs:
+                args += ["--add-dir", d]
 
         # Prompt control (mutually exclusive)
         system_prompt = cfg.get("system_prompt")

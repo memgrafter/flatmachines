@@ -192,6 +192,30 @@ class TestBuildArgs:
         idx = args.index("--effort")
         assert args[idx + 1] == "low"
 
+    def test_dangerously_skip_permissions(self):
+        executor = _make_executor({"dangerously_skip_permissions": True})
+        args = executor._build_args("task", "s1", resume=False)
+        assert "--dangerously-skip-permissions" in args
+
+    def test_dangerously_skip_permissions_false(self):
+        executor = _make_executor({"dangerously_skip_permissions": False})
+        args = executor._build_args("task", "s1", resume=False)
+        assert "--dangerously-skip-permissions" not in args
+
+    def test_add_dirs(self):
+        executor = _make_executor({"add_dirs": ["/tmp/extra", "/home/user/data"]})
+        args = executor._build_args("task", "s1", resume=False)
+        # Should have --add-dir /tmp/extra --add-dir /home/user/data
+        add_dir_indices = [i for i, a in enumerate(args) if a == "--add-dir"]
+        assert len(add_dir_indices) == 2
+        assert args[add_dir_indices[0] + 1] == "/tmp/extra"
+        assert args[add_dir_indices[1] + 1] == "/home/user/data"
+
+    def test_add_dirs_empty(self):
+        executor = _make_executor({"add_dirs": []})
+        args = executor._build_args("task", "s1", resume=False)
+        assert "--add-dir" not in args
+
 
 # ---------------------------------------------------------------------------
 # Stream collector tests
