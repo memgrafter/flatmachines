@@ -4,6 +4,7 @@ Claude Code Adapter Example — drive Claude Code CLI via FlatMachine.
 Usage:
     python -m claude_code_example.main -p "add a /health endpoint"
     python -m claude_code_example.main -p "add a /health endpoint" --multi-state
+    python -m claude_code_example.main -p "add a /health endpoint" --config machine_with_refs.yml
     python -m claude_code_example.main -p "add a /health endpoint" -w /path/to/project
 """
 
@@ -22,28 +23,38 @@ logging.getLogger().setLevel(_log_level)
 for _name in ("flatagents", "flatmachines"):
     logging.getLogger(_name).setLevel(_log_level)
 
+_CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config"
+
 
 def _config_path(name: str) -> str:
-    return str(Path(__file__).parent.parent.parent.parent / "config" / name)
+    return str(_CONFIG_DIR / name)
 
 
-async def run(task: str, working_dir: str, multi_state: bool = False):
+async def run(
+    task: str,
+    working_dir: str,
+    multi_state: bool = False,
+    config_name: str | None = None,
+):
     """Run a task via the Claude Code adapter."""
     hooks = ClaudeCodeHooks()
 
-    config_file = (
-        _config_path("machine_multi_state.yml")
-        if multi_state
-        else _config_path("machine.yml")
-    )
+    if config_name:
+        config_file = _config_path(config_name)
+    elif multi_state:
+        config_file = _config_path("machine_multi_state.yml")
+    else:
+        config_file = _config_path("machine.yml")
 
     machine = FlatMachine(
         config_file=config_file,
         hooks=hooks,
     )
 
+    # Build input — multi-state and refs machines use "feature", single uses "task"
+    uses_feature = multi_state or (config_name and "ref" in config_name)
     input_data = {"working_dir": working_dir}
-    if multi_state:
+    if uses_feature:
         input_data["feature"] = task
     else:
         input_data["task"] = task
@@ -85,9 +96,20 @@ def main():
         action="store_true",
         help="Use plan→implement→test multi-state machine",
     )
+    parser.add_argument(
+        "--config",
+        metavar="FILE",
+        dest="config_name",
+        help="Machine config filename from config/ (e.g., machine_with_refs.yml)",
+    )
     args = parser.parse_args()
 
-    asyncio.run(run(args.task, os.path.abspath(args.working_dir), args.multi_state))
+    asyncio.run(run(
+        args.task,
+        os.path.abspath(args.working_dir),
+        args.multi_state,
+        args.config_name,
+    ))
 
 
 if __name__ == "__main__":
