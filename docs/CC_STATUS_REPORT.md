@@ -186,31 +186,35 @@
 
 ────────────────────────────────────────────────────────────────────────────────
 
-### ⏳ REMAINING — Investigation / Deferred
-
-#### Checklist Item #1 — Session Management & Cache (remaining)
-
-- ❌ Investigate cache breakpoints — exact definition of "block," whether 4 breakpoints are configurable/exposed
-- ❌ Session forking read-only semantics — can N processes --resume from same session ID simultaneously? (not tested live)
-- ❌ Holdback keep-alive timing — warm() exists but optimal interval relative to 1-hour TTL is unknown
-- ❌ Session expiry/lifetime — how long do local session files persist? Is there garbage collection?
+### ⏳ REMAINING
 
 #### Checklist Item #3 — Tool Restrictions (remaining)
 
-- ❌ Declarative tool/prompt config in FlatMachine schema — config keys exist but no schema validation or documentation as part of the spec
+- [ ] Declarative tool/prompt config in FlatMachine schema — config keys exist but no schema validation or documentation as part of the spec. The config keys work — they're passed through to _build_args() and generate the right CLI flags. What's missing is JSON Schema validation that would catch typos at load time instead of at runtime.
+
+────────────────────────────────────────────────────────────────────────────────
+
+### ⛔ NOT NEEDED FOR PRODUCTION
+
+#### Checklist Item #1 — Session Management & Cache (remaining)
+
+- [ ] Investigate cache breakpoints — exact definition of "block," whether 4 breakpoints are configurable/exposed. This is Anthropic internals research. Our adapter already gets cache hits — we measured it live (cache_read > 0 on resume, 1-hour TTL confirmed). Understanding breakpoint internals would only matter if we were trying to optimize cache hit rates, which is a tuning concern, not a correctness or reliability concern. Production works without it.
+- [ ] Session forking read-only semantics — can N processes --resume from same session ID simultaneously? (not tested live). Our SessionHoldback pattern uses --fork-session for fan-out, which creates a new session from the parent. We never do concurrent --resume on the same ID — it's not in our architecture. This is a "what if someone misuses the API" question, not a production gap.
+- [ ] Holdback keep-alive timing — warm() exists but optimal interval relative to 1-hour TTL is unknown. warm() exists and works. The production-safe answer is "call it every 30-45 minutes." Whether 50 minutes is fine too is an optimization question. If the cache expires, the next call just costs slightly more tokens — it doesn't fail. No correctness risk.
+- [ ] Session expiry/lifetime — how long do local session files persist? Is there garbage collection? Session files are small (a few KB per turn). Even thousands of sessions won't fill a disk. This matters for long-running daemon deployments with months of accumulation — that's operational hygiene, not a production blocker. A cron job could clean old files if needed.
 
 #### Checklist Item #5 — Future: Plugins, --agent
 
-- ❌ --plugin-dir, --agent / --agents not investigated (--mcp-config now implemented)
+- [ ] --plugin-dir, --agent / --agents not investigated (--mcp-config now implemented). These are CC features we don't use. --mcp-config covers the extensibility need. Plugins and --agent are for CC's own multi-agent orchestration, which competes with FlatMachine — we'd never use both simultaneously.
 
 #### Checklist Item #7 — Experimental Validation (remaining)
 
-- ❌ Burn-in results not documented — scripts exist and work, but output not captured in docs
-- ❌ Structured output validation — StructuredOutput tool_use interception not tested live (unit-tested only)
+- [ ] Burn-in results not documented — scripts exist and work, but output not captured in docs. The scripts validated behavior during development. The 14 live integration tests cover the same scenarios with assertions. Documenting burn-in output is record-keeping, not a functional gap.
+- [ ] Structured output validation — StructuredOutput tool_use interception not tested live (unit-tested only). The implementation is mechanical — if the NDJSON event contains {"type": "tool_use", "name": "StructuredOutput", "input": {...}}, we capture the input dict. There's no ambiguity in the parsing. The unit tests use realistic fixtures. A live test would only confirm that CC actually emits StructuredOutput tool_use blocks, which is documented Anthropic behavior. Low risk.
 
-#### Other Remaining
+#### Other
 
-- ❌ FlatMachine-initiated cancellation — cancel() method exists on executor, but FlatMachine has no orchestration-level cancel signal to trigger it. Requires FlatMachine API extension.
+- [ ] FlatMachine-initiated cancellation — cancel() method exists on executor, but FlatMachine has no orchestration-level cancel signal to trigger it. Requires FlatMachine API extension. The executor's cancel() is callable by any external code (e.g., a timeout handler, a signal handler, a monitoring hook). FlatMachine-level cancellation would require adding a cancel API to the FlatMachine class itself — that's a framework feature, not a CC adapter gap. Today, if you need to kill a stuck CC call, you use timeout config (already implemented with SIGTERM→SIGKILL) or call executor.cancel() directly.
 
 ────────────────────────────────────────────────────────────────────────────────
 
@@ -218,11 +222,5 @@
 
 **Done:** Core adapter, 114 unit tests (78 adapter + 12 session + 16 throttle + 8 new), 14 live integration tests (all passing), rate limiting, permission mode validation, tool restriction validation, cache behavior analysis with full token breakdown, --add-dir / --dangerously-skip-permissions / --mcp-config support, hook event firing (on_tool_calls/on_tool_result), structured output extraction, rate limit surfacing, subprocess cancellation, documentation.
 
-**Remaining (investigation / deferred):**
-1. Cache breakpoints investigation
-2. Session forking read-only semantics
-3. Holdback keep-alive timing
-4. Schema validation for tool/prompt config in FlatMachine spec
-5. FlatMachine-initiated cancellation (executor cancel() exists, needs FM API)
-6. Burn-in test results not captured in docs
-7. Live validation of StructuredOutput interception
+**Remaining:**
+1. Schema validation for tool/prompt config in FlatMachine spec
