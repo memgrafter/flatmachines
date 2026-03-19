@@ -2,7 +2,7 @@
 name = "flatagents_unit_tests"
 version = "0.1.0"
 description = "Unit tests for FlatAgents core functionality"
-dependencies = ["flatagents[litellm]", "flatmachines[flatagents]", "pytest", "pytest-asyncio"]
+dependencies = ["flatagents[litellm,metrics]", "flatmachines[flatagents,metrics]", "pytest", "pytest-asyncio"]
 requires-python = ">=3.10"
 
 [build-system]
