@@ -7,8 +7,9 @@ Runs 3 sequential invocations on the same session:
   2. Resume (expect: high cache_read, low cache_write)
   3. Resume (expect: even higher cache_read)
 
-Prints a clear table of cache metrics per step so you can verify
-prompt caching is working.
+Per-invocation metrics (tokens, cache, cost, duration) are emitted
+automatically by AgentMonitor at INFO level.  This script only adds
+the summary table and cache-growth validation on top.
 
 Usage:
     cd sdk/python
@@ -25,7 +26,11 @@ import uuid
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "flatmachines"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "flatagents"))
 
+from flatagents.monitoring import setup_logging
 from flatmachines.adapters.claude_code import ClaudeCodeExecutor
+
+# Ensure AgentMonitor INFO lines are visible
+setup_logging(level="INFO")
 
 
 def _fmt(n):
@@ -35,29 +40,9 @@ def _fmt(n):
     return f"{n:,}"
 
 
-def _print_row(step, label, result):
-    usage = result.usage or {}
-    cache_read = usage.get("cache_read_tokens", 0)
-    cache_write = usage.get("cache_write_tokens", 0)
-    input_tok = usage.get("input_tokens", 0)
-    output_tok = usage.get("output_tokens", 0)
-    cost = result.cost if isinstance(result.cost, (int, float)) else 0
-    session = (result.metadata or {}).get("session_id", "?")
-    turns = (result.metadata or {}).get("num_turns", "?")
-    duration = (result.metadata or {}).get("duration_ms", "?")
-
-    print(f"  {step}. {label}")
-    print(f"     session:     {session}")
-    print(f"     input:       {_fmt(input_tok)}")
-    print(f"     output:      {_fmt(output_tok)}")
-    print(f"     cache_read:  {_fmt(cache_read)}")
-    print(f"     cache_write: {_fmt(cache_write)}")
-    print(f"     cost:        ${cost:.4f}" if cost else "     cost:        —")
-    print(f"     turns:       {turns}")
-    print(f"     duration_ms: {duration}")
-    if result.error:
-        print(f"     ERROR:       {result.error}")
-    print()
+def _usage(result):
+    """Extract usage dict with safe defaults."""
+    return result.usage or {}
 
 
 async def main():
@@ -66,7 +51,6 @@ async def main():
     print("=" * 70)
     print()
 
-    # Use a temp directory so we don't interfere with anything
     work_dir = "/tmp/cc-burnin-test"
     os.makedirs(work_dir, exist_ok=True)
 
@@ -88,6 +72,7 @@ async def main():
     print()
 
     # --- Step 1: New session ---
+    # AgentMonitor will log: Agent claude-code/sonnet completed in Xms - success | tokens: N→M
     print("─" * 70)
     print("Step 1: New session")
     print("─" * 70)
@@ -96,11 +81,10 @@ async def main():
         session_id=session_id,
         resume=False,
     )
-    _print_row(1, "New session", r1)
-
     if r1.error:
-        print("FAILED — aborting.")
+        print(f"FAILED: {r1.error}")
         return
+    print()
 
     # --- Step 2: Resume ---
     print("─" * 70)
@@ -111,11 +95,10 @@ async def main():
         session_id=session_id,
         resume=True,
     )
-    _print_row(2, "Resume #1", r2)
-
     if r2.error:
-        print("FAILED — aborting.")
+        print(f"FAILED: {r2.error}")
         return
+    print()
 
     # --- Step 3: Resume again ---
     print("─" * 70)
@@ -126,19 +109,20 @@ async def main():
         session_id=session_id,
         resume=True,
     )
-    _print_row(3, "Resume #2", r3)
+    if r3.error:
+        print(f"FAILED: {r3.error}")
+        return
+    print()
 
-    # --- Summary ---
+    # --- Summary table ---
     print("=" * 70)
     print("CACHE SUMMARY")
     print("=" * 70)
     print()
     print(f"  {'Step':<12} {'cache_read':>12} {'cache_write':>12} {'input':>10} {'output':>10} {'cost':>10}")
     print(f"  {'─'*12} {'─'*12} {'─'*12} {'─'*10} {'─'*10} {'─'*10}")
-    for i, (label, r) in enumerate(
-        [("New session", r1), ("Resume #1", r2), ("Resume #2", r3)], 1
-    ):
-        u = r.usage or {}
+    for label, r in [("New session", r1), ("Resume #1", r2), ("Resume #2", r3)]:
+        u = _usage(r)
         cr = u.get("cache_read_tokens", 0)
         cw = u.get("cache_write_tokens", 0)
         inp = u.get("input_tokens", 0)
@@ -148,13 +132,10 @@ async def main():
 
     print()
 
-    # Validate
-    u1 = (r1.usage or {})
-    u2 = (r2.usage or {})
-    u3 = (r3.usage or {})
-    cr1 = u1.get("cache_read_tokens", 0)
-    cr2 = u2.get("cache_read_tokens", 0)
-    cr3 = u3.get("cache_read_tokens", 0)
+    # --- Validate cache growth ---
+    cr1 = _usage(r1).get("cache_read_tokens", 0)
+    cr2 = _usage(r2).get("cache_read_tokens", 0)
+    cr3 = _usage(r3).get("cache_read_tokens", 0)
 
     if cr2 > cr1:
         print("  ✓ Cache read tokens INCREASED on resume #1 — caching is working!")
