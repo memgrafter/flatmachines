@@ -98,6 +98,7 @@ export interface State {
   output?: Record<string, any>;
   transitions?: { condition?: string; to: string }[];
   on_error?: string | Record<string, string>;
+  wait_for?: string;
   foreach?: string;
   as?: string;
   key?: string;

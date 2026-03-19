@@ -67,3 +67,18 @@ export type {
   HooksFactory
 } from './types';
 export type { TemplateAllowlist } from './template_allowlist';
+export {
+  extractGraph,
+  MermaidAdapter,
+  toMermaid,
+} from './ui';
+export type {
+  MachineGraph,
+  GraphNode,
+  GraphEdge,
+  NodeKind,
+  EdgeKind,
+  NodeDetail,
+  UIAdapter,
+  MermaidOptions,
+} from './ui';
