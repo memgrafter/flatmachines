@@ -1,50 +1,192 @@
-# FlatMachine Mermaid Diagram Visualization — Plan
+# FlatMachine UI Visualization — Plan
 
 ## Goal
-Generate Mermaid `stateDiagram-v2` diagrams from FlatMachine YAML configs, capturing all state types, transitions, parallel execution, error handling, and special nodes.
+Provide a general-purpose UI adapter system for visualizing FlatMachine configs, with Mermaid as the first supported frontend.
 
-## Node Shape Mapping
+## Architecture
 
-| State Feature | Mermaid Representation |
+```
+FlatMachine YAML
+       │
+       ▼
+  ┌─────────────┐
+  │ extractGraph │  Parse states/transitions into neutral IR
+  └─────────────┘
+       │
+       ▼
+  MachineGraph (IR)
+       │
+       ├──► MermaidAdapter     → string (stateDiagram-v2 markdown)
+       ├──► DotAdapter         → string (Graphviz DOT)
+       ├──► ReactFlowAdapter   → { nodes[], edges[] }
+       ├──► AsciiAdapter       → string (terminal box-drawing)
+       └──► JSONAdapter        → serializable graph object
+```
+
+## File Layout
+
+```
+sdk/js/src/flatmachine/ui/
+  graph.ts          # MachineGraph IR types + extractGraph(config)
+  adapter.ts        # UIAdapter<T> interface
+  mermaid.ts        # MermaidAdapter (first implementation)
+  index.ts          # re-exports
+```
+
+---
+
+## Intermediate Representation (IR)
+
+### MachineGraph
+
+```typescript
+interface MachineGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  metadata: { name?: string; settings?: MachineSettings };
+}
+```
+
+### GraphNode
+
+```typescript
+type NodeKind =
+  | 'initial' | 'final'
+  | 'agent' | 'machine' | 'parallel'
+  | 'foreach' | 'launch' | 'wait_for' | 'action';
+
+interface GraphNode {
+  id: string;                          // state name
+  kind: NodeKind;
+  label: string;                       // display label (= id by default)
+  detail?: {
+    agent?: string;                    // agent name
+    machines?: string[];               // machine names (parallel)
+    execution?: ExecutionConfig;       // retry/parallel/mdap config
+    channel?: string;                  // wait_for channel
+    foreachExpr?: string;              // foreach expression
+    foreachAs?: string;                // iteration variable
+    launchTargets?: string[];          // launched machine names
+    actionName?: string;               // action hook name
+    onError?: string | Record<string, string>;
+    output?: Record<string, any>;      // final state output
+  };
+}
+```
+
+### GraphEdge
+
+```typescript
+type EdgeKind = 'transition' | 'error' | 'fork' | 'join';
+
+interface GraphEdge {
+  from: string;
+  to: string;
+  kind: EdgeKind;
+  label?: string;                      // condition text or "on_error"
+}
+```
+
+---
+
+## UIAdapter Interface
+
+```typescript
+interface UIAdapter<T> {
+  render(graph: MachineGraph, options?: Record<string, any>): T;
+}
+```
+
+Each adapter decides how to map `NodeKind`, `EdgeKind`, and `detail` to its output format. The IR is renderer-agnostic — adapters own all presentation decisions.
+
+---
+
+## extractGraph Algorithm
+
+### Input
+A parsed FlatMachine config (`MachineWrapper`).
+
+### Steps
+
+1. **Collect states** — iterate `data.states`
+2. **Classify each state** into a `NodeKind`:
+   - `type: initial` → `'initial'`
+   - `type: final` → `'final'`
+   - `machine` as `string[]` → `'parallel'`
+   - `machine` as `string` → `'machine'`
+   - `foreach` → `'foreach'`
+   - `launch` → `'launch'`
+   - `wait_for` → `'wait_for'`
+   - `action` → `'action'`
+   - `agent` → `'agent'`
+   - (priority order — first match wins)
+3. **Build detail** from state fields (agent name, execution config, channel, etc.)
+4. **Build edges** from `transitions[]`:
+   - Conditional: `{ from, to, kind: 'transition', label: condition }`
+   - Default (no condition): `{ from, to, kind: 'transition' }`
+5. **Build error edges** from `on_error`:
+   - String: single `{ from, to: on_error, kind: 'error', label: 'on_error' }`
+   - Record: one edge per error type
+6. **Build fork/join edges** for parallel machines (`machine: [a,b,c]`):
+   - Fork edges: `{ from: state, to: machine_i, kind: 'fork' }`
+   - Join edges: `{ from: machine_i, to: state, kind: 'join' }`
+7. **Return** `{ nodes, edges, metadata: { name: data.name, settings: data.settings } }`
+
+---
+
+## Mermaid Adapter — Node/Edge Mapping
+
+### Node Rendering
+
+| `NodeKind` | Mermaid Representation |
 |---|---|
-| `type: initial` | `[*] -->` (start marker) |
-| `type: final` | `--> [*]` (end marker) |
-| `agent:` | State with `<<agent>>` stereotype note |
-| `machine:` (single) | State with `<<machine>>` stereotype |
-| `machine: [a,b,c]` | Fork/join with parallel sub-states |
-| `foreach:` | State with `<<foreach>>` stereotype + note showing expression |
-| `launch:` | State with `<<launch>>` stereotype (dashed-style note) |
-| `wait_for:` | State with `<<wait_for>>` stereotype + channel name note |
-| `action:` | State with `<<action>>` stereotype |
-| `execution.type: retry` | Note: "retry [2,8,16]" |
-| `on_error:` | Dashed/red transition to error state |
+| `initial` | `[*] --> {id}` (start marker) |
+| `final` | `{id} --> [*]` (end marker) |
+| `agent` | `state {id} <<agent>>` + note |
+| `machine` | `state {id} <<machine>>` + note |
+| `parallel` | Composite state with fork/join children |
+| `foreach` | `state {id} <<foreach>>` + note with expression |
+| `launch` | `state {id} <<launch>>` + note (fire-and-forget) |
+| `wait_for` | `state {id} <<wait_for>>` + note with channel |
+| `action` | `state {id} <<action>>` + note |
 
-## Transition Rendering
+### Edge Rendering
 
-- Conditional transitions: edge label = condition expression (truncated if long)
-- Default transition (no condition): unlabeled edge
-- Self-loops: transition where `to` == current state name
+| `EdgeKind` | Mermaid Representation |
+|---|---|
+| `transition` | `from --> to : label` |
+| `error` | `from --> to : on_error` (with `:::error` class) |
+| `fork` | Inside composite: `[*] --> child` |
+| `join` | Inside composite: `child --> [*]` |
 
-## Diagram Structure
+### Notes
+
+Detail fields rendered as `note right of {id}`:
+- `agent: {name}` / `action: {name}` / `channel: {channel}`
+- `retry: [{backoffs}]` / `parallel: n={n_samples}` / `mdap`
+- `foreach: {expr}` / `launch: {targets}`
+
+### MermaidOptions
+
+```typescript
+interface MermaidOptions {
+  direction?: 'TB' | 'LR';            // Diagram direction (default: TB)
+  showNotes?: boolean;                 // Show detail notes (default: true)
+  showErrorEdges?: boolean;            // Show on_error edges (default: true)
+  truncateConditions?: number;         // Max chars for condition labels
+  highlightLoops?: boolean;            // Color self-loop edges
+}
+```
+
+### Error Edge Styling
 
 ```
-stateDiagram-v2
-    [*] --> start
-
-    start --> build_char : current != target
-    start --> done : current == target
-
-    state build_char {
-        note: agent=builder, retry[2,8,16]
-    }
-    build_char --> append_char : output matches
-    build_char --> build_char : retry
-
-    append_char --> done : complete
-    append_char --> build_char : continue
-
-    done --> [*]
+classDef error stroke:#f00,stroke-dasharray: 5 5
+do_work --> handle_error : on_error
+class handle_error error
 ```
+
+---
 
 ## Concrete Examples
 
@@ -160,78 +302,25 @@ stateDiagram-v2
     done --> [*]
 ```
 
-## Generation Algorithm
-
-### Input
-A parsed FlatMachine YAML config (the `data` field).
-
-### Steps
-
-1. **Collect states** — iterate `data.states`
-2. **Identify initial/final** — `type: initial` / `type: final`
-3. **Emit start marker** — `[*] --> {initial_state}`
-4. **For each state**, emit:
-   - State declaration with stereotype based on primary feature:
-     - `agent` → `<<agent>>`
-     - `machine` (string) → `<<machine>>`
-     - `machine` (array) → composite state with fork/join
-     - `foreach` → `<<foreach>>`
-     - `launch` → `<<launch>>`
-     - `wait_for` → `<<wait_for>>`
-     - `action` → `<<action>>`
-   - Note with details (agent name, execution config, channel, etc.)
-   - If `on_error` exists → dashed edge to error state(s)
-5. **For each transition**, emit:
-   - `source --> target : condition` (if condition present)
-   - `source --> target` (if no condition — default)
-6. **Emit end markers** — `{final_state} --> [*]` for each final state
-
-### Parallel Machine Handling (`machine: [a,b,c]`)
-
-Render as a composite state with fork/join:
-```
-state state_name {
-    [*] --> machine_a
-    [*] --> machine_b
-    machine_a --> [*]
-    machine_b --> [*]
-}
-```
-
-### Error Edge Styling
-
-Use `:::error` class or note:
-```
-classDef error stroke:#f00,stroke-dasharray: 5 5
-do_work --> handle_error : on_error
-class handle_error error
-```
-
-## Implementation Location
-
-**File:** `sdk/js/src/flatmachine/mermaid.ts` (or `sdk/python/flatmachines/mermaid.py`)
-
-**Public API:**
-```typescript
-function toMermaid(config: MachineWrapper): string
-```
-
-**Options (stretch):**
-```typescript
-interface MermaidOptions {
-  direction?: 'TB' | 'LR';          // Top-bottom or left-right
-  showNotes?: boolean;               // Show detail notes (default: true)
-  showErrorEdges?: boolean;          // Show on_error edges (default: true)
-  truncateConditions?: number;       // Max chars for condition labels
-  highlightLoops?: boolean;          // Color self-loop edges
-}
-```
+---
 
 ## Edge Cases
 
-- **Multiple final states** — each gets `→ [*]`
-- **Self-loops** — `state --> state` (valid in mermaid)
+- **Multiple final states** — each gets its own `→ [*]` (or equivalent per adapter)
+- **Self-loops** — edge where `from == to`; IR captures this, adapters render per their format
 - **No transitions** — final states naturally have none
-- **Nested machines** — show as `<<machine>>` node (don't recurse into sub-machine by default)
-- **launch + transitions** — launch is fire-and-forget, transitions still happen normally
-- **wait_for** — show as a special "pause" node with channel annotation
+- **Nested machines** — `machine` kind node; IR does NOT recurse into sub-machine configs (adapters can opt in)
+- **launch + transitions** — launch is fire-and-forget; normal transitions still emitted
+- **wait_for** — pause/checkpoint semantics; adapter decides visual treatment
+- **Kind priority** — when a state has multiple features (e.g. `agent` + `machine`), classification uses priority order from the algorithm above
+
+## Future Adapters
+
+| Adapter | Output | Use Case |
+|---|---|---|
+| `DotAdapter` | Graphviz DOT string | PDF/SVG export, CI pipelines |
+| `ReactFlowAdapter` | `{ nodes[], edges[] }` | Interactive web UI |
+| `AsciiAdapter` | Box-drawing string | Terminal/CLI output |
+| `JSONAdapter` | Serializable object | API responses, tooling integration |
+
+Each adapter implements `UIAdapter<T>` and maps the same `MachineGraph` IR to its target format. Adding a new frontend = one new file, no changes to `extractGraph` or the IR.
