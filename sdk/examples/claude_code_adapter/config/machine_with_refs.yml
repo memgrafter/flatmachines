@@ -1,0 +1,77 @@
+spec: flatmachine
+spec_version: "2.0.0"
+
+data:
+  name: claude-code-ref-example
+  context:
+    feature: "{{ input.feature }}"
+    working_dir: "{{ input.working_dir }}"
+    session_id: ""
+    plan: ""
+
+  agents:
+    # File refs — resolved at load time, embedded in checkpoints.
+    # Each JSON file contains CLI config keys (model, tools, etc.).
+    planner:
+      type: claude-code
+      ref: ./claude-planner.json
+    coder:
+      type: claude-code
+      ref: ./claude-coder.json
+    reviewer:
+      type: claude-code
+      ref: ./claude-coder.json
+      config:
+        # Inline config overrides file config.
+        max_budget_usd: 1.0
+        effort: low
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: plan
+
+    plan:
+      agent: planner
+      input:
+        task: "Plan the implementation of: {{ context.feature }}. Read the codebase first."
+      output_to_context:
+        session_id: "{{ output.session_id }}"
+        plan: "{{ output.result }}"
+      transitions:
+        - to: implement
+
+    implement:
+      agent: coder
+      input:
+        task: |
+          Implement this plan:
+          {{ context.plan }}
+      output_to_context:
+        result: "{{ output.result }}"
+        session_id: "{{ output.session_id }}"
+      transitions:
+        - to: review
+
+    review:
+      agent: reviewer
+      input:
+        task: "Review the implementation. Check for bugs, missing tests, and style issues."
+      output_to_context:
+        review: "{{ output.result }}"
+      transitions:
+        - to: done
+
+    done:
+      type: final
+      output:
+        result: "{{ context.result }}"
+        review: "{{ context.review }}"
+
+metadata:
+  description: |
+    Claude Code example using file refs for per-agent config.
+    Agent configs are resolved from JSON files at load time and
+    embedded in checkpoints, so resume works without path resolution.
+  tags: ["claude-code", "file-refs", "multi-agent"]

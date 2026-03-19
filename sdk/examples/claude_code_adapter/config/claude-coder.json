@@ -1,0 +1,8 @@
+{
+  "model": "opus",
+  "effort": "high",
+  "permission_mode": "bypassPermissions",
+  "tools": ["Bash", "Read", "Write", "Edit", "Glob", "Grep"],
+  "append_system_prompt": "You are an expert coding agent working in a sandboxed environment.\nWhen you have completed the task fully, include <<AGENT_EXIT>> on\nits own line in your final response. Do not include it until all\nwork is done.",
+  "max_continuations": 100
+}

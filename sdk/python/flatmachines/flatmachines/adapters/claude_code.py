@@ -685,6 +685,13 @@ class ClaudeCodeAdapter(AgentAdapter):
     ) -> AgentExecutor:
         config = agent_ref.config or {}
 
+        # Fallback: if ref is still present (direct adapter usage, not
+        # through FlatMachine which resolves refs at load time), load it.
+        if not config and agent_ref.ref:
+            loaded = self._load_ref(agent_ref.ref, context.config_dir)
+            if loaded is not None:
+                config = loaded
+
         settings = context.settings.get("agent_runners", {}).get("claude_code", {})
 
         return ClaudeCodeExecutor(
@@ -692,3 +699,28 @@ class ClaudeCodeAdapter(AgentAdapter):
             config_dir=context.config_dir,
             settings=settings,
         )
+
+    @staticmethod
+    def _load_ref(ref: str, config_dir: str) -> Optional[dict]:
+        """Load a ref file, resolving relative to config_dir."""
+        import json as _json
+
+        if os.path.isabs(ref):
+            path = ref
+        else:
+            path = os.path.join(config_dir, ref)
+
+        if not os.path.isfile(path):
+            return None
+
+        with open(path, 'r') as f:
+            if path.endswith('.json'):
+                return _json.load(f)
+            else:
+                try:
+                    import yaml as _yaml
+                    return _yaml.safe_load(f)
+                except ImportError:
+                    raise ImportError(
+                        f"pyyaml is required to load YAML agent config: {path}"
+                    )

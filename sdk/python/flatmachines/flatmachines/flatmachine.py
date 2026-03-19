@@ -13,6 +13,7 @@ import json
 import os
 import re
 import time
+import warnings
 from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any, Dict, List, Optional
@@ -152,8 +153,14 @@ class FlatMachine:
 
         self._load_config(config_file, config_dict)
 
-        # Capture raw config for content-addressed config store
-        self._config_raw: Optional[str] = self._capture_config_raw(config_file, config_dict)
+        # Resolve file-based agent refs into embedded config dicts.
+        # Must happen before _capture_config_raw so checkpoints are self-contained.
+        self._resolve_agent_file_refs()
+
+        # Capture raw config for content-addressed config store.
+        # Serializes from self.config (post-resolution) so checkpoints
+        # contain resolved agent refs and don't need path resolution on resume.
+        self._config_raw: Optional[str] = self._capture_config_raw()
         self._config_hash: Optional[str] = None  # Set on first checkpoint save
 
         # Allow launcher to override config_dir for launched machines
@@ -366,24 +373,96 @@ class FlatMachine:
 
         self.config = config
 
-    @staticmethod
-    def _capture_config_raw(
-        config_file: Optional[str],
-        config_dict: Optional[Dict],
-    ) -> Optional[str]:
-        """Capture the raw config as a normalized YAML string.
+    def _capture_config_raw(self) -> Optional[str]:
+        """Capture the config as a normalized YAML/JSON string.
 
-        For file-based configs, reads the file verbatim.
-        For dict-based configs, serializes to YAML.
+        Serializes from self.config (post-resolution) so that resolved
+        agent file refs are included in checkpoints.  This makes
+        checkpoints self-contained — no path resolution needed on resume.
         """
-        if config_file is not None:
-            with open(config_file, "r") as f:
-                return f.read()
-        if config_dict is not None:
-            if yaml is None:
-                return json.dumps(config_dict, indent=2, default=str)
-            return yaml.dump(config_dict, default_flow_style=False, sort_keys=False)
-        return None
+        if not self.config:
+            return None
+        if yaml is None:
+            return json.dumps(self.config, indent=2, default=str)
+        return yaml.dump(self.config, default_flow_style=False, sort_keys=False)
+
+    def _resolve_agent_file_refs(self) -> None:
+        """Resolve file-based agent refs into embedded config dicts.
+
+        Mutates ``self.config['data']['agents']`` in place, replacing
+        file references with their loaded contents.  This makes the
+        config self-contained for checkpoint/resume without needing
+        path resolution at runtime.
+
+        Handles two forms:
+
+        1. **String path** (flatagent shorthand)::
+
+               agents:
+                 extractor: ./extractor.yml
+
+           The file is loaded and replaces the string.
+
+        2. **Typed ref with file path**::
+
+               agents:
+                 coder:
+                   type: claude-code
+                   ref: ./claude-coder.json
+                   config:
+                     max_budget_usd: 3.0   # overrides file
+
+           The file is loaded as the base config.  Inline ``config``
+           keys override file keys.  The ``ref`` key is removed.
+        """
+        agents = self.config.get('data', {}).get('agents')
+        if not agents:
+            return
+
+        for name in list(agents.keys()):
+            raw = agents[name]
+
+            if isinstance(raw, str):
+                resolved = self._load_agent_ref_file(raw)
+                if resolved is not None:
+                    agents[name] = resolved
+
+            elif isinstance(raw, dict) and 'ref' in raw:
+                ref_path = raw['ref']
+                if isinstance(ref_path, str):
+                    resolved = self._load_agent_ref_file(ref_path)
+                    if resolved is not None:
+                        new_raw = dict(raw)
+                        del new_raw['ref']
+                        # File contents are the base; inline config overrides
+                        existing_config = new_raw.pop('config', None) or {}
+                        new_raw['config'] = {**resolved, **existing_config}
+                        agents[name] = new_raw
+
+    def _load_agent_ref_file(self, ref_path: str) -> Optional[Dict]:
+        """Load an agent ref file, returning its parsed contents.
+
+        Resolves *ref_path* relative to ``self._config_dir``.
+        Returns ``None`` if the file does not exist (the ref may be
+        a non-file identifier handled by an adapter at runtime).
+        """
+        if os.path.isabs(ref_path):
+            abs_path = ref_path
+        else:
+            abs_path = os.path.join(self._config_dir, ref_path)
+
+        if not os.path.isfile(abs_path):
+            return None
+
+        with open(abs_path, 'r') as f:
+            if abs_path.endswith('.json'):
+                return json.load(f)
+            else:
+                if yaml is None:
+                    raise ImportError(
+                        f"pyyaml is required to load YAML agent config: {abs_path}"
+                    )
+                return yaml.safe_load(f)
 
     def _validate_spec(self) -> None:
         """Validate the spec envelope."""
@@ -438,6 +517,111 @@ class FlatMachine:
                 self._initial_state = next(iter(self.states))
             else:
                 raise ValueError("No states defined")
+
+        self._warn_uncaptured_input_refs()
+
+    # -- static input-ref validation ----------------------------------------
+
+    # Matches {{ input.KEY }}, {{ input.KEY.sub }}, bare input.KEY, etc.
+    _INPUT_REF_RE = re.compile(r'\binput\.([a-zA-Z_][a-zA-Z0-9_.]*)')
+
+    def _warn_uncaptured_input_refs(self) -> None:
+        """Warn when state templates reference input.* keys missing from context.
+
+        In state templates, ``input`` is aliased to ``context``.  If a key
+        was passed to ``execute(input=...)`` but not captured in the
+        ``context:`` block, ``{{ input.key }}`` silently resolves to empty.
+
+        This static check scans state-level ``input:`` mappings for
+        ``input.*`` references whose top-level key is absent from the
+        declared ``context:`` block, and emits a warning per missing key.
+        """
+        from .validation import ValidationWarning
+
+        context_keys = set(self.initial_context.keys())
+
+        # Collect all input.* refs from state-level input: mappings
+        missing: Dict[str, list] = {}  # key -> [state_names]
+
+        for state_name, state in self.states.items():
+            input_spec = state.get('input', {})
+            if not isinstance(input_spec, dict):
+                continue
+            for _field, template_str in self._iter_template_strings(input_spec):
+                for match in self._INPUT_REF_RE.finditer(template_str):
+                    top_key = match.group(1).split('.')[0]
+                    if top_key not in context_keys:
+                        missing.setdefault(top_key, []).append(state_name)
+
+        if not missing:
+            return
+
+        lines = []
+        for key, states in sorted(missing.items()):
+            unique_states = sorted(set(states))
+            lines.append(
+                f"  - input.{key} referenced in state(s) "
+                f"{', '.join(unique_states)} but not declared in context: block"
+            )
+
+        warnings.warn(
+            f"Machine '{self.machine_name}': state templates reference "
+            f"input.* keys not captured in context:. "
+            f"Since input is aliased to context during execution, these "
+            f"will silently resolve to empty. Add them to the context: "
+            f"block (e.g. {list(missing.keys())[0]}: "
+            f"\"{{{{ input.{list(missing.keys())[0]} }}}}\"):\n"
+            + "\n".join(lines),
+            ValidationWarning,
+            stacklevel=2,
+        )
+
+    def _warn_uncaptured_input_keys(
+        self, input_data: Dict[str, Any], context: Dict[str, Any]
+    ) -> None:
+        """Warn at runtime when execute() input keys were not captured in context.
+
+        Called once after initial context rendering.  Compares the keys
+        provided in ``execute(input=...)`` against the rendered context.
+        Any input key absent from context will be silently invisible in
+        state templates (where ``input`` is aliased to ``context``).
+        """
+        if not input_data:
+            return
+
+        # Skip internal/metadata keys injected by the framework
+        internal_prefixes = ('_',)
+        uncaptured = [
+            k for k in input_data
+            if k not in context
+            and not any(k.startswith(p) for p in internal_prefixes)
+        ]
+
+        if not uncaptured:
+            return
+
+        logger.warning(
+            "Machine '%s': execute() received input keys %s not captured "
+            "in context: block. These will be invisible in state templates "
+            "where input is aliased to context. Add them to the context: "
+            "block with '{{ input.KEY }}' declarations.",
+            self.machine_name,
+            uncaptured,
+        )
+
+    @staticmethod
+    def _iter_template_strings(data: Any):
+        """Yield (path, string) for all string values in a nested dict/list."""
+        if isinstance(data, str):
+            yield ('', data)
+        elif isinstance(data, dict):
+            for key, value in data.items():
+                for sub_path, s in FlatMachine._iter_template_strings(value):
+                    yield (f"{key}.{sub_path}" if sub_path else key, s)
+        elif isinstance(data, list):
+            for i, item in enumerate(data):
+                for sub_path, s in FlatMachine._iter_template_strings(item):
+                    yield (f"[{i}].{sub_path}" if sub_path else f"[{i}]", s)
 
     @property
     def hooks_registry(self) -> HooksRegistry:
@@ -1695,6 +1879,7 @@ class FlatMachine:
                 input = input or {}
                 variables = {"input": input}
                 context = self._render_dict(self.initial_context, variables)
+                self._warn_uncaptured_input_keys(input, context)
                 context = self._inject_machine_metadata(context, current_state)
 
                 await self._save_checkpoint('machine_start', 'start', step, context)

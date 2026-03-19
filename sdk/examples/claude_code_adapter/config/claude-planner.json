@@ -1,0 +1,8 @@
+{
+  "model": "opus",
+  "effort": "high",
+  "permission_mode": "plan",
+  "tools": ["Read", "Glob", "Grep"],
+  "append_system_prompt": "You are a planning agent. Read the codebase and produce detailed implementation plans. Do not edit any files.",
+  "max_continuations": 20
+}
