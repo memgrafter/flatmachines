@@ -151,7 +151,7 @@
  * The profile field specifies which profile name to use as base.
  */
 
-export const SPEC_VERSION = "2.3.0";
+export const SPEC_VERSION = "2.4.0";
 
 export interface AgentWrapper {
   spec: "flatagent";
