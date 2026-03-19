@@ -68,24 +68,10 @@ class TestSeed:
         executor = _make_executor()
         holdback = SessionHoldback(executor=executor)
 
-        seed_result = _make_result(session_id="seed-id", cache_read=0, cache_write=3000)
-        warm_result = _make_result(session_id="warm-fork-id", cache_read=9000, cache_write=20)
-
-        call_count = 0
-
         async def _fake_invoke(task, session_id, resume, context=None, fork_session=False):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                # Seed call
-                assert not resume
-                assert not fork_session
-                return seed_result
-            else:
-                # Auto-warm call
-                assert resume
-                assert fork_session
-                return warm_result
+            assert not resume
+            assert not fork_session
+            return _make_result(session_id=session_id, cache_read=0, cache_write=3000)
 
         executor._invoke_once = _fake_invoke
 
@@ -93,10 +79,10 @@ class TestSeed:
 
         assert holdback._seeded
         assert holdback.session_id is not None
-        assert call_count == 2  # seed + auto-warm
         assert result.content == "ok"
 
-    async def test_seed_auto_warm_false(self):
+    async def test_seed_single_call(self):
+        """seed() makes exactly one call — no auto-warm."""
         executor = _make_executor()
         holdback = SessionHoldback(executor=executor)
 
@@ -109,33 +95,28 @@ class TestSeed:
 
         executor._invoke_once = _fake_invoke
 
-        await holdback.seed("context", auto_warm=False)
-        assert call_count == 1  # No warm
+        await holdback.seed("context")
+        assert call_count == 1
 
-    async def test_seed_error_skips_warm(self):
+    async def test_seed_error_still_marks_seeded(self):
         executor = _make_executor()
         holdback = SessionHoldback(executor=executor)
 
-        call_count = 0
-
         async def _fake_invoke(task, session_id, resume, context=None, fork_session=False):
-            nonlocal call_count
-            call_count += 1
             return _make_result(error={"code": "server_error", "message": "fail"})
 
         executor._invoke_once = _fake_invoke
 
         result = await holdback.seed("context")
-        assert call_count == 1  # Error — no warm
         assert result.error is not None
+        assert holdback._seeded
 
     async def test_seed_with_provided_session_id(self):
         executor = _make_executor()
         holdback = SessionHoldback(executor=executor, session_id="my-custom-id")
 
         async def _fake_invoke(task, session_id, resume, context=None, fork_session=False):
-            if not resume:
-                assert session_id == "my-custom-id"
+            assert session_id == "my-custom-id"
             return _make_result()
 
         executor._invoke_once = _fake_invoke
@@ -154,21 +135,13 @@ class TestAdopt:
         executor = _make_executor()
         holdback = SessionHoldback(executor=executor)
 
-        async def _fake_invoke(task, session_id, resume, context=None, fork_session=False):
-            assert resume
-            assert fork_session
-            assert session_id == "existing-session"
-            return _make_result(cache_read=9000)
-
-        executor._invoke_once = _fake_invoke
-
-        result = await holdback.adopt("existing-session")
+        await holdback.adopt("existing-session")
 
         assert holdback._seeded
         assert holdback.session_id == "existing-session"
-        assert result is not None  # auto-warm result
 
-    async def test_adopt_no_warm(self):
+    async def test_adopt_no_api_call(self):
+        """adopt() makes zero API calls — just sets state."""
         executor = _make_executor()
         holdback = SessionHoldback(executor=executor)
 
@@ -181,10 +154,8 @@ class TestAdopt:
 
         executor._invoke_once = _fake_invoke
 
-        result = await holdback.adopt("existing-session", auto_warm=False)
+        await holdback.adopt("existing-session")
         assert call_count == 0
-        assert result is None
-        assert holdback._seeded
 
 
 # ---------------------------------------------------------------------------

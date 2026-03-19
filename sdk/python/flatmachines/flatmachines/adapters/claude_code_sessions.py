@@ -9,15 +9,14 @@ Cache mechanics:
   - Fork sends the same prefix as the holdback → API cache hit
   - Periodic warm() keeps the prefix in API cache without advancing holdback
 
-Important: API cache writes from the seed are asynchronous.  The first
-fork after seed must be sequential to ensure the cache is populated
-before parallel fan-out.  seed() does this automatically by calling
-warm() after the initial invocation.
+Cache writes are available immediately after seed returns — no warm
+step is required before parallel fan-out.  warm() exists only to
+reset the 1-hour TTL during long idle periods.
 
 Usage:
     holdback = SessionHoldback(executor)
     await holdback.seed("Read the codebase and understand the architecture.")
-    # seed() already warmed — cache is ready for parallel fan-out
+    # Cache is ready — fan out immediately
 
     # Fan out — each gets full context, hits cache
     results = await holdback.fork_n([
@@ -78,23 +77,18 @@ class SessionHoldback:
         self,
         task: str,
         context: Optional[Dict[str, Any]] = None,
-        auto_warm: bool = True,
     ) -> AgentResult:
         """Create the holdback session with initial content.
 
         This is the only call that uses --session-id (new session).
         All subsequent operations use --fork-session.
 
-        After seeding, a sequential warm() fork is executed to ensure
-        the API prefix cache is populated before parallel fan-out.
-        Without this, the first batch of parallel forks would all miss
-        the conversation cache (API cache writes are asynchronous).
-        Pass auto_warm=False to skip if you'll warm manually.
+        The API prefix cache is available immediately after this returns.
+        No warm step is needed before parallel fan-out.
 
         Args:
             task: Initial prompt to seed the session with
             context: Optional context for working_dir resolution
-            auto_warm: Run a warm() fork after seed to prime cache (default True)
 
         Returns:
             AgentResult from the seed invocation
@@ -118,51 +112,23 @@ class SessionHoldback:
             (result.usage or {}).get("cache_write_tokens", 0),
         )
 
-        # Auto-warm: sequential fork to ensure API cache is written
-        # before any parallel fan-out
-        if auto_warm and not result.error:
-            warm_result = await self.warm(context)
-            logger.info(
-                "Holdback auto-warm: cache_read=%s",
-                (warm_result.usage or {}).get("cache_read_tokens", 0),
-            )
-
         return result
 
-    async def adopt(
-        self,
-        session_id: str,
-        context: Optional[Dict[str, Any]] = None,
-        auto_warm: bool = True,
-    ) -> Optional[AgentResult]:
+    async def adopt(self, session_id: str) -> None:
         """Adopt an existing session as the holdback.
 
         Use this when you have a session from a prior machine execution
         and want to fork from it without re-seeding.
 
-        Runs a warm() fork by default to prime the API cache (same
-        reason as seed auto-warm).  Pass auto_warm=False to skip.
+        If the session has been idle for close to 1 hour, call warm()
+        before fork_n() to reset the cache TTL.
 
         Args:
             session_id: Existing Claude Code session ID
-            context: Optional context for working_dir resolution
-            auto_warm: Run a warm() fork to prime cache (default True)
-
-        Returns:
-            AgentResult from warm if auto_warm, else None
         """
         self.session_id = session_id
         self._seeded = True
         logger.info("Holdback adopted: session=%s", session_id)
-
-        if auto_warm:
-            warm_result = await self.warm(context)
-            logger.info(
-                "Holdback adopt-warm: cache_read=%s",
-                (warm_result.usage or {}).get("cache_read_tokens", 0),
-            )
-            return warm_result
-        return None
 
     async def fork(
         self,
@@ -274,8 +240,9 @@ class SessionHoldback:
         self,
         context: Optional[Dict[str, Any]] = None,
     ) -> AgentResult:
-        """Send a minimal request to keep the API prefix cache warm.
+        """Send a minimal request to reset the API prefix cache TTL.
 
+        Only needed if the holdback has been idle for close to 1 hour.
         Uses --fork-session so the holdback is not advanced.
         The fork is discarded — its only purpose is to touch the API
         with the holdback's prefix so the 1-hour cache TTL resets.

@@ -483,27 +483,28 @@ await holdback.seed("Read the codebase...")   # new session + auto-warm
 results = await holdback.fork_n(["task1", "task2", "task3"])  # parallel, all hit cache
 ```
 
-- `seed()` creates the holdback session, then runs a sequential `warm()` fork
-  to ensure the API prefix cache is written before parallel fan-out.
+- `seed()` creates the holdback session. Cache is available immediately.
 - `fork()` uses `--resume <holdback_id> --fork-session` — gets a new session
   ID but sees the full holdback conversation. Holdback is never advanced.
 - `fork_n()` runs N forks in parallel with optional concurrency limit.
-- `warm()` sends a minimal fork ("test") to keep the API cache within 1hr TTL.
-- `adopt()` takes an existing session ID as holdback (with auto-warm).
+- `warm()` sends a minimal fork ("test") to reset the 1-hour cache TTL.
+  Only needed if holdback has been idle for close to 1 hour.
+- `adopt()` takes an existing session ID as holdback. No API call.
 
 ### Cache Findings
 
-API cache writes are **asynchronous**. Without the auto-warm after seed,
-parallel forks miss the conversation body cache:
+Cache is available immediately after seed returns. Validated with
+truly cold prefixes (UUID in system prompt to bust all cached state):
 
 | Pattern | cache_read | cache_write | Notes |
 |---------|-----------|-------------|-------|
-| Seed | 6,469 | 3,283 | System prompt cached, conversation written |
-| Fork (no warm) | 6,469 | 4,055 | Missed conversation — re-wrote it |
-| Fork (after warm) | 9,752 | 30 | Full cache hit |
+| Seed (cold) | 0 | 9,789 | Nothing cached, full write |
+| Parallel fork ×3 (immediate) | 9,789 | ~22 | Full cache hit, no warm needed |
 
-The auto-warm is a sequential fork that forces the API to finalize the
-cache write. After that, parallel forks all hit the full prefix cache.
+Tested with 4 different ~200-token messages forked from the same
+holdback (1 sequential + 3 parallel) — all got identical cache_read.
+The API cache is purely prefix-based; divergent user messages after
+the cached prefix do not affect cache hits.
 
 ### What the Cache Covers
 
