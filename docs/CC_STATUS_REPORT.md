@@ -186,14 +186,6 @@
 
 ────────────────────────────────────────────────────────────────────────────────
 
-### ⏳ REMAINING
-
-#### Checklist Item #3 — Tool Restrictions (remaining)
-
-- [ ] Declarative tool/prompt config in FlatMachine schema — config keys exist but no schema validation or documentation as part of the spec. The config keys work — they're passed through to _build_args() and generate the right CLI flags. What's missing is JSON Schema validation that would catch typos at load time instead of at runtime.
-
-────────────────────────────────────────────────────────────────────────────────
-
 ### ⛔ NOT NEEDED FOR PRODUCTION
 
 #### Checklist Item #1 — Session Management & Cache (remaining)
@@ -222,5 +214,4 @@
 
 **Done:** Core adapter, 114 unit tests (78 adapter + 12 session + 16 throttle + 8 new), 14 live integration tests (all passing), rate limiting, permission mode validation, tool restriction validation, cache behavior analysis with full token breakdown, --add-dir / --dangerously-skip-permissions / --mcp-config support, hook event firing (on_tool_calls/on_tool_result), structured output extraction, rate limit surfacing, subprocess cancellation, documentation.
 
-**Remaining:**
-1. Schema validation for tool/prompt config in FlatMachine spec
+**Remaining:** None. The adapter is a passthrough to a CLI that validates its own args.
