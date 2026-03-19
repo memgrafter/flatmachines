@@ -28,9 +28,10 @@ can be brought down to **~5K tokens**.
 
 | Component | Approx. tokens |
 |-----------|---------------|
-| CC internal base (safety rules, internal instructions) | ~3–4K |
+| CC internal base (safety rules, internal instructions) | ~3.2K |
 | CC default user-visible prompt | ~6K |
-| Each tool definition | ~1–1.5K |
+| Bash tool definition | ~600 |
+| Read / Write / Edit tool definitions | ~250–650 each |
 | 9 non-deferred tool definitions (default set) | ~5K |
 
 The **~15K default** breaks down as:
@@ -53,6 +54,35 @@ Deferred tools (not in initial prompt unless used):
 
 Non-deferred (always in prompt): Task, TaskOutput, Bash, Glob, Grep,
 Read, Edit, Write, ToolSearch.
+
+### Per-Tool Token Cost (with `--system-prompt`)
+
+Measured with `--system-prompt "You are a coding assistant."` to
+isolate tool definition costs from the default CC prompt.
+
+Individual tools:
+
+| Tool | Cache tokens | Notes |
+|------|-------------|-------|
+| Bash | **3,816** | Heaviest — includes command descriptions, safety rules, permission instructions |
+| Read | **0** | ~250-650 tokens, below Anthropic's 1,024-token minimum for prompt caching |
+| Write | **0** | Same — below cache minimum |
+| Edit | **0** | Same — below cache minimum |
+
+Cumulative (adding one tool at a time):
+
+| Config | Cache total | Delta from previous |
+|--------|------------|-------------------|
+| Bash | 3,816 | — |
+| Bash + Read | 4,455 | +639 (Read) |
+| Bash + Read + Write | 4,728 | +273 (Write) |
+| Bash + Read + Write + Edit | 5,172 | +444 (Edit) |
+
+The ~3,816 for Bash alone includes **~3.2K of internal base** (safety
+rules, internal instructions) plus **~600 for Bash's tool definition**.
+Read, Write, and Edit definitions are small enough that they fall below
+Anthropic's 1,024-token cache minimum when sent individually, which is
+why they report 0 cache tokens when alone.
 
 ### `--system-prompt` Behavior
 
