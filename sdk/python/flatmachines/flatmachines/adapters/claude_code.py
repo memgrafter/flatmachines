@@ -21,6 +21,8 @@ import signal
 import uuid
 from typing import Any, Dict, List, Optional
 
+from flatagents.monitoring import AgentMonitor
+
 from ..agents import (
     AgentAdapter,
     AgentAdapterContext,
@@ -322,6 +324,16 @@ class ClaudeCodeExecutor(AgentExecutor):
             },
             provider_data=last_result.provider_data,
         )
+
+        # Log aggregated summary when continuations were used
+        if attempt > 1:
+            logger.info(
+                "Claude Code continuation complete: attempts=%d input=%d output=%d "
+                "cache_read=%d cache_write=%d cost=%.4f",
+                attempt, total_input_tokens, total_output_tokens,
+                total_cache_read, total_cache_write, total_cost,
+            )
+
         return final
 
     async def execute_with_tools(
@@ -336,6 +348,37 @@ class ClaudeCodeExecutor(AgentExecutor):
             "Claude Code CLI adapter does not support machine-driven tool loops. "
             "Remove tool_loop from the state config."
         )
+
+    # -- Metrics helper -----------------------------------------------------
+
+    @staticmethod
+    def _populate_monitor(monitor: AgentMonitor, result: AgentResult) -> None:
+        """Populate an AgentMonitor's metrics dict from an AgentResult."""
+        if result.usage:
+            inp = result.usage.get("input_tokens", 0)
+            out = result.usage.get("output_tokens", 0)
+            monitor.metrics["input_tokens"] = inp
+            monitor.metrics["output_tokens"] = out
+            monitor.metrics["tokens"] = inp + out
+            cr = result.usage.get("cache_read_tokens", 0)
+            cw = result.usage.get("cache_write_tokens", 0)
+            if cr:
+                monitor.metrics["cache_read_tokens"] = cr
+            if cw:
+                monitor.metrics["cache_write_tokens"] = cw
+        if result.cost is not None:
+            cost_val = (
+                float(result.cost)
+                if isinstance(result.cost, (int, float))
+                else float(result.cost.get("total", 0))
+                if isinstance(result.cost, dict)
+                else 0
+            )
+            if cost_val:
+                monitor.metrics["cost"] = cost_val
+        if result.error:
+            monitor.metrics["error"] = True
+            monitor.metrics["error_type"] = result.error.get("type", "unknown")
 
     # -- Single invocation --------------------------------------------------
 
@@ -357,6 +400,8 @@ class ClaudeCodeExecutor(AgentExecutor):
             fork_session: Add --fork-session (new ID, preserves history)
         """
         cfg = self._merged
+        model = cfg.get("model", _DEFAULT_MODEL)
+        agent_id = f"claude-code/{model}"
         args = self._build_args(task, session_id, resume, fork_session=fork_session)
 
         # Resolve working directory
@@ -382,85 +427,96 @@ class ClaudeCodeExecutor(AgentExecutor):
         )
         logger.debug("Claude Code args: %s", args)
 
-        # Spawn subprocess
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=working_dir,
-            env=os.environ.copy(),
-        )
+        with AgentMonitor(agent_id, extra_attributes={
+            "adapter": "claude-code",
+            "session_id": session_id,
+            "resume": str(resume),
+        }) as monitor:
+            # Spawn subprocess
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=working_dir,
+                env=os.environ.copy(),
+            )
 
-        collector = _StreamCollector()
-        stderr_data = b""
+            collector = _StreamCollector()
+            stderr_data = b""
 
-        try:
-            if timeout and timeout > 0:
-                stderr_data = await asyncio.wait_for(
-                    self._read_stream(proc, collector),
-                    timeout=timeout,
-                )
-            else:
-                stderr_data = await self._read_stream(proc, collector)
-        except asyncio.TimeoutError:
-            # SIGTERM -> grace period -> SIGKILL
             try:
-                proc.send_signal(signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                await asyncio.wait_for(proc.wait(), timeout=_SIGTERM_GRACE_SECONDS)
+                if timeout and timeout > 0:
+                    stderr_data = await asyncio.wait_for(
+                        self._read_stream(proc, collector),
+                        timeout=timeout,
+                    )
+                else:
+                    stderr_data = await self._read_stream(proc, collector)
             except asyncio.TimeoutError:
+                # SIGTERM -> grace period -> SIGKILL
                 try:
-                    proc.kill()
+                    proc.send_signal(signal.SIGTERM)
                 except ProcessLookupError:
                     pass
-                await proc.wait()
-            raise TimeoutError(
-                f"Claude Code subprocess timed out after {timeout}s "
-                f"(session={session_id})"
-            )
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=_SIGTERM_GRACE_SECONDS)
+                except asyncio.TimeoutError:
+                    try:
+                        proc.kill()
+                    except ProcessLookupError:
+                        pass
+                    await proc.wait()
+                raise TimeoutError(
+                    f"Claude Code subprocess timed out after {timeout}s "
+                    f"(session={session_id})"
+                )
 
-        # Wait for process exit
-        await proc.wait()
+            # Wait for process exit
+            await proc.wait()
 
-        stderr_text = stderr_data.decode("utf-8", errors="replace")
+            stderr_text = stderr_data.decode("utf-8", errors="replace")
 
-        # Check for process-level failure with no result event
-        if proc.returncode != 0 and collector.result_event is None:
-            return AgentResult(
-                error={
-                    "code": "server_error",
-                    "type": "ClaudeCodeProcessError",
-                    "message": f"claude exited with code {proc.returncode}\nstderr: {stderr_text}",
-                    "retryable": proc.returncode in (429, 500, 502, 503, 504),
-                },
-                finish_reason="error",
-                metadata={
-                    "session_id": collector.session_id or session_id,
-                    "stream_events": collector.events,
-                    "stderr": stderr_text,
-                },
-            )
+            # Check for process-level failure with no result event
+            if proc.returncode != 0 and collector.result_event is None:
+                result = AgentResult(
+                    error={
+                        "code": "server_error",
+                        "type": "ClaudeCodeProcessError",
+                        "message": f"claude exited with code {proc.returncode}\nstderr: {stderr_text}",
+                        "retryable": proc.returncode in (429, 500, 502, 503, 504),
+                    },
+                    finish_reason="error",
+                    metadata={
+                        "session_id": collector.session_id or session_id,
+                        "stream_events": collector.events,
+                        "stderr": stderr_text,
+                    },
+                )
+                self._populate_monitor(monitor, result)
+                return result
 
-        # No result event but process exited 0
-        if collector.result_event is None:
-            return AgentResult(
-                error={
-                    "code": "server_error",
-                    "type": "ClaudeCodeError",
-                    "message": f"No result event received from Claude Code\nstderr: {stderr_text}",
-                    "retryable": False,
-                },
-                finish_reason="error",
-                metadata={
-                    "session_id": collector.session_id or session_id,
-                    "stream_events": collector.events,
-                    "stderr": stderr_text,
-                },
-            )
+            # No result event but process exited 0
+            if collector.result_event is None:
+                result = AgentResult(
+                    error={
+                        "code": "server_error",
+                        "type": "ClaudeCodeError",
+                        "message": f"No result event received from Claude Code\nstderr: {stderr_text}",
+                        "retryable": False,
+                    },
+                    finish_reason="error",
+                    metadata={
+                        "session_id": collector.session_id or session_id,
+                        "stream_events": collector.events,
+                        "stderr": stderr_text,
+                    },
+                )
+                self._populate_monitor(monitor, result)
+                return result
 
-        return self._build_result(collector, session_id, stderr_text)
+            result = self._build_result(collector, session_id, stderr_text)
+            self._populate_monitor(monitor, result)
+            return result
 
     async def _read_stream(
         self,

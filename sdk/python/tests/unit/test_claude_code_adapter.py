@@ -21,6 +21,7 @@ from flatmachines.adapters.claude_code import (
     _DEFAULT_EFFORT,
     _DEFAULT_MAX_CONTINUATIONS,
 )
+from flatagents.monitoring import AgentMonitor
 from flatmachines.agents import AgentAdapterContext, AgentRef, AgentResult
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "claude_code"
@@ -715,3 +716,175 @@ class TestUnparseableLines:
 
         assert result.error is None
         assert result.content == "ok"
+
+
+# ---------------------------------------------------------------------------
+# AgentMonitor metrics tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+class TestAgentMonitorMetrics:
+    """Verify that _invoke_once populates AgentMonitor metrics correctly."""
+
+    async def test_success_metrics(self):
+        """Successful invocation should populate token and cost metrics."""
+        lines = _load_fixture("simple_result.ndjson")
+        proc = FakeProcess(lines)
+
+        executor = _make_executor()
+        monitors = []
+
+        _orig_init = AgentMonitor.__init__
+
+        def _capture_init(self_monitor, *a, **kw):
+            _orig_init(self_monitor, *a, **kw)
+            monitors.append(self_monitor)
+
+        with patch("asyncio.create_subprocess_exec", return_value=proc), \
+             patch.object(AgentMonitor, "__init__", _capture_init):
+            result = await executor._invoke_once(
+                task="what is 2+2", session_id="s1", resume=False,
+            )
+
+        assert result.error is None
+        assert len(monitors) == 1
+        m = monitors[0].metrics
+        assert m["input_tokens"] == 10
+        assert m["output_tokens"] == 8
+        assert m["tokens"] == 18
+        assert m["cache_read_tokens"] == 6000
+        assert m["cache_write_tokens"] == 500
+        assert m["cost"] == 0.02
+        assert "error" not in m
+
+    async def test_error_metrics(self):
+        """Error invocation should record error_type in metrics."""
+        lines = _load_fixture("error_result.ndjson")
+        proc = FakeProcess(lines)
+
+        executor = _make_executor()
+        monitors = []
+
+        _orig_init = AgentMonitor.__init__
+
+        def _capture_init(self_monitor, *a, **kw):
+            _orig_init(self_monitor, *a, **kw)
+            monitors.append(self_monitor)
+
+        with patch("asyncio.create_subprocess_exec", return_value=proc), \
+             patch.object(AgentMonitor, "__init__", _capture_init):
+            result = await executor._invoke_once(
+                task="fail", session_id="s2", resume=False,
+            )
+
+        assert result.error is not None
+        assert len(monitors) == 1
+        m = monitors[0].metrics
+        assert m["error"] is True
+        assert m["error_type"] == "ClaudeCodeError"
+
+    async def test_process_failure_metrics(self):
+        """Process crash with no result event should record error metrics."""
+        proc = FakeProcess([], returncode=1, stderr=b"crash")
+
+        executor = _make_executor()
+        monitors = []
+
+        _orig_init = AgentMonitor.__init__
+
+        def _capture_init(self_monitor, *a, **kw):
+            _orig_init(self_monitor, *a, **kw)
+            monitors.append(self_monitor)
+
+        with patch("asyncio.create_subprocess_exec", return_value=proc), \
+             patch.object(AgentMonitor, "__init__", _capture_init):
+            result = await executor._invoke_once(
+                task="crash", session_id="s3", resume=False,
+            )
+
+        assert result.error is not None
+        assert len(monitors) == 1
+        m = monitors[0].metrics
+        assert m["error"] is True
+        assert m["error_type"] == "ClaudeCodeProcessError"
+
+    async def test_monitor_agent_id_uses_model(self):
+        """AgentMonitor should include the model name in agent_id."""
+        lines = _load_fixture("simple_result.ndjson")
+        proc = FakeProcess(lines)
+
+        executor = _make_executor({"model": "sonnet"})
+        agent_ids = []
+
+        _orig_init = AgentMonitor.__init__
+
+        def _capture_init(self_monitor, agent_id, *a, **kw):
+            agent_ids.append(agent_id)
+            _orig_init(self_monitor, agent_id, *a, **kw)
+
+        with patch("asyncio.create_subprocess_exec", return_value=proc), \
+             patch.object(AgentMonitor, "__init__", _capture_init):
+            await executor._invoke_once(
+                task="hello", session_id="s4", resume=False,
+            )
+
+        assert len(agent_ids) == 1
+        assert agent_ids[0] == "claude-code/sonnet"
+
+    async def test_continuation_summary_log(self, caplog):
+        """Continuation loop should log aggregated summary when attempt > 1."""
+        lines_first = _load_fixture("needs_continuation.ndjson")
+        lines_second = _load_fixture("continuation_done.ndjson")
+
+        call_count = 0
+
+        async def _fake_exec(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return FakeProcess(lines_first)
+            return FakeProcess(lines_second)
+
+        executor = _make_executor({"max_continuations": 5})
+        import logging
+        # Enable propagation so caplog can capture via the root logger.
+        # flatmachines.monitoring sets propagate=False on the namespace logger.
+        fm_logger = logging.getLogger("flatmachines")
+        orig_propagate = fm_logger.propagate
+        fm_logger.propagate = True
+        try:
+            with patch("asyncio.create_subprocess_exec", side_effect=_fake_exec), \
+                 caplog.at_level(logging.INFO):
+                result = await executor.execute({"task": "implement"})
+        finally:
+            fm_logger.propagate = orig_propagate
+
+        assert call_count == 2
+        assert result.error is None
+        # Find the continuation summary log
+        summary_msgs = [r.message for r in caplog.records
+                        if "continuation complete" in r.message]
+        assert len(summary_msgs) == 1
+        assert "attempts=2" in summary_msgs[0]
+
+    async def test_no_continuation_summary_for_single(self, caplog):
+        """Single invocation should NOT log continuation summary."""
+        lines = _load_fixture("simple_result.ndjson")
+        proc = FakeProcess(lines)
+
+        executor = _make_executor()
+        import logging
+        fm_logger = logging.getLogger("flatmachines")
+        orig_propagate = fm_logger.propagate
+        fm_logger.propagate = True
+        try:
+            with patch("asyncio.create_subprocess_exec", return_value=proc), \
+                 caplog.at_level(logging.INFO):
+                result = await executor.execute({"task": "hello"})
+        finally:
+            fm_logger.propagate = orig_propagate
+
+        assert result.error is None
+        summary_msgs = [r.message for r in caplog.records
+                        if "continuation complete" in r.message]
+        assert len(summary_msgs) == 0
