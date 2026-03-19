@@ -6,6 +6,8 @@ These tests invoke the real `claude` binary and hit the real API.
 They are designed to be cheap (sonnet, low effort, small prompts)
 but still exercise the full adapter ↔ CLI ↔ API stack.
 
+**Gated behind --live flag.**  Without it, every test is skipped.
+
 Test matrix (from analysis doc "Integration Tests" section):
   1. Simple task — claude -p "say hi" → AgentResult with content
   2. Tool use — read a real file → verify stream events contain tool_use/tool_result
@@ -25,9 +27,15 @@ Requires:
 Usage:
     cd sdk/python
     source .venv/bin/activate
+
+    # Run live tests (hits real API, costs money):
+    python -m pytest tests/integration/claude_code/ -v --live
+
+    # Without --live, all tests are skipped:
     python -m pytest tests/integration/claude_code/ -v
-    # or:
-    tests/integration/claude_code/run.sh
+
+    # Via runner script:
+    tests/integration/claude_code/run.sh --local
 """
 
 from __future__ import annotations
@@ -53,16 +61,9 @@ from flatmachines.agents import AgentAdapterContext, AgentRef, AgentResult
 
 
 # ---------------------------------------------------------------------------
-# Skip if no claude binary
+# Skip logic is in conftest.py (--live flag + claude binary check).
+# All tests in this file are skipped unless `pytest --live` is passed.
 # ---------------------------------------------------------------------------
-
-def _claude_available() -> bool:
-    return shutil.which("claude") is not None
-
-pytestmark = pytest.mark.skipif(
-    not _claude_available(),
-    reason="claude binary not found on PATH",
-)
 
 
 # ---------------------------------------------------------------------------

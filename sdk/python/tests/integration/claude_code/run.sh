@@ -4,6 +4,9 @@
 # Runs against the real claude binary + API.
 # Requires: claude on PATH, valid auth, internet access.
 #
+# This script always passes --live to pytest.  To run tests manually
+# without --live they will all be skipped (safe for CI).
+#
 # Usage:
 #   ./run.sh           # use system packages
 #   ./run.sh --local   # install flatagents/flatmachines from local source
@@ -59,7 +62,7 @@ echo ""
 echo "Running tests..."
 echo ""
 
-"$VENV_PATH/bin/python" -m pytest "$SCRIPT_DIR/test_claude_code_live.py" -v --tb=short -x 2>&1
+"$VENV_PATH/bin/python" -m pytest "$SCRIPT_DIR/test_claude_code_live.py" -v --tb=short -x --live 2>&1
 
 echo ""
 echo "Claude Code integration tests passed!"
