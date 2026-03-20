@@ -9,9 +9,37 @@ This holdback suite snapshots the Python SDK test inventory at:
 ## Files
 
 - `python-sdk-tests-manifest.json` — canonical test inventory (file + test names)
-- `python-sdk-parity.test.ts` — Vitest suite that:
+- `python-sdk-parity.test.ts` — Vitest holdback lock suite that:
   - validates manifest integrity (count + uniqueness)
+  - validates parity assignment matrix integrity (full one-time ownership, no missing/duplicate keys)
   - exposes one `it.todo(...)` per Python test case
+- `../helpers/parity/test-matrix.ts` — frozen suite ownership map + case assignment matrix
+
+## Worker sequencing / ownership lock
+
+To avoid merge conflicts while parity implementation is incremental:
+
+1. **Only edit your owned topical suite file(s)** under `sdk/js/tests/parity/*.parity.test.ts`.
+2. **Update `PARITY_CASE_ASSIGNMENTS` in `helpers/parity/test-matrix.ts`** by moving case keys from `holdback` into your owned suite.
+3. Keep the global invariant green at all times:
+   - every manifest key is assigned
+   - every manifest key is assigned exactly once
+   - no unknown keys are present
+4. Run the holdback lock test before opening a PR.
+
+The `holdback` bucket is intentionally a temporary catch-all. Over time, topical suites should drain it to zero while preserving 1:1 ownership of all 824 keys.
+
+## Command matrix
+
+From repo root:
+
+- Holdback/inventory lock only:
+  - `pnpm vitest sdk/js/tests/holdback/python-sdk-parity.test.ts`
+- All parity topical suites + holdback lock (aggregate):
+  - `bash sdk/js/tests/run.sh parity`
+- Explicit lock + aggregate sanity pass:
+  - `bash sdk/js/tests/run.sh parity-lock`
+  - `bash sdk/js/tests/run.sh parity-all`
 
 ## Regenerating the manifest
 

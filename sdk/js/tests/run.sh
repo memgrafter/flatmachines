@@ -34,7 +34,7 @@ TEST_PATTERN=""
 # Parse arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
-    unit|integration|e2e|all)
+    unit|integration|e2e|all|parity|parity-lock|parity-all)
       TEST_TYPE="$1"
       shift
       ;;
@@ -81,6 +81,9 @@ if [ "$HELP" = true ]; then
     echo "  integration  Run integration tests"
     echo "  e2e          Run end-to-end tests"
     echo "  all          Run all test suites"
+    echo "  parity       Run holdback + topical parity suites"
+    echo "  parity-lock  Run holdback inventory/assignment lock only"
+    echo "  parity-all   Alias for parity"
     echo ""
     echo "Options:"
     echo "  --verbose, -v    Enable verbose output"
@@ -180,6 +183,40 @@ run_integration_runner() {
     fi
 }
 
+run_parity_lock() {
+    echo ""
+    echo -e "${YELLOW}🧪 Running parity inventory lock suite...${NC}"
+    echo "----------------------------------------------"
+    cd "$SDK_ROOT"
+
+    if pnpm vitest sdk/js/tests/holdback/python-sdk-parity.test.ts; then
+        TOTAL_PASSED=$((TOTAL_PASSED + 1))
+        echo -e "${GREEN}✓ Parity inventory lock PASSED${NC}"
+        return 0
+    else
+        TOTAL_FAILED=$((TOTAL_FAILED + 1))
+        echo -e "${RED}✗ Parity inventory lock FAILED${NC}"
+        return 1
+    fi
+}
+
+run_parity_aggregate() {
+    echo ""
+    echo -e "${YELLOW}🧪 Running aggregate parity suites...${NC}"
+    echo "----------------------------------------------"
+    cd "$SDK_ROOT"
+
+    if pnpm vitest sdk/js/tests/parity sdk/js/tests/holdback/python-sdk-parity.test.ts; then
+        TOTAL_PASSED=$((TOTAL_PASSED + 1))
+        echo -e "${GREEN}✓ Aggregate parity suites PASSED${NC}"
+        return 0
+    else
+        TOTAL_FAILED=$((TOTAL_FAILED + 1))
+        echo -e "${RED}✗ Aggregate parity suites FAILED${NC}"
+        return 1
+    fi
+}
+
 # Run the requested test suite(s)
 case "$TEST_TYPE" in
     unit)
@@ -214,6 +251,16 @@ case "$TEST_TYPE" in
             run_suite "Integration" "integration" || true
             run_suite "E2E" "e2e" || true
         fi
+        ;;
+    parity)
+        run_parity_lock || true
+        run_parity_aggregate || true
+        ;;
+    parity-lock)
+        run_parity_lock
+        ;;
+    parity-all)
+        run_parity_aggregate
         ;;
 esac
 
