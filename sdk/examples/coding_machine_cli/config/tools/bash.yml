@@ -1,0 +1,48 @@
+spec: flatmachine
+spec_version: "2.0.0"
+
+data:
+  name: tool-bash
+  context:
+    command: "{{ input.command }}"
+    timeout: "{{ input.timeout | default(30) }}"
+    working_dir: "{{ input.working_dir }}"
+    tool_content: ""
+    tool_is_error: false
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: execute
+
+    execute:
+      action: tool_bash
+      on_error:
+        TimeoutError: timed_out
+        default: error
+      transitions:
+        - to: done
+
+    timed_out:
+      type: final
+      output:
+        content: "Command timed out after {{ context.timeout }}s"
+        is_error: true
+
+    error:
+      type: final
+      output:
+        content: "{{ context.last_error }}"
+        is_error: true
+
+    done:
+      type: final
+      output:
+        content: "{{ context.tool_content }}"
+        is_error: "{{ context.tool_is_error }}"
+
+metadata:
+  description: "Bash tool as ephemeral flatmachine — trackable, observable"
+  tags: ["tool", "bash", "ephemeral"]
+  tool_type: ephemeral

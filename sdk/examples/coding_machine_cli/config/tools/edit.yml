@@ -1,0 +1,42 @@
+spec: flatmachine
+spec_version: "2.0.0"
+
+data:
+  name: tool-edit
+  context:
+    path: "{{ input.path }}"
+    oldText: "{{ input.oldText }}"
+    newText: "{{ input.newText }}"
+    working_dir: "{{ input.working_dir }}"
+    tool_content: ""
+    tool_is_error: false
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: execute
+
+    execute:
+      action: tool_edit
+      on_error:
+        default: error
+      transitions:
+        - to: done
+
+    error:
+      type: final
+      output:
+        content: "{{ context.last_error }}"
+        is_error: true
+
+    done:
+      type: final
+      output:
+        content: "{{ context.tool_content }}"
+        is_error: "{{ context.tool_is_error }}"
+
+metadata:
+  description: "Edit tool as ephemeral flatmachine"
+  tags: ["tool", "edit", "ephemeral"]
+  tool_type: ephemeral

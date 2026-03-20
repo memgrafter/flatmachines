@@ -11,6 +11,16 @@ data:
   agents:
     coder: ./agent.yml
 
+  # Tool machines — each tool call launches an ephemeral child FlatMachine.
+  # Gives every tool invocation its own execution_id, hooks lifecycle,
+  # error handling, and observability. Set tool_type: "long-lived" in a
+  # tool's metadata to enable persistence/checkpointing for complex tools.
+  tool_machines:
+    bash: ./tools/bash.yml
+    read: ./tools/read.yml
+    write: ./tools/write.yml
+    edit: ./tools/edit.yml
+
   states:
     start:
       type: initial

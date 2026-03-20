@@ -1,0 +1,41 @@
+spec: flatmachine
+spec_version: "2.0.0"
+
+data:
+  name: tool-write
+  context:
+    path: "{{ input.path }}"
+    content: "{{ input.content }}"
+    working_dir: "{{ input.working_dir }}"
+    tool_content: ""
+    tool_is_error: false
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: execute
+
+    execute:
+      action: tool_write
+      on_error:
+        default: error
+      transitions:
+        - to: done
+
+    error:
+      type: final
+      output:
+        content: "{{ context.last_error }}"
+        is_error: true
+
+    done:
+      type: final
+      output:
+        content: "{{ context.tool_content }}"
+        is_error: "{{ context.tool_is_error }}"
+
+metadata:
+  description: "Write tool as ephemeral flatmachine"
+  tags: ["tool", "write", "ephemeral"]
+  tool_type: ephemeral

@@ -2,12 +2,18 @@
 CLI Tool Use Hooks.
 
 Provides the tool provider, file tracking, per-call display, and human review.
+
+Tools are expressed as ephemeral FlatMachines by default. Each tool call
+launches a child machine, giving it an execution_id, hooks lifecycle,
+and observability for free. Falls back to direct function execution for
+tools without machine configs.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from flatmachines import MachineHooks
 from .tools import CLIToolProvider
+from .tool_machines import ToolMachineProvider, ToolMachineRegistry
 
 
 def _dim(text: str) -> str:
@@ -19,11 +25,34 @@ def _bold(text: str) -> str:
 
 
 class CLIToolHooks(MachineHooks):
-    """Hooks for CLI tool-use workflow with per-call display and human review."""
+    """Hooks for CLI tool-use workflow with per-call display and human review.
 
-    def __init__(self, working_dir: str = ".", auto_approve: bool = False):
-        self._provider = CLIToolProvider(working_dir)
+    When ``tools_dir`` is provided, tools are executed as ephemeral
+    FlatMachines (one machine per tool call). Otherwise falls back to
+    direct function execution via CLIToolProvider.
+    """
+
+    def __init__(
+        self,
+        working_dir: str = ".",
+        auto_approve: bool = False,
+        tools_dir: Optional[str] = None,
+        parent_execution_id: Optional[str] = None,
+    ):
+        self._working_dir = working_dir
         self._auto_approve = auto_approve
+
+        if tools_dir:
+            registry = ToolMachineRegistry(tools_dir)
+            self._provider = ToolMachineProvider(
+                working_dir=working_dir,
+                registry=registry,
+                parent_execution_id=parent_execution_id,
+            )
+            self._tools_as_machines = True
+        else:
+            self._provider = CLIToolProvider(working_dir)
+            self._tools_as_machines = False
 
     def get_tool_provider(self, state_name: str):
         return self._provider

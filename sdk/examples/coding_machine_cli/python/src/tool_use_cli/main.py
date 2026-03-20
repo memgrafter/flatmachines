@@ -41,13 +41,30 @@ def _config_path(name: str) -> str:
     return str(Path(__file__).parent.parent.parent.parent / "config" / name)
 
 
+def _tools_dir() -> str:
+    return str(Path(__file__).parent.parent.parent.parent / "config" / "tools")
+
+
 async def run_machine(task: str, working_dir: str, human_review: bool = True):
-    """Run a single task via FlatMachine machine-driven tool loop."""
-    hooks = CLIToolHooks(working_dir=working_dir, auto_approve=not human_review)
+    """Run a single task via FlatMachine machine-driven tool loop.
+
+    Tools are launched as ephemeral child FlatMachines, giving each tool
+    invocation its own execution_id, hooks lifecycle, and observability.
+    """
+    hooks = CLIToolHooks(
+        working_dir=working_dir,
+        auto_approve=not human_review,
+        tools_dir=_tools_dir(),
+    )
     machine = FlatMachine(
         config_file=_config_path("machine.yml"),
         hooks=hooks,
     )
+
+    # Pass parent execution_id to the tool provider so child machines
+    # are linked in the execution graph
+    if hasattr(hooks, '_provider') and hasattr(hooks._provider, '_parent_execution_id'):
+        hooks._provider._parent_execution_id = machine.execution_id
 
     result = await machine.execute(input={
         "task": task,
