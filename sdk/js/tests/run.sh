@@ -183,13 +183,22 @@ run_integration_runner() {
     fi
 }
 
+run_vitest() {
+    # Prefer pnpm if present, otherwise fall back to npm's npx (fnm-managed Node/npm).
+    if command -v pnpm >/dev/null 2>&1; then
+        pnpm vitest "$@"
+    else
+        npx vitest "$@"
+    fi
+}
+
 run_parity_lock() {
     echo ""
     echo -e "${YELLOW}🧪 Running parity inventory lock suite...${NC}"
     echo "----------------------------------------------"
     cd "$SDK_ROOT"
 
-    if pnpm vitest sdk/js/tests/holdback/python-sdk-parity.test.ts; then
+    if run_vitest run tests/holdback/python-sdk-parity.test.ts; then
         TOTAL_PASSED=$((TOTAL_PASSED + 1))
         echo -e "${GREEN}✓ Parity inventory lock PASSED${NC}"
         return 0
@@ -206,7 +215,7 @@ run_parity_aggregate() {
     echo "----------------------------------------------"
     cd "$SDK_ROOT"
 
-    if pnpm vitest sdk/js/tests/parity sdk/js/tests/holdback/python-sdk-parity.test.ts; then
+    if run_vitest run tests/parity tests/holdback/python-sdk-parity.test.ts; then
         TOTAL_PASSED=$((TOTAL_PASSED + 1))
         echo -e "${GREEN}✓ Aggregate parity suites PASSED${NC}"
         return 0
