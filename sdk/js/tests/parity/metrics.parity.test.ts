@@ -39,9 +39,9 @@ const withAgentMonitor = (
 
   try {
     operation(monitor)
-  } catch {
+  } catch (e) {
     monitor.status = 'error'
-    throw
+    throw e
   } finally {
     monitor.durationMs = finished - started
   }

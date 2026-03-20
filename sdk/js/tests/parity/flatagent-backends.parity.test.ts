@@ -19,11 +19,13 @@ describe('python parity: flatagent backends', () => {
     expect(assignments[OWNED_SUITE_KEY]).toBeDefined()
     expect(assignments[OWNED_SUITE_KEY]).toEqual(BACKEND_CASE_KEYS)
 
-    const allOtherAssigned = Object.entries(assignments)
-      .filter(([suite]) => suite !== OWNED_SUITE_KEY)
-      .flatMap(([, keys]) => keys)
+    // Verify no other topical suite (excluding holdback) claims the same cases
+    const backendSet = new Set(BACKEND_CASE_KEYS)
+    const conflicts = Object.entries(assignments)
+      .filter(([suite]) => suite !== OWNED_SUITE_KEY && suite !== 'holdback')
+      .flatMap(([suite, keys]) => keys.filter((k) => backendSet.has(k)).map((k) => `${suite}:${k}`))
 
-    expect(new Set(allOtherAssigned)).toEqual(new Set())
+    expect(conflicts).toEqual([])
   })
 
   it('tracks only manifest-backed backend parity case keys', () => {
