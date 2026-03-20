@@ -23,6 +23,7 @@ export const PARITY_TOPICAL_SUITES = Object.freeze({
   parityContext: 'sdk/js/tests/parity/context.parity.test.ts',
   parityCore: 'sdk/js/tests/parity/core.parity.test.ts',
   parityEvents: 'sdk/js/tests/parity/events.parity.test.ts',
+  parityFlatagentBackends: 'sdk/js/tests/parity/flatagent-backends.parity.test.ts',
   parityHooks: 'sdk/js/tests/parity/hooks.parity.test.ts',
   parityMemory: 'sdk/js/tests/parity/memory.parity.test.ts',
   parityModels: 'sdk/js/tests/parity/models.parity.test.ts',
@@ -64,6 +65,10 @@ export const PARITY_CASE_ASSIGNMENTS: Readonly<Record<ParityTopicalSuite, readon
   parityContext: Object.freeze([]),
   parityCore: Object.freeze([]),
   parityEvents: Object.freeze([]),
+  parityFlatagentBackends: Object.freeze([
+    'sdk/python/tests/integration/codex/test_codex_backend_integration.py::test_flatagent_codex_backend_end_to_end',
+    'sdk/python/tests/integration/distributed/test_distributed.py::test_distributed_backends_basic',
+  ]),
   parityHooks: Object.freeze([]),
   parityMemory: Object.freeze([]),
   parityModels: Object.freeze([]),
