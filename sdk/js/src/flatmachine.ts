@@ -16,6 +16,7 @@ import {
   HooksRef
 } from './types';
 import { FlatAgent } from './flatagent';
+import { AgentResponse, FinishReason } from './agent_response';
 import { getExecutionType } from './execution';
 import { evaluate } from './expression';
 import { CheckpointManager, LocalFileBackend, MemoryBackend } from './persistence';
@@ -23,12 +24,53 @@ import { inMemoryResultBackend } from './results';
 import { LocalFileLock, NoOpLock } from './locking';
 import { renderTemplate } from './templating';
 import { HooksRegistry } from './hooks';
+import {
+  AgentExecutor,
+  AgentResult,
+  AgentRef,
+  AgentAdapterRegistry,
+  AgentAdapterContext,
+  normalizeAgentRef,
+  coerceAgentResult,
+  agentResultOutputPayload,
+} from './agents';
+import { FlatAgentAdapter, FlatAgentExecutor } from './adapters/flatagent_adapter';
+import { ToolProvider, ToolResult } from './tools';
+import { SignalBackend, TriggerBackend, NoOpTrigger } from './signals';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// WaitingForSignal exception
+// ─────────────────────────────────────────────────────────────────────────────
+
+class WaitingForSignal extends Error {
+  channel: string;
+  constructor(channel: string) {
+    super(`Waiting for signal on channel: ${channel}`);
+    this.name = 'WaitingForSignal';
+    this.channel = channel;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Extended MachineOptions to support new features
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ExtendedMachineOptions extends MachineOptions {
+  signalBackend?: SignalBackend;
+  triggerBackend?: TriggerBackend;
+  agentRegistry?: AgentAdapterRegistry;
+  toolProvider?: ToolProvider;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FlatMachine
+// ─────────────────────────────────────────────────────────────────────────────
 
 export class FlatMachine {
   public config: MachineConfig;
   public executionId: string = randomUUID();
   private agents = new Map<string, FlatAgent>();
+  private executors = new Map<string, AgentExecutor>();
   private context: Record<string, any> = {};
   private input: Record<string, any> = {};
   private hooks?: MachineHooks;
@@ -43,8 +85,16 @@ export class FlatMachine {
   private pendingLaunches: LaunchIntent[] = [];
   private currentState?: string;
   private currentStep = 0;
+  private totalApiCalls = 0;
+  private totalCost = 0;
 
-  constructor(options: MachineOptions) {
+  // New Phase 3+ backends
+  private signalBackend?: SignalBackend;
+  private triggerBackend: TriggerBackend;
+  private agentRegistry: AgentAdapterRegistry;
+  private toolProvider?: ToolProvider;
+
+  constructor(options: MachineOptions | ExtendedMachineOptions) {
     this.config = typeof options.config === "string"
       ? yaml.parse(readFileSync(options.config, "utf-8")) as MachineConfig
       : options.config;
@@ -58,6 +108,18 @@ export class FlatMachine {
     const backendConfig = this.config.data.settings?.backends;
     this.resultBackend = options.resultBackend ?? this.createResultBackend(backendConfig);
     this.executionLock = options.executionLock ?? this.createExecutionLock(backendConfig);
+
+    // New backends
+    const extOpts = options as ExtendedMachineOptions;
+    this.signalBackend = extOpts.signalBackend;
+    this.triggerBackend = extOpts.triggerBackend ?? new NoOpTrigger();
+    this.toolProvider = extOpts.toolProvider;
+
+    // Agent adapter registry with default flatagent adapter
+    this.agentRegistry = extOpts.agentRegistry ?? new AgentAdapterRegistry();
+    if (!extOpts.agentRegistry) {
+      this.agentRegistry.register(new FlatAgentAdapter());
+    }
 
     if (options.persistence) {
       this.checkpointManager = new CheckpointManager(options.persistence);
@@ -88,7 +150,6 @@ export class FlatMachine {
 
   async execute(input?: Record<string, any>, resumeSnapshot?: MachineSnapshot): Promise<any> {
     if (this.config.data.expression_engine === "cel") {
-      // TODO: CEL expression engine is not implemented in the JS SDK yet.
       throw new Error("expression_engine 'cel' is not supported in the JS SDK yet");
     }
 
@@ -101,6 +162,12 @@ export class FlatMachine {
 
     try {
       return await this.executeInternal(input, resumeSnapshot);
+    } catch (err) {
+      if (err instanceof WaitingForSignal) {
+        // Machine is parked — checkpoint was already saved, just return
+        return { _waiting_for: err.channel };
+      }
+      throw err;
     } finally {
       await this.executionLock.release(lockKey);
     }
@@ -111,7 +178,6 @@ export class FlatMachine {
     let steps: number;
 
     if (resumeSnapshot) {
-      // Resume from checkpoint - restore state instead of reinitializing
       this.executionId = resumeSnapshot.execution_id;
       this.parentExecutionId = resumeSnapshot.parent_execution_id;
       this.context = resumeSnapshot.context;
@@ -121,9 +187,7 @@ export class FlatMachine {
       if (this.pendingLaunches.length) {
         await this.resumePendingLaunches();
       }
-      // Don't call onMachineStart when resuming
     } else {
-      // Fresh execution - initialize context from config + input
       this.input = input ?? {};
       this.context = this.render(this.config.data.context ?? {}, { input: this.input });
       this.context = await this.hooks?.onMachineStart?.(this.context) ?? this.context;
@@ -139,9 +203,13 @@ export class FlatMachine {
     const maxSteps = this.config.data.settings?.max_steps ?? 100;
 
     while (steps++ < maxSteps) {
-      const def = this.config.data.states[state];
+      const def = this.config.data.states[state]!;
       this.currentState = state;
       this.currentStep = steps;
+
+      // Inject machine metadata into context
+      this.injectMachineMetadata(state, steps);
+
       this.context = await this.hooks?.onStateEnter?.(state, this.context) ?? this.context;
       if (this.shouldCheckpoint("execute")) {
         await this.checkpoint(state, steps, "execute");
@@ -157,24 +225,44 @@ export class FlatMachine {
         return await this.hooks?.onMachineEnd?.(this.context, output) ?? output;
       }
 
-      // Execute agent or machine
+      // Execute state
       let output: any;
-      const executor = getExecutionType(def.execution);
 
       try {
-        if (def.action) {
+        // 0. Handle wait_for (external signal)
+        if (def.wait_for) {
+          output = await this.handleWaitFor(def, state, steps);
+          // Apply output_to_context for wait_for states
+          if (def.output_to_context && output != null) {
+            const safeOutput = typeof output === 'object' ? output : { value: output };
+            Object.assign(this.context, this.render(def.output_to_context, { context: this.context, input: this.input, output: safeOutput }));
+          }
+        }
+        // 1. Handle action
+        else if (def.action) {
           const actionResult = await this.hooks?.onAction?.(def.action, this.context);
           if (actionResult !== undefined) {
             this.context = actionResult;
             output = actionResult;
           }
         }
-        if (def.agent) {
-          output = await executor.execute(() => this.executeAgent(def));
-        } else if (def.machine) {
+        // 2. Handle agent (with optional tool loop)
+        else if (def.agent) {
+          if (def.tool_loop) {
+            const [ctx, toolOutput] = await this.executeToolLoop(state, def);
+            this.context = ctx;
+            output = toolOutput;
+          } else {
+            const executor = getExecutionType(def.execution);
+            output = await executor.execute(() => this.executeAgent(def));
+          }
+        }
+        // 3. Handle machine
+        else if (def.machine) {
           output = await this.executeMachine(def);
         }
       } catch (err) {
+        if (err instanceof WaitingForSignal) throw err;
         this.context.last_error = (err as Error).message;
         this.context.last_error_type = (err as Error).name || (err as Error).constructor?.name;
         const recovery = await this.hooks?.onError?.(state, err as Error, this.context);
@@ -194,8 +282,8 @@ export class FlatMachine {
         throw err;
       }
 
-      // Map output to context
-      if (def.output_to_context) {
+      // Map output to context (for non-wait_for states)
+      if (def.output_to_context && !def.wait_for) {
         Object.assign(this.context, this.render(def.output_to_context, { context: this.context, input: this.input, output }));
       }
 
@@ -213,21 +301,243 @@ export class FlatMachine {
   async resume(executionId: string): Promise<any> {
     const snapshot = await this.checkpointManager?.restore(executionId);
     if (!snapshot) throw new Error(`No checkpoint for ${executionId}`);
-    // Pass snapshot to execute so it resumes from that state instead of reinitializing
     return this.execute(undefined, snapshot);
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Context machine metadata injection (#14)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  private injectMachineMetadata(state: string, step: number): void {
+    this.context.machine = Object.freeze({
+      execution_id: this.executionId,
+      machine_name: this.config.data.name ?? 'unnamed',
+      step,
+      current_state: state,
+      parent_execution_id: this.parentExecutionId,
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Wait-for states (#11)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  private async handleWaitFor(def: State, state: string, step: number): Promise<any> {
+    const channel = this.render(def.wait_for!, { context: this.context, input: this.input });
+
+    // Try to consume a signal
+    let signalData: any = null;
+    if (this.signalBackend) {
+      const signal = await this.signalBackend.consume(channel);
+      if (signal) signalData = signal.data;
+    }
+
+    if (signalData == null) {
+      // No signal — checkpoint with waiting_channel and exit
+      await this.checkpointWithChannel(state, step, channel);
+      throw new WaitingForSignal(channel);
+    }
+
+    return signalData;
+  }
+
+  private async checkpointWithChannel(state: string, step: number, channel: string): Promise<void> {
+    if (!this.checkpointManager) return;
+    await this.checkpointManager.checkpoint({
+      execution_id: this.executionId,
+      machine_name: this.config.data.name ?? "unnamed",
+      spec_version: this.config.spec_version ?? "0.4.0",
+      current_state: state,
+      context: this.context,
+      step,
+      created_at: new Date().toISOString(),
+      event: "wait_for",
+      waiting_channel: channel,
+      parent_execution_id: this.parentExecutionId,
+      pending_launches: this.pendingLaunches.length ? this.pendingLaunches : undefined,
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Tool loop in machine states (#10)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  private async executeToolLoop(
+    stateName: string,
+    def: State,
+  ): Promise<[Record<string, any>, any]> {
+    const loopConfig = typeof def.tool_loop === 'object' ? def.tool_loop : {};
+    const maxTurns = Number(loopConfig.max_turns ?? 20);
+    const maxToolCalls = Number(loopConfig.max_tool_calls ?? 50);
+    const toolTimeout = Number(loopConfig.tool_timeout ?? 30) * 1000;
+    const totalTimeout = Number(loopConfig.total_timeout ?? 600) * 1000;
+    const maxCost = loopConfig.max_cost != null ? Number(loopConfig.max_cost) : undefined;
+    const allowedTools = new Set<string>(loopConfig.allowed_tools ?? []);
+    const deniedTools = new Set<string>(loopConfig.denied_tools ?? []);
+
+    // Get agent — need one that supports tool calls
+    const agentName = def.agent!;
+    let agent = this.agents.get(agentName);
+    if (!agent) {
+      const agentRef = this.config.data.agents?.[agentName] ?? agentName;
+      agent = this.createAgent(agentRef);
+      this.agents.set(agentName, agent);
+    }
+
+    // Resolve tool definitions
+    const toolDefs = this.toolProvider?.get_tool_definitions() ?? [];
+
+    // Build initial input
+    const agentInput = this.render(def.input ?? {}, { context: this.context, input: this.input });
+
+    let chain: Array<Record<string, any>> = [];
+    let turns = 0;
+    let toolCallsCount = 0;
+    let loopCost = 0;
+    const startTime = Date.now();
+    let lastContent: string | undefined;
+    let context = this.context;
+
+    while (true) {
+      // Guardrails
+      if (Date.now() - startTime >= totalTimeout) { context._tool_loop_stop = 'timeout'; break; }
+      if (turns >= maxTurns) { context._tool_loop_stop = 'max_turns'; break; }
+      if (maxCost != null && loopCost >= maxCost) { context._tool_loop_stop = 'cost_limit'; break; }
+
+      // Call agent
+      let response: AgentResponse;
+      if (turns === 0) {
+        response = await agent.call(agentInput, { tools: toolDefs, messages: undefined });
+      } else {
+        response = await agent.call({}, { tools: toolDefs, messages: chain });
+      }
+
+      turns += 1;
+      if (response.usage?.cost) loopCost += response.usage.cost.total ?? 0;
+
+      context._tool_loop_turns = turns;
+      context._tool_loop_cost = loopCost;
+      context._tool_calls_count = toolCallsCount;
+      context._tool_loop_content = response.content;
+
+      // Error
+      if (response.error) {
+        throw new Error(`${response.error.error_type}: ${response.error.message}`);
+      }
+
+      // Seed chain on first turn
+      if (turns === 1 && response.rendered_user_prompt) {
+        chain.push({ role: 'user', content: response.rendered_user_prompt });
+      }
+
+      // Build assistant message
+      const assistantMsg: Record<string, any> = { role: 'assistant', content: response.content ?? '' };
+      if (response.tool_calls?.length) {
+        assistantMsg.tool_calls = response.tool_calls.map(tc => ({
+          id: tc.id, type: 'function',
+          function: { name: tc.tool, arguments: JSON.stringify(tc.arguments) },
+        }));
+      }
+      chain.push(assistantMsg);
+      lastContent = response.content ?? undefined;
+
+      // No tool calls = loop complete
+      if (response.finish_reason !== FinishReason.TOOL_USE) break;
+
+      const pendingCalls = response.tool_calls ?? [];
+      if (toolCallsCount + pendingCalls.length > maxToolCalls) {
+        context._tool_loop_stop = 'max_tool_calls'; break;
+      }
+
+      // Execute tools
+      for (const tc of pendingCalls) {
+        // Allow/deny check
+        if (deniedTools.size && deniedTools.has(tc.tool)) {
+          chain.push({ role: 'tool', tool_call_id: tc.id, content: `Tool '${tc.tool}' is not allowed.` });
+          continue;
+        }
+        if (allowedTools.size && !allowedTools.has(tc.tool)) {
+          chain.push({ role: 'tool', tool_call_id: tc.id, content: `Tool '${tc.tool}' is not allowed.` });
+          continue;
+        }
+
+        let toolResult: ToolResult;
+        if (this.toolProvider) {
+          try {
+            toolResult = await Promise.race([
+              this.toolProvider.execute_tool(tc.tool, tc.id, tc.arguments),
+              new Promise<ToolResult>((_, reject) => setTimeout(() => reject(new Error('timeout')), toolTimeout)),
+            ]);
+          } catch (e: any) {
+            toolResult = { content: e?.message === 'timeout' ? `Tool '${tc.tool}' timed out` : `Error: ${e}`, is_error: true };
+          }
+        } else {
+          toolResult = { content: `No tool provider configured for '${tc.tool}'`, is_error: true };
+        }
+
+        toolCallsCount += 1;
+        chain.push({ role: 'tool', tool_call_id: tc.id, content: toolResult.content });
+        context._tool_calls_count = toolCallsCount;
+
+        // Checkpoint after each tool call
+        if (this.shouldCheckpoint("execute")) {
+          await this.checkpoint(stateName, this.currentStep, "tool_call");
+        }
+
+        // Check for abort or conditional transition
+        if (context._abort_tool_loop) { context._tool_loop_stop = 'aborted'; break; }
+
+        const nextState = this.findConditionalTransition(stateName);
+        if (nextState) { context._tool_loop_stop = 'transition'; context._tool_loop_next_state = nextState; break; }
+      }
+
+      if (context._tool_loop_stop) break;
+    }
+
+    // Build output
+    const output: Record<string, any> = {
+      content: lastContent,
+      _tool_calls_count: toolCallsCount,
+      _tool_loop_turns: turns,
+      _tool_loop_cost: loopCost,
+      _tool_loop_stop: context._tool_loop_stop ?? 'complete',
+    };
+
+    // Apply output_to_context
+    if (def.output_to_context) {
+      Object.assign(context, this.render(def.output_to_context, { context, output, input: this.input }));
+    }
+
+    this.context = context;
+    return [context, output];
+  }
+
+  private findConditionalTransition(stateName: string): string | null {
+    const state = this.config.data.states[stateName];
+    if (!state?.transitions) return null;
+    for (const t of state.transitions) {
+      if (!t.condition) continue;
+      if (evaluate(t.condition, { context: this.context, input: this.input, output: {} })) {
+        return t.to;
+      }
+    }
+    return null;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Existing methods (updated)
+  // ─────────────────────────────────────────────────────────────────────────
 
   private findInitialState(): string {
     for (const [name, state] of Object.entries(this.config.data.states)) {
       if (state.type === "initial") return name;
     }
-    return Object.keys(this.config.data.states)[0];
+    return Object.keys(this.config.data.states)[0]!;
   }
 
   private async executeAgent(def: State): Promise<any> {
     let agent = this.agents.get(def.agent!);
     if (!agent) {
-      // Resolve agent name from agents map, or use directly as path
       const agentRef = this.config.data.agents?.[def.agent!] ?? def.agent!;
       agent = this.createAgent(agentRef);
       this.agents.set(def.agent!, agent);
@@ -330,6 +640,8 @@ export class FlatMachine {
       created_at: new Date().toISOString(),
       event,
       output,
+      total_api_calls: this.totalApiCalls,
+      total_cost: this.totalCost,
       parent_execution_id: this.parentExecutionId,
       pending_launches: this.pendingLaunches.length ? this.pendingLaunches : undefined,
     });
@@ -340,6 +652,7 @@ export class FlatMachine {
       const directValue = this.renderDirectValue(template, vars);
       if (directValue !== undefined) return directValue;
       const rendered = renderTemplate(template, vars, "flatmachine");
+      // Auto-deserialize JSON for lists/dicts (#15)
       try { return JSON.parse(rendered); } catch { return rendered; }
     }
     if (Array.isArray(template)) return template.map(t => this.render(t, vars));
@@ -352,7 +665,7 @@ export class FlatMachine {
   private renderDirectValue(template: string, vars: Record<string, any>): any | undefined {
     const match = template.match(/^\s*{{\s*([^}]+)\s*}}\s*$/);
     if (!match) return undefined;
-    const expr = match[1].trim();
+    const expr = match[1]!.trim();
     if (!/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$/.test(expr)) return undefined;
     return this.resolvePath(vars, expr);
   }
@@ -385,6 +698,10 @@ export class FlatMachine {
   private createPersistenceBackend(config: NonNullable<MachineConfig["data"]["persistence"]>) {
     if (config.backend === "memory") return new MemoryBackend();
     if (config.backend === "local") return new LocalFileBackend();
+    if (config.backend === "sqlite") {
+      const { SQLiteCheckpointBackend } = require('./persistence_sqlite');
+      return new SQLiteCheckpointBackend(config.db_path ?? 'flatmachines.sqlite');
+    }
     throw new Error(`Unsupported persistence backend: ${config.backend}`);
   }
 
@@ -419,7 +736,11 @@ export class FlatMachine {
       executionId: overrides?.executionId,
       parentExecutionId: overrides?.parentExecutionId,
       profilesFile: this.profilesFile,
-    });
+      signalBackend: this.signalBackend,
+      triggerBackend: this.triggerBackend,
+      agentRegistry: this.agentRegistry,
+      toolProvider: this.toolProvider,
+    } as ExtendedMachineOptions);
   }
 
   private resolveMachineConfig(machineRef: any): { config: MachineConfig | string; configDir: string } {
@@ -457,7 +778,6 @@ export class FlatMachine {
   }
 
   private resolveMachinePath(pathRef: string): { config: string; configDir: string } {
-    // Align with Python SDK: child machine config_dir is the directory containing its config file.
     const resolved = resolve(this.configDir, pathRef);
     return { config: resolved, configDir: dirname(resolved) };
   }
@@ -467,10 +787,8 @@ export class FlatMachine {
     if (typeof configProfiles === "string" && configProfiles.trim().length > 0) {
       return resolve(this.configDir, configProfiles);
     }
-
     const discovered = resolve(this.configDir, "profiles.yml");
     if (existsSync(discovered)) return discovered;
-
     return explicitPath;
   }
 
@@ -639,11 +957,5 @@ export class FlatMachine {
         reject(err);
       });
     });
-  }
-
-  private pickFirstKeyedResult(results: Record<string, any>): Record<string, any> {
-    const firstKey = Object.keys(results)[0];
-    if (!firstKey) return {};
-    return { [firstKey]: results[firstKey] };
   }
 }

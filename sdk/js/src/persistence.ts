@@ -80,6 +80,26 @@ export class LocalFileBackend implements PersistenceBackend {
   }
 }
 
+/**
+ * Clone a snapshot under a new execution ID and persist it. (#20)
+ */
+export async function cloneSnapshot(
+  snapshot: MachineSnapshot,
+  newExecutionId: string,
+  persistence: PersistenceBackend,
+): Promise<MachineSnapshot> {
+  const cloned: MachineSnapshot = {
+    ...JSON.parse(JSON.stringify(snapshot)),
+    execution_id: newExecutionId,
+    created_at: new Date().toISOString(),
+    parent_execution_id: snapshot.execution_id,
+    pending_launches: undefined,
+  };
+  const manager = new CheckpointManager(persistence);
+  await manager.checkpoint(cloned);
+  return cloned;
+}
+
 export class CheckpointManager {
   constructor(private backend: PersistenceBackend) { }
 

@@ -105,11 +105,12 @@ export interface State {
   timeout?: number;
   launch?: string | string[];
   launch_input?: Record<string, any>;
-  tool_loop?: boolean;
+  tool_loop?: boolean | Record<string, any>;
   sampling?: "single" | "multi";
+  wait_for?: string;
 }
 
-// Matches flatmachine.d.ts:333-351 exactly
+// Matches flatmachine.d.ts:333-351 + v1.2.0 + v2.1.0 extensions
 export interface MachineSnapshot {
   execution_id: string;
   machine_name: string;
@@ -124,6 +125,12 @@ export interface MachineSnapshot {
   total_cost?: number;
   parent_execution_id?: string;
   pending_launches?: LaunchIntent[];
+  // External signals (v1.2.0)
+  waiting_channel?: string;
+  // Tool loop state (v1.2.0)
+  tool_loop_state?: Record<string, any>;
+  // Config hash (v2.1.0) — content-addressed key into config store for cross-SDK resume
+  config_hash?: string;
 }
 
 // Matches flatmachine.d.ts:326-331
@@ -177,6 +184,10 @@ export interface PersistenceBackend {
   load(key: string): Promise<MachineSnapshot | null>;
   delete(key: string): Promise<void>;
   list(prefix: string): Promise<string[]>;
+  /** List execution IDs, optionally filtered by latest checkpoint state. */
+  listExecutionIds?(options?: { event?: string; waiting_channel?: string }): Promise<string[]>;
+  /** Delete all checkpoint data for an execution. */
+  deleteExecution?(executionId: string): Promise<void>;
 }
 
 export interface ResultBackend {
