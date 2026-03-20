@@ -2,7 +2,7 @@
 // Integration tests for FlatAgent functionality
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { FlatAgent } from '../src/flatagent';
+import { FlatAgent } from '../../src/flatagent';
 import { existsSync } from 'fs';
 import * as yaml from 'yaml';
 import { join } from 'path';
@@ -144,7 +144,10 @@ data:
       // Mock network failure
       global.fetch = vi.fn().mockRejectedValue(new Error('Network timeout'));
 
-      await expect(flatAgent.call({ query: 'test' })).rejects.toThrow('Network timeout');
+      // FlatAgent.call() now returns AgentResponse with error instead of throwing
+      const result = await flatAgent.call({ query: 'test' });
+      expect(result.error).toBeDefined();
+      expect(result.finish_reason).toBe('error');
     });
 
     it('should handle API error responses', async () => {
@@ -175,7 +178,10 @@ data:
         })
       });
 
-      await expect(flatAgent.call({ query: 'test' })).rejects.toThrow();
+      // FlatAgent.call() now returns AgentResponse with error instead of throwing
+      const result = await flatAgent.call({ query: 'test' });
+      expect(result.error).toBeDefined();
+      expect(result.finish_reason).toBe('error');
     });
 
     it('should handle malformed API responses', async () => {
@@ -199,7 +205,10 @@ data:
         json: () => Promise.resolve({ invalid: 'structure' })
       });
 
-      await expect(flatAgent.call({ query: 'test' })).rejects.toThrow();
+      // FlatAgent.call() now returns AgentResponse with error instead of throwing
+      const result = await flatAgent.call({ query: 'test' });
+      expect(result.error).toBeDefined();
+      expect(result.finish_reason).toBe('error');
     });
   });
 

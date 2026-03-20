@@ -117,6 +117,7 @@ export type {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { FlatAgentAdapter, FlatAgentExecutor } from './adapters/flatagent_adapter';
+export { ClaudeCodeAdapter, ClaudeCodeExecutor } from './adapters/claude_code_adapter';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Execution
@@ -155,6 +156,7 @@ export {
   SQLiteCheckpointBackend,
   SQLiteConfigStore,
   MemoryConfigStore,
+  LocalFileConfigStore,
   configHash,
 } from './persistence_sqlite';
 
@@ -177,6 +179,7 @@ export { MCPToolProvider } from './mcp';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { evaluate } from './expression';
+export { evaluateCel } from './expression_cel';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Templating
@@ -197,6 +200,31 @@ export { SQLiteLeaseLock } from './locking_sqlite';
 
 export { VercelAIBackend, MockLLMBackend } from './llm';
 export type { LLMBackend, LLMBackendConfig, LLMOptions, Message, ToolCall, ToolDefinition, MockResponse } from './llm';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Codex Backend (Phase 6 — providers)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export {
+  CodexClient,
+  CodexClientError,
+  CodexHTTPError,
+  CodexAuthError,
+  PiAuthStore,
+  resolveAuthFile,
+  loadCodexCredential,
+  refreshCodexCredential,
+  isExpired,
+  decodeJwtPayload,
+  extractAccountIdFromAccessToken,
+} from './providers';
+
+export type {
+  CodexOAuthCredential,
+  CodexUsage,
+  CodexToolCall,
+  CodexResult,
+} from './providers';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Signals & Triggers (Phase 3.2 + 3.3)

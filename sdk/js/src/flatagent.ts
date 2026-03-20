@@ -79,9 +79,7 @@ export class FlatAgent {
     const configData = this.config && typeof this.config === "object"
       ? (this.config as any).data
       : undefined;
-    if (configData?.expression_engine === "cel") {
-      throw new Error("expression_engine 'cel' is not supported in the JS SDK yet");
-    }
+    // CEL expression engine is now supported via cel-js (optional dependency)
 
     // Resolve model config through profiles (only if we have valid config data)
     if (configData?.model) {

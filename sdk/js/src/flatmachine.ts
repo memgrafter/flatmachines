@@ -37,6 +37,7 @@ import {
 import { FlatAgentAdapter, FlatAgentExecutor } from './adapters/flatagent_adapter';
 import { ToolProvider, ToolResult } from './tools';
 import { SignalBackend, TriggerBackend, NoOpTrigger } from './signals';
+import { evaluateCel } from './expression_cel';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WaitingForSignal exception
@@ -93,6 +94,7 @@ export class FlatMachine {
   private triggerBackend: TriggerBackend;
   private agentRegistry: AgentAdapterRegistry;
   private toolProvider?: ToolProvider;
+  private expressionEngine: 'simple' | 'cel' = 'simple';
 
   constructor(options: MachineOptions | ExtendedMachineOptions) {
     this.config = typeof options.config === "string"
@@ -120,6 +122,9 @@ export class FlatMachine {
     if (!extOpts.agentRegistry) {
       this.agentRegistry.register(new FlatAgentAdapter());
     }
+
+    // Expression engine
+    this.expressionEngine = (this.config.data.expression_engine as any) ?? 'simple';
 
     if (options.persistence) {
       this.checkpointManager = new CheckpointManager(options.persistence);
@@ -149,9 +154,7 @@ export class FlatMachine {
   }
 
   async execute(input?: Record<string, any>, resumeSnapshot?: MachineSnapshot): Promise<any> {
-    if (this.config.data.expression_engine === "cel") {
-      throw new Error("expression_engine 'cel' is not supported in the JS SDK yet");
-    }
+    // CEL expression engine is supported via cel-js (optional dependency)
 
     // Acquire execution lock
     const lockKey = resumeSnapshot?.execution_id ?? this.executionId;
@@ -375,14 +378,9 @@ export class FlatMachine {
     const allowedTools = new Set<string>(loopConfig.allowed_tools ?? []);
     const deniedTools = new Set<string>(loopConfig.denied_tools ?? []);
 
-    // Get agent — need one that supports tool calls
+    // Get executor — need one that supports tool calls (execute_with_tools)
     const agentName = def.agent!;
-    let agent = this.agents.get(agentName);
-    if (!agent) {
-      const agentRef = this.config.data.agents?.[agentName] ?? agentName;
-      agent = this.createAgent(agentRef);
-      this.agents.set(agentName, agent);
-    }
+    const executor = this.getExecutor(agentName);
 
     // Resolve tool definitions
     const toolDefs = this.toolProvider?.get_tool_definitions() ?? [];
@@ -404,47 +402,60 @@ export class FlatMachine {
       if (turns >= maxTurns) { context._tool_loop_stop = 'max_turns'; break; }
       if (maxCost != null && loopCost >= maxCost) { context._tool_loop_stop = 'cost_limit'; break; }
 
-      // Call agent
-      let response: AgentResponse;
-      if (turns === 0) {
-        response = await agent.call(agentInput, { tools: toolDefs, messages: undefined });
+      // Call agent via executor
+      let result: AgentResult;
+      if ('execute_with_tools' in executor && typeof (executor as any).execute_with_tools === 'function') {
+        if (turns === 0) {
+          result = await (executor as any).execute_with_tools(agentInput, toolDefs, undefined, context);
+        } else {
+          result = await (executor as any).execute_with_tools({}, toolDefs, chain, context);
+        }
       } else {
-        response = await agent.call({}, { tools: toolDefs, messages: chain });
+        // Fallback for executors without execute_with_tools
+        if (turns === 0) {
+          result = await executor.execute(agentInput, context);
+        } else {
+          result = await executor.execute({}, context);
+        }
       }
+      result = coerceAgentResult(result);
 
       turns += 1;
-      if (response.usage?.cost) loopCost += response.usage.cost.total ?? 0;
+      // Extract cost
+      const turnCost = typeof result.cost === 'number' ? result.cost
+        : (result.cost && typeof result.cost === 'object') ? ((result.cost as any).total ?? 0) : 0;
+      loopCost += turnCost;
 
       context._tool_loop_turns = turns;
       context._tool_loop_cost = loopCost;
       context._tool_calls_count = toolCallsCount;
-      context._tool_loop_content = response.content;
+      context._tool_loop_content = result.content;
 
       // Error
-      if (response.error) {
-        throw new Error(`${response.error.error_type}: ${response.error.message}`);
+      if (result.error) {
+        throw new Error(`${result.error.type ?? 'AgentError'}: ${result.error.message ?? 'unknown'}`);
       }
 
       // Seed chain on first turn
-      if (turns === 1 && response.rendered_user_prompt) {
-        chain.push({ role: 'user', content: response.rendered_user_prompt });
+      if (turns === 1 && result.rendered_user_prompt) {
+        chain.push({ role: 'user', content: result.rendered_user_prompt });
       }
 
       // Build assistant message
-      const assistantMsg: Record<string, any> = { role: 'assistant', content: response.content ?? '' };
-      if (response.tool_calls?.length) {
-        assistantMsg.tool_calls = response.tool_calls.map(tc => ({
+      const assistantMsg: Record<string, any> = { role: 'assistant', content: result.content ?? '' };
+      if (result.tool_calls?.length) {
+        assistantMsg.tool_calls = result.tool_calls.map(tc => ({
           id: tc.id, type: 'function',
-          function: { name: tc.tool, arguments: JSON.stringify(tc.arguments) },
+          function: { name: tc.name ?? tc.tool, arguments: typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.arguments) },
         }));
       }
       chain.push(assistantMsg);
-      lastContent = response.content ?? undefined;
+      lastContent = result.content ?? undefined;
 
       // No tool calls = loop complete
-      if (response.finish_reason !== FinishReason.TOOL_USE) break;
+      if (result.finish_reason !== 'tool_use' && result.finish_reason !== FinishReason.TOOL_USE) break;
 
-      const pendingCalls = response.tool_calls ?? [];
+      const pendingCalls = result.tool_calls ?? [];
       if (toolCallsCount + pendingCalls.length > maxToolCalls) {
         context._tool_loop_stop = 'max_tool_calls'; break;
       }
@@ -512,12 +523,19 @@ export class FlatMachine {
     return [context, output];
   }
 
+  private evaluateExpr(expr: string, ctx: { context: any; input: any; output: any }): any {
+    if (this.expressionEngine === 'cel') {
+      return evaluateCel(expr, ctx);
+    }
+    return evaluate(expr, ctx);
+  }
+
   private findConditionalTransition(stateName: string): string | null {
     const state = this.config.data.states[stateName];
     if (!state?.transitions) return null;
     for (const t of state.transitions) {
       if (!t.condition) continue;
-      if (evaluate(t.condition, { context: this.context, input: this.input, output: {} })) {
+      if (this.evaluateExpr(t.condition, { context: this.context, input: this.input, output: {} })) {
         return t.to;
       }
     }
@@ -535,16 +553,51 @@ export class FlatMachine {
     return Object.keys(this.config.data.states)[0]!;
   }
 
+  private getExecutor(agentName: string): AgentExecutor {
+    let executor = this.executors.get(agentName);
+    if (executor) return executor;
+
+    const rawRef = this.config.data.agents?.[agentName] ?? agentName;
+    const agentRef = normalizeAgentRef(rawRef);
+    const adapterContext: AgentAdapterContext = {
+      config_dir: this.configDir,
+      settings: this.config.data.settings ?? {},
+      machine_name: this.config.data.name ?? 'unnamed',
+      profiles_file: this.profilesFile,
+    };
+    executor = this.agentRegistry.createExecutor({
+      agent_name: agentName,
+      agent_ref: agentRef,
+      context: adapterContext,
+    });
+    this.executors.set(agentName, executor);
+    return executor;
+  }
+
   private async executeAgent(def: State): Promise<any> {
-    let agent = this.agents.get(def.agent!);
-    if (!agent) {
-      const agentRef = this.config.data.agents?.[def.agent!] ?? def.agent!;
-      agent = this.createAgent(agentRef);
-      this.agents.set(def.agent!, agent);
-    }
+    const executor = this.getExecutor(def.agent!);
     const input = this.render(def.input ?? {}, { context: this.context, input: this.input });
-    const result = await agent.call(input);
-    return result.output;
+    const result = await executor.execute(input, this.context);
+    const agentResult = coerceAgentResult(result);
+
+    // Accumulate metrics
+    if (agentResult.usage) {
+      this.totalApiCalls += (agentResult.usage as any).api_calls ?? 1;
+    } else {
+      this.totalApiCalls += 1;
+    }
+    if (agentResult.cost != null) {
+      const costVal = typeof agentResult.cost === 'number' ? agentResult.cost
+        : typeof agentResult.cost === 'object' ? (agentResult.cost as any).total ?? 0 : 0;
+      this.totalCost += costVal;
+    }
+
+    if (agentResult.error) {
+      const err = agentResult.error;
+      throw new Error(`${err.type ?? 'AgentError'}: ${err.message ?? 'unknown'}`);
+    }
+
+    return agentResultOutputPayload(agentResult);
   }
 
   private async executeMachine(def: State): Promise<any> {
@@ -621,7 +674,7 @@ export class FlatMachine {
   private evaluateTransitions(def: State, output: any): string {
     if (!def.transitions?.length) throw new Error("No transitions defined");
     for (const t of def.transitions) {
-      if (!t.condition || evaluate(t.condition, { context: this.context, input: this.input, output })) {
+      if (!t.condition || this.evaluateExpr(t.condition, { context: this.context, input: this.input, output })) {
         return t.to;
       }
     }

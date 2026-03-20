@@ -250,6 +250,42 @@ export class MemoryConfigStore implements ConfigStore {
   }
 }
 
+export class LocalFileConfigStore implements ConfigStore {
+  private dir: string;
+
+  constructor(baseDir = '.checkpoints') {
+    const { mkdirSync, existsSync: ex } = require('fs');
+    this.dir = require('path').join(baseDir, '_configs');
+    if (!ex(this.dir)) mkdirSync(this.dir, { recursive: true });
+  }
+
+  async put(raw: string): Promise<string> {
+    const { writeFileSync, existsSync: ex, renameSync } = require('fs');
+    const { join } = require('path');
+    const h = configHash(raw);
+    const path = join(this.dir, `${h}.yml`);
+    if (!ex(path)) {
+      const tmp = `${path}.tmp`;
+      writeFileSync(tmp, raw, 'utf-8');
+      renameSync(tmp, path);
+    }
+    return h;
+  }
+
+  async get(hashKey: string): Promise<string | null> {
+    const { readFileSync, existsSync: ex } = require('fs');
+    const path = require('path').join(this.dir, `${hashKey}.yml`);
+    if (!ex(path)) return null;
+    return readFileSync(path, 'utf-8');
+  }
+
+  async delete(hashKey: string): Promise<void> {
+    const { unlinkSync, existsSync: ex } = require('fs');
+    const path = require('path').join(this.dir, `${hashKey}.yml`);
+    if (ex(path)) unlinkSync(path);
+  }
+}
+
 export class SQLiteConfigStore implements ConfigStore {
   private db: any;
 
