@@ -1010,7 +1010,7 @@ export class FlatMachine {
   private createAgent(agentRef: any): FlatAgent {
     if (agentRef && typeof agentRef === "object") {
       if (agentRef.spec === "flatagent" && agentRef.data) {
-        return new FlatAgent({ config: agentRef, profilesFile: this.profilesFile });
+        return new FlatAgent({ config: agentRef, profilesFile: this.profilesFile, configDir: this.configDir });
       }
       if (agentRef.path) {
         return new FlatAgent({

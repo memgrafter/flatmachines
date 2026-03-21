@@ -192,7 +192,7 @@ export class FlatAgentAdapter implements AgentAdapter {
     }
     if (agent_ref.config) {
       return new FlatAgentExecutor(
-        new FlatAgent({ config: agent_ref.config as any, profilesFile: context.profiles_file }),
+        new FlatAgent({ config: agent_ref.config as any, profilesFile: context.profiles_file, configDir: context.config_dir }),
       );
     }
     throw new Error(`FlatAgent reference missing ref/config for agent '${opts.agent_name}'`);
