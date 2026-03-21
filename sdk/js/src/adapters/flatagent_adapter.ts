@@ -124,6 +124,18 @@ export class FlatAgentExecutor implements AgentExecutor {
       }));
     }
 
+    // Provider data
+    let providerData: Record<string, any> | null = null;
+    if (response.rate_limit) {
+      const agentConfig = (this._agent as any).config;
+      const resolvedModel = (this._agent as any).resolvedModelConfig;
+      providerData = {
+        provider: resolvedModel?.provider ?? agentConfig?.data?.model?.provider ?? 'cerebras',
+        model: resolvedModel?.name ?? agentConfig?.data?.model?.name ?? null,
+        raw_headers: response.rate_limit.raw_headers ?? {},
+      };
+    }
+
     return {
       output: response.output ?? null,
       content: response.content ?? null,
@@ -135,6 +147,7 @@ export class FlatAgentExecutor implements AgentExecutor {
       rate_limit: rateLimit,
       tool_calls: toolCalls,
       rendered_user_prompt: response.rendered_user_prompt ?? null,
+      provider_data: providerData,
     };
   }
 

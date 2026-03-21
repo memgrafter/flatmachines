@@ -181,7 +181,7 @@ export class FlatAgent {
 
       // Extract tool calls
       const toolCalls = this._extractToolCalls(rawResponse);
-      const finishReason = this._extractFinishReason(rawResponse, toolCalls);
+      const finishReason = this._extractFinishReasonInternal(rawResponse, toolCalls);
 
       // Extract structured output
       const output = finishReason === FinishReason.TOOL_USE ? undefined : this.extractOutput(text);
@@ -237,15 +237,145 @@ export class FlatAgent {
     }));
   }
 
-  private _extractFinishReason(rawResponse: any, toolCalls?: AgentToolCall[]): FinishReason {
-    if (toolCalls?.length) return FinishReason.TOOL_USE;
+  /**
+   * Extract finish reason from response. Supports choices-style (litellm/OpenAI)
+   * and Vercel AI style responses.
+   */
+  _extract_finish_reason(rawResponse: any): FinishReason | null {
+    if (!rawResponse) return null;
+    
+    // Vercel AI style
+    let reason = rawResponse?.finishReason ?? rawResponse?.finish_reason;
+    
+    // OpenAI/litellm choices-style
+    if (!reason && rawResponse?.choices?.length) {
+      reason = rawResponse.choices[0]?.finish_reason;
+    }
+    
+    if (!reason) return null;
+    
+    const lower = String(reason).toLowerCase();
+    if (lower === 'stop' || lower === 'end_turn') return FinishReason.STOP;
+    if (lower === 'length' || lower === 'max_tokens') return FinishReason.LENGTH;
+    if (lower === 'tool_calls' || lower === 'tool_use' || lower === 'function_call') return FinishReason.TOOL_USE;
+    if (lower === 'content_filter') return FinishReason.CONTENT_FILTER;
+    return FinishReason.STOP; // unknown defaults to stop
+  }
 
-    const reason = rawResponse?.finishReason ?? rawResponse?.finish_reason;
-    if (reason === 'stop' || reason === 'end_turn') return FinishReason.STOP;
-    if (reason === 'length' || reason === 'max_tokens') return FinishReason.LENGTH;
-    if (reason === 'tool_calls' || reason === 'tool_use') return FinishReason.TOOL_USE;
-    if (reason === 'content_filter') return FinishReason.CONTENT_FILTER;
-    return FinishReason.STOP;
+  private _extractFinishReasonInternal(rawResponse: any, toolCalls?: AgentToolCall[]): FinishReason {
+    if (toolCalls?.length) return FinishReason.TOOL_USE;
+    return this._extract_finish_reason(rawResponse) ?? FinishReason.STOP;
+  }
+
+  /**
+   * Extract cache token counts from raw usage dict.
+   */
+  _extract_cache_tokens(usage: any): [number, number] {
+    if (!usage) return [0, 0];
+    
+    // Anthropic-style: cache_read_input_tokens, cache_creation_input_tokens
+    const anthropicRead = usage.cache_read_input_tokens;
+    const anthropicWrite = usage.cache_creation_input_tokens;
+    
+    if (anthropicRead != null && anthropicRead !== 0) {
+      return [anthropicRead, anthropicWrite ?? 0];
+    }
+    if (anthropicWrite != null && anthropicWrite !== 0) {
+      return [anthropicRead ?? 0, anthropicWrite];
+    }
+    
+    // OpenAI-style: prompt_tokens_details.cached_tokens
+    const cached = usage.prompt_tokens_details?.cached_tokens;
+    if (cached != null && cached !== 0) {
+      return [cached, 0];
+    }
+    
+    // Check zero values
+    if (anthropicRead === 0 && anthropicWrite === 0) {
+      return [0, 0];
+    }
+    
+    return [0, 0];
+  }
+
+  /**
+   * Calculate cost breakdown from token counts.
+   */
+  _calculate_cost(args: {
+    response?: any;
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+    cache_write_tokens: number;
+  }): CostInfo {
+    const { input_tokens, output_tokens, cache_read_tokens, cache_write_tokens } = args;
+    
+    // Try litellm cost calculation if available
+    const self = this as any;
+    if (self.litellm?.completion_cost) {
+      try {
+        const litellmCost = self.litellm.completion_cost(args.response);
+        if (litellmCost && litellmCost > 0) {
+          // Apportion cost breakdown proportionally
+          const total = input_tokens + output_tokens * 3 + cache_read_tokens * 0.1 + cache_write_tokens * 1.5;
+          const inputFrac = total > 0 ? input_tokens / total : 0.5;
+          const outputFrac = total > 0 ? (output_tokens * 3) / total : 0.5;
+          const cacheReadFrac = total > 0 ? (cache_read_tokens * 0.1) / total : 0;
+          const cacheWriteFrac = total > 0 ? (cache_write_tokens * 1.5) / total : 0;
+          return new CostInfo({
+            input: litellmCost * inputFrac,
+            output: litellmCost * outputFrac,
+            cache_read: litellmCost * cacheReadFrac,
+            cache_write: litellmCost * cacheWriteFrac,
+            total: litellmCost,
+          });
+        }
+      } catch {
+        // Fall through to fallback
+      }
+    }
+    
+    // Fallback estimation using rough per-token costs
+    const INPUT_COST_PER_TOKEN = 0.000001;
+    const OUTPUT_COST_PER_TOKEN = 0.000003;
+    const CACHE_READ_COST_PER_TOKEN = 0.0000001;
+    const CACHE_WRITE_COST_PER_TOKEN = 0.0000015;
+    
+    const inputCost = input_tokens * INPUT_COST_PER_TOKEN;
+    const outputCost = output_tokens * OUTPUT_COST_PER_TOKEN;
+    const cacheReadCost = cache_read_tokens * CACHE_READ_COST_PER_TOKEN;
+    const cacheWriteCost = cache_write_tokens * CACHE_WRITE_COST_PER_TOKEN;
+    
+    return new CostInfo({
+      input: inputCost,
+      output: outputCost,
+      cache_read: cacheReadCost,
+      cache_write: cacheWriteCost,
+      total: inputCost + outputCost + cacheReadCost + cacheWriteCost,
+    });
+  }
+
+  /**
+   * Record rate limit metrics to a monitor.
+   */
+  _record_rate_limit_metrics(monitor: any, rateLimitInfo: any): void {
+    if (!monitor?.metrics || !rateLimitInfo) return;
+    
+    const fieldMappings: Array<[string, string]> = [
+      ['remaining_requests', 'ratelimit_remaining_requests'],
+      ['remaining_tokens', 'ratelimit_remaining_tokens'],
+      ['limit_requests', 'ratelimit_limit_requests'],
+      ['limit_tokens', 'ratelimit_limit_tokens'],
+      ['reset_at', 'ratelimit_reset_at'],
+      ['retry_after', 'ratelimit_retry_after'],
+    ];
+    
+    for (const [sourceKey, targetKey] of fieldMappings) {
+      const value = rateLimitInfo[sourceKey];
+      if (value != null) {
+        monitor.metrics[targetKey] = value;
+      }
+    }
   }
 
   private extractOutput(text: string): any {

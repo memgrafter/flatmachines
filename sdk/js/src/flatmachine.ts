@@ -43,7 +43,7 @@ import { evaluateCel } from './expression_cel';
 // WaitingForSignal exception
 // ─────────────────────────────────────────────────────────────────────────────
 
-class WaitingForSignal extends Error {
+export class WaitingForSignal extends Error {
   channel: string;
   constructor(channel: string) {
     super(`Waiting for signal on channel: ${channel}`);
@@ -168,7 +168,7 @@ export class FlatMachine {
     } catch (err) {
       if (err instanceof WaitingForSignal) {
         // Machine is parked — checkpoint was already saved, just return
-        return { _waiting_for: err.channel };
+        return { _waiting: true, _channel: err.channel, _waiting_for: err.channel };
       }
       throw err;
     } finally {
@@ -702,8 +702,10 @@ export class FlatMachine {
 
   private render(template: any, vars: Record<string, any>): any {
     if (typeof template === "string") {
-      const directValue = this.renderDirectValue(template, vars);
-      if (directValue !== undefined) return directValue;
+      // Bare path (no {{ }}) — resolve directly, preserving native type
+      const barePath = this.resolveBarePath(template, vars);
+      if (barePath !== undefined) return barePath;
+      // Jinja/Nunjucks template — always renders to string (like Python)
       const rendered = renderTemplate(template, vars, "flatmachine");
       // Auto-deserialize JSON for lists/dicts (#15)
       try { return JSON.parse(rendered); } catch { return rendered; }
@@ -715,12 +717,17 @@ export class FlatMachine {
     return template;
   }
 
-  private renderDirectValue(template: string, vars: Record<string, any>): any | undefined {
-    const match = template.match(/^\s*{{\s*([^}]+)\s*}}\s*$/);
-    if (!match) return undefined;
-    const expr = match[1]!.trim();
-    if (!/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$/.test(expr)) return undefined;
-    return this.resolvePath(vars, expr);
+  /**
+   * Resolve bare path references (no {{ }}) to preserve native types.
+   * Only matches simple dotted paths like `context.value` or `output.items`.
+   */
+  private resolveBarePath(template: string, vars: Record<string, any>): any | undefined {
+    const stripped = template.trim();
+    // Must NOT contain template syntax
+    if (stripped.includes('{{') || stripped.includes('{%')) return undefined;
+    // Must be a valid dotted path
+    if (!/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$/.test(stripped)) return undefined;
+    return this.resolvePath(vars, stripped);
   }
 
   private resolvePath(vars: Record<string, any>, expr: string): any {

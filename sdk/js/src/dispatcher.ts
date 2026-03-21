@@ -46,19 +46,26 @@ export class SignalDispatcher {
    * Returns list of resumed execution IDs.
    */
   async dispatch(channel: string): Promise<string[]> {
-    if (!this.persistenceBackend.listExecutionIds) return [];
+    // Find machines waiting on this channel first
+    const executionIds = this.persistenceBackend.listExecutionIds
+      ? await this.persistenceBackend.listExecutionIds({ waiting_channel: channel })
+      : [];
 
-    const executionIds = await this.persistenceBackend.listExecutionIds({ waiting_channel: channel });
-    if (!executionIds.length) return [];
+    if (!executionIds.length) {
+      // No waiters — leave signals untouched
+      return [];
+    }
 
+    // Consume the signal
     const signal = await this.signalBackend.consume(channel);
     if (!signal) return [];
 
-    // Fan out: one copy per waiter
+    // Fan out: one copy per waiter so each machine can consume on resume
     for (const _eid of executionIds) {
       await this.signalBackend.send(channel, signal.data);
     }
 
+    // Resume all waiters
     const resumed: string[] = [];
     for (const eid of executionIds) {
       if (this.resumeFn) {
@@ -76,19 +83,10 @@ export class SignalDispatcher {
   }
 
   /**
-   * Drain a channel by dispatching until no progress.
+   * Process pending signals on a channel (single pass).
    */
-  async dispatchChannel(channel: string, maxSignals?: number): Promise<string[]> {
-    const resumedAll: string[] = [];
-    let processed = 0;
-    while (true) {
-      if (maxSignals != null && processed >= maxSignals) break;
-      const resumed = await this.dispatch(channel);
-      if (!resumed.length) break;
-      resumedAll.push(...resumed);
-      processed += 1;
-    }
-    return resumedAll;
+  async dispatchChannel(channel: string, _maxSignals?: number): Promise<string[]> {
+    return this.dispatch(channel);
   }
 
   /**
@@ -98,9 +96,7 @@ export class SignalDispatcher {
     const results: Record<string, string[]> = {};
     const channels = await this.signalBackend.channels();
     for (const channel of channels) {
-      const pending = await this.signalBackend.peek(channel);
-      const maxSignals = pending.length || 1;
-      const resumed = await this.dispatchChannel(channel, maxSignals);
+      const resumed = await this.dispatchChannel(channel);
       if (resumed.length) results[channel] = resumed;
     }
     return results;

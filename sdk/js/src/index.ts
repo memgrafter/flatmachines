@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { FlatAgent, AgentOptions } from './flatagent';
-export { FlatMachine, ExtendedMachineOptions } from './flatmachine';
+export { FlatMachine, ExtendedMachineOptions, WaitingForSignal } from './flatmachine';
 export { ProfileManager, resolveModelConfig } from './profiles';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -12,27 +12,27 @@ export { ProfileManager, resolveModelConfig } from './profiles';
 
 export {
   FinishReason,
+  CostInfo,
   CostInfo as AgentCostInfo,
+  UsageInfo,
   UsageInfo as AgentUsageInfo,
+  RateLimitInfo,
   RateLimitInfo as AgentRateLimitInfo,
+  ErrorInfo,
   ErrorInfo as AgentErrorInfo,
   AgentToolCall,
+  ToolCall,
   AgentResponse,
   agentResponseSuccess,
   isAgentResponseSuccess,
   normalizeHeaders,
   extractRateLimitInfo,
+  extractHeadersFromResponse,
+  extractHeadersFromError,
   isRateLimited,
   getRetryDelay,
   extractStatusCode,
   isRetryableError,
-} from './agent_response';
-
-export type {
-  CostInfo,
-  UsageInfo,
-  RateLimitInfo,
-  ErrorInfo,
 } from './agent_response';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -270,6 +270,29 @@ export type { Action, MachineInvoker } from './actions';
 
 export { setupLogging, getLogger, AgentMonitor, trackOperation, LogLevel } from './monitoring';
 export type { Logger } from './monitoring';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Provider-specific rate limits (Phase 4.1b)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export {
+  CerebrasRateLimits,
+  extract_cerebras_rate_limits,
+  AnthropicRateLimits,
+  extract_anthropic_rate_limits,
+  OpenAIRateLimits,
+  extract_openai_rate_limits,
+  parseDurationToSeconds,
+} from './monitoring_providers';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Snake-case aliases for Python parity
+// ─────────────────────────────────────────────────────────────────────────────
+
+export {
+  extractHeadersFromResponse as extract_headers_from_response,
+  extractHeadersFromError as extract_headers_from_error,
+} from './agent_response';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Validation (Phase 4.2)

@@ -20,6 +20,38 @@ export class MemoryBackend implements PersistenceBackend {
   async list(prefix: string): Promise<string[]> {
     return [...this.store.keys()].filter(k => k.startsWith(prefix)).sort();
   }
+
+  async listExecutionIds(options?: { event?: string; waiting_channel?: string }): Promise<string[]> {
+    // Find all unique execution IDs by scanning latest checkpoint per execution
+    const execMap = new Map<string, MachineSnapshot>();
+    for (const [key, snapshot] of this.store.entries()) {
+      const eid = snapshot.execution_id;
+      const existing = execMap.get(eid);
+      if (!existing || snapshot.step > existing.step) {
+        execMap.set(eid, snapshot);
+      }
+    }
+
+    const results: string[] = [];
+    for (const [eid, snapshot] of execMap.entries()) {
+      if (options?.waiting_channel != null) {
+        if ((snapshot as any).waiting_channel !== options.waiting_channel) continue;
+      }
+      if (options?.event != null) {
+        if ((snapshot as any).event !== options.event) continue;
+      }
+      results.push(eid);
+    }
+    return results;
+  }
+
+  async deleteExecution(executionId: string): Promise<void> {
+    for (const key of [...this.store.keys()]) {
+      if (key.startsWith(executionId + '/') || key === executionId) {
+        this.store.delete(key);
+      }
+    }
+  }
 }
 
 export class LocalFileBackend implements PersistenceBackend {
