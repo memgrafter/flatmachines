@@ -32,6 +32,14 @@ nunjucksEnv.addFilter("tojson", (value: any) => {
   // This is safe because JSON.stringify escapes these chars inside strings
   return raw.replace(/,(?=[\s\S])/g, ', ').replace(/:(?=[\s\S])/g, ': ');
 });
+nunjucksEnv.addFilter("int", (value: any) => {
+  const n = parseInt(String(value), 10);
+  return isNaN(n) ? 0 : n;
+});
+nunjucksEnv.addFilter("float", (value: any) => {
+  const n = parseFloat(String(value));
+  return isNaN(n) ? 0.0 : n;
+});
 nunjucksEnv.addFilter("fromjson", (value: any) => {
   if (typeof value === 'string') {
     try { return JSON.parse(value); } catch { return value; }

@@ -409,11 +409,12 @@ export class FlatMachine {
     def: State,
   ): Promise<[Record<string, any>, any]> {
     const loopConfig = typeof def.tool_loop === 'object' ? def.tool_loop : {};
-    const maxTurns = Number(loopConfig.max_turns ?? 20);
-    const maxToolCalls = Number(loopConfig.max_tool_calls ?? 50);
-    const toolTimeout = Number(loopConfig.tool_timeout ?? 30) * 1000;
-    const totalTimeout = Number(loopConfig.total_timeout ?? 600) * 1000;
-    const maxCost = loopConfig.max_cost != null ? Number(loopConfig.max_cost) : undefined;
+    const renderGuardrail = (v: any) => this._render_guardrail(v, { context: this.context, input: this.input }, Number);
+    const maxTurns = renderGuardrail(loopConfig.max_turns) ?? 20;
+    const maxToolCalls = renderGuardrail(loopConfig.max_tool_calls) ?? 50;
+    const toolTimeout = (renderGuardrail(loopConfig.tool_timeout) ?? 30) * 1000;
+    const totalTimeout = (renderGuardrail(loopConfig.total_timeout) ?? 600) * 1000;
+    const maxCost = loopConfig.max_cost != null ? renderGuardrail(loopConfig.max_cost) : undefined;
     const allowedTools = new Set<string>(loopConfig.allowed_tools ?? []);
     const deniedTools = new Set<string>(loopConfig.denied_tools ?? []);
 
@@ -526,7 +527,10 @@ export class FlatMachine {
         }
 
         // Skip tools that hooks flagged for skipping
-        if (context._skip_tool_ids?.includes(tc.id) || context._skip_tool_names?.includes(tc.name ?? tc.tool)) {
+        if (context._skip_tool_ids?.includes(tc.id) ||
+            context._skip_tool_names?.includes(tc.name ?? tc.tool) ||
+            context._skip_tools?.includes(tc.name ?? tc.tool) ||
+            context._skip_tools?.includes(tc.id)) {
           chain.push({ role: 'tool', tool_call_id: tc.id, content: 'Tool skipped by hook.' });
           continue;
         }
@@ -573,6 +577,14 @@ export class FlatMachine {
       }
 
       if (context._tool_loop_stop) break;
+
+      // Inject steering messages if set by hooks
+      if (context._steering_messages?.length) {
+        for (const msg of context._steering_messages) {
+          chain.push(msg);
+        }
+        delete context._steering_messages;
+      }
     }
 
     // Build output
