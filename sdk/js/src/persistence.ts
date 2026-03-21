@@ -25,17 +25,19 @@ export class MemoryBackend implements PersistenceBackend {
 
   async listExecutionIds(options?: { event?: string; waiting_channel?: string }): Promise<string[]> {
     // Find all unique execution IDs by scanning latest checkpoint per execution
-    const execMap = new Map<string, MachineSnapshot>();
+    // Use key ordering as tiebreaker (later keys = more recent)
+    const execMap = new Map<string, { key: string; snapshot: MachineSnapshot }>();
     for (const [key, snapshot] of this.store.entries()) {
       const eid = snapshot.execution_id;
       const existing = execMap.get(eid);
-      if (!existing || snapshot.step > existing.step) {
-        execMap.set(eid, snapshot);
+      if (!existing || snapshot.step > existing.snapshot.step ||
+          (snapshot.step === existing.snapshot.step && key > existing.key)) {
+        execMap.set(eid, { key, snapshot });
       }
     }
 
     const results: string[] = [];
-    for (const [eid, snapshot] of execMap.entries()) {
+    for (const [eid, { snapshot }] of execMap.entries()) {
       if (options?.waiting_channel != null) {
         if ((snapshot as any).waiting_channel !== options.waiting_channel) continue;
       }
@@ -112,6 +114,39 @@ export class LocalFileBackend implements PersistenceBackend {
       return [];
     }
   }
+
+  async listExecutionIds(options?: { event?: string; waiting_channel?: string }): Promise<string[]> {
+    // List all files, group by execution ID, check latest
+    const allKeys = await this.list('');
+    const execMap = new Map<string, MachineSnapshot>();
+    for (const key of allKeys) {
+      const snapshot = await this.load(key);
+      if (!snapshot) continue;
+      const eid = snapshot.execution_id;
+      const existing = execMap.get(eid);
+      if (!existing || snapshot.step > existing.step) {
+        execMap.set(eid, snapshot);
+      }
+    }
+    const results: string[] = [];
+    for (const [eid, snapshot] of execMap.entries()) {
+      if (options?.waiting_channel != null) {
+        if ((snapshot as any).waiting_channel !== options.waiting_channel) continue;
+      }
+      if (options?.event != null) {
+        if ((snapshot as any).event !== options.event) continue;
+      }
+      results.push(eid);
+    }
+    return results.sort();
+  }
+
+  async deleteExecution(executionId: string): Promise<void> {
+    const keys = await this.list(executionId);
+    for (const key of keys) {
+      await this.delete(key);
+    }
+  }
 }
 
 /**
@@ -135,22 +170,43 @@ export async function cloneSnapshot(
 }
 
 export class CheckpointManager {
-  constructor(private backend: PersistenceBackend) { }
+  private _executionId?: string;
+
+  constructor(private backend: PersistenceBackend, executionId?: string) {
+    this._executionId = executionId;
+  }
 
   async checkpoint(snapshot: MachineSnapshot): Promise<void> {
-    const key = `${snapshot.execution_id}/step_${String(snapshot.step).padStart(6, "0")}`;
+    const eventSuffix = snapshot.event ? `_${snapshot.event}` : '';
+    const key = `${snapshot.execution_id}/step_${String(snapshot.step).padStart(6, "0")}${eventSuffix}`;
     await this.backend.save(key, snapshot);
   }
 
-  async restore(executionId: string): Promise<MachineSnapshot | null> {
-    const keys = await this.backend.list(executionId);
+  async restore(executionId?: string): Promise<MachineSnapshot | null> {
+    const eid = executionId ?? this._executionId;
+    if (!eid) throw new Error('executionId is required');
+    const keys = await this.backend.list(eid);
     if (!keys.length) return null;
-    // Return the latest checkpoint (highest step number)
-    const sortedKeys = keys.sort((a, b) => {
-      const stepA = parseInt(a.split('_')[1] || '0');
-      const stepB = parseInt(b.split('_')[1] || '0');
-      return stepA - stepB;
-    });
+    // Filter out 'latest' entries and sort by step
+    const checkpointKeys = keys.filter(k => !k.endsWith('/latest'));
+    if (!checkpointKeys.length) return null;
+    const sortedKeys = checkpointKeys.sort();
     return this.backend.load(sortedKeys[sortedKeys.length - 1]!);
+  }
+
+  /**
+   * Load status (event, current_state) from the latest checkpoint.
+   */
+  async loadStatus(): Promise<[string, string] | null> {
+    const snapshot = await this.restore();
+    if (!snapshot) return null;
+    return [snapshot.event ?? 'unknown', snapshot.current_state];
+  }
+
+  /**
+   * Access the underlying persistence backend.
+   */
+  get persistenceBackend(): PersistenceBackend {
+    return this.backend;
   }
 }

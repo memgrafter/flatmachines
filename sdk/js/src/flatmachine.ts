@@ -618,7 +618,12 @@ export class FlatMachine {
 
     // foreach - dynamic parallelism
     if (def.foreach) {
-      const items = this.render({ items: def.foreach }, { context: this.context, input: this.input }).items as any[];
+      let rawItems = this.render({ items: def.foreach }, { context: this.context, input: this.input }).items;
+      // If render returned a JSON string (from {{ template }}), parse it
+      if (typeof rawItems === 'string') {
+        try { rawItems = JSON.parse(rawItems); } catch { /* leave as string */ }
+      }
+      const items = rawItems as any[];
       const varName = def.as ?? "item";
       const tasks = items.map(async (item, index) => {
         const input = this.render(def.input ?? {}, { context: this.context, input: this.input, [varName]: item });
@@ -714,12 +719,10 @@ export class FlatMachine {
   private render(template: any, vars: Record<string, any>): any {
     if (typeof template === "string") {
       // Bare path (no {{ }}) — resolve directly, preserving native type
-      const barePath = this.resolveBarePath(template, vars);
-      if (barePath !== undefined) return barePath;
-      // Jinja/Nunjucks template — always renders to string (like Python)
-      const rendered = renderTemplate(template, vars, "flatmachine");
-      // Auto-deserialize JSON for lists/dicts (#15)
-      try { return JSON.parse(rendered); } catch { return rendered; }
+      const bareResult = this.resolveBarePath(template, vars);
+      if (bareResult !== undefined) return bareResult;
+      // Jinja/Nunjucks template — render to string (like Python Jinja2)
+      return renderTemplate(template, vars, "flatmachine");
     }
     if (Array.isArray(template)) return template.map(t => this.render(t, vars));
     if (typeof template === "object" && template !== null) {
@@ -730,15 +733,22 @@ export class FlatMachine {
 
   /**
    * Resolve bare path references (no {{ }}) to preserve native types.
-   * Only matches simple dotted paths like `context.value` or `output.items`.
+   * Only matches dotted paths like `context.value` or `output.items` that start
+   * with a known variable root. Single-segment strings are treated as literal values.
+   * Returns null for missing paths (Python's None), undefined if not a bare path.
    */
   private resolveBarePath(template: string, vars: Record<string, any>): any | undefined {
     const stripped = template.trim();
     // Must NOT contain template syntax
     if (stripped.includes('{{') || stripped.includes('{%')) return undefined;
-    // Must be a valid dotted path
-    if (!/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$/.test(stripped)) return undefined;
-    return this.resolvePath(vars, stripped);
+    // Must be a valid dotted path with at least 2 segments (root.property)
+    if (!/^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.]+$/.test(stripped)) return undefined;
+    // Root segment must be a known variable
+    const root = stripped.split('.')[0]!;
+    if (!(root in vars)) return undefined;
+    const resolved = this.resolvePath(vars, stripped);
+    // Return null for missing paths (not undefined) to match Python's None
+    return resolved === undefined ? null : resolved;
   }
 
   private resolvePath(vars: Record<string, any>, expr: string): any {

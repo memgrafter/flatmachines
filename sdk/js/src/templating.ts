@@ -14,6 +14,10 @@ nunjucks.runtime.suppressValue = function(val: any, autoescape: boolean) {
   if (val === true) return 'True';
   if (val === false) return 'False';
   if (val === null || val === undefined) return 'None';
+  // Match Python Jinja2 finalize: lists/dicts → JSON.stringify
+  if (Array.isArray(val) || (typeof val === 'object' && val !== null && val.constructor === Object)) {
+    return JSON.stringify(val);
+  }
   return origSuppressValue(val, autoescape);
 };
 
