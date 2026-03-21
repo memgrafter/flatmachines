@@ -127,8 +127,9 @@ export class FlatMachine {
     this.signalBackend = extOpts.signalBackend;
     this.triggerBackend = extOpts.triggerBackend ?? new NoOpTrigger();
     this.toolProvider = extOpts.toolProvider;
-    if (extOpts.configStore && !this._config_store) {
-      this._config_store = extOpts.configStore;
+    const explicitConfigStore = extOpts.configStore ?? (extOpts as any).config_store;
+    if (explicitConfigStore && !this._config_store) {
+      this._config_store = explicitConfigStore;
     }
 
     // Agent adapter registry with default flatagent adapter
@@ -157,6 +158,12 @@ export class FlatMachine {
     } else if (this.config.data.persistence?.enabled) {
       const backend = this.createPersistenceBackend(this.config.data.persistence);
       this.checkpointManager = new CheckpointManager(backend);
+      // Auto-wire locking for local backend
+      if (this.config.data.persistence?.backend === 'local') {
+        if (this.executionLock instanceof NoOpLock && !options.executionLock) {
+          this.executionLock = new LocalFileLock();
+        }
+      }
       // Auto-wire SQLiteLeaseLock + SQLiteConfigStore when using sqlite persistence
       if (this.config.data.persistence?.backend === 'sqlite' && backend instanceof SQLiteCheckpointBackend) {
         if (this.executionLock instanceof NoOpLock && !options.executionLock) {
