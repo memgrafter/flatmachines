@@ -306,6 +306,13 @@ trust_level = "trusted"
 "gpt-5.3-codex" = "gpt-5.4"     # Dismiss upgrade notices
 ```
 
+**WARNING: `notice.model_migrations` affects fork behavior.** This setting
+causes `thread/fork` (app-server) to auto-upgrade to `gpt-5.4` unless
+`model` is passed explicitly. The SQLite row still shows `gpt-5.3-codex`
+(misleading), but the actual API call uses `gpt-5.4`. The `model` field
+in the JSON-RPC response tells the truth. Always pin the model explicitly
+on fork/resume operations.
+
 ### Runtime Config Overrides (`-c`)
 
 ```bash
@@ -426,34 +433,97 @@ codex app-server --listen ws://127.0.0.1:8080
 codex app-server --listen stdio://
 ```
 
-### Key Protocol Methods
+### Full JSON-RPC Method List (v2, codex-cli 0.116.0)
+
+**Thread lifecycle:**
 
 | Method | Purpose |
 |--------|---------|
+| `initialize` | Handshake (required: `clientInfo: {name, version}`) |
 | `thread/start` | Start a new thread with prompt, config, sandbox |
 | `thread/resume` | Resume thread by ID, path, or history |
 | `thread/fork` | Fork a thread (new ID, preserved history) |
-| `turn/start` | Send a message in an existing thread |
-| `turn/interrupt` | Cancel current turn |
-| `thread/read` | Read thread history |
+| `thread/read` | Read thread history (with `includeTurns`) |
 | `thread/list` | List threads (with filtering) |
+| `thread/loaded/list` | List currently loaded threads |
 | `thread/archive` | Archive a thread |
+| `thread/unarchive` | Unarchive a thread |
+| `thread/unsubscribe` | Unsubscribe from thread notifications |
 | `thread/rollback` | Rollback to a previous state |
 | `thread/compact/start` | Trigger context compaction |
+| `thread/name/set` | Set thread name |
+| `thread/metadata/update` | Update thread metadata |
 
-### Key Protocol Notifications
+**Turn operations:**
+
+| Method | Purpose |
+|--------|---------|
+| `turn/start` | Send user message and start a new turn |
+| `turn/steer` | Steer a running turn mid-flight |
+| `turn/interrupt` | Cancel current turn |
+| `review/start` | Start a code review turn |
+
+**Configuration & models:**
+
+| Method | Purpose |
+|--------|---------|
+| `config/read` | Read config values |
+| `config/value/write` | Write a single config value |
+| `config/batchWrite` | Write multiple config values |
+| `configRequirements/read` | Read config requirements |
+| `model/list` | List available models |
+| `experimentalFeature/list` | List feature flags |
+
+**File system:**
+
+| Method | Purpose |
+|--------|---------|
+| `fs/readFile` | Read a file |
+| `fs/writeFile` | Write a file |
+| `fs/createDirectory` | Create a directory |
+| `fs/getMetadata` | Get file/dir metadata |
+| `fs/readDirectory` | List directory contents |
+| `fs/remove` | Remove file/dir |
+| `fs/copy` | Copy file/dir |
+
+**Other:**
+
+| Method | Purpose |
+|--------|---------|
+| `command/exec` | Execute a command directly |
+| `command/exec/write` | Write to a running command's stdin |
+| `command/exec/terminate` | Terminate a running command |
+| `command/exec/resize` | Resize command terminal |
+| `skills/list` | List available skills |
+| `skills/config/write` | Write skill config |
+| `plugin/list` / `plugin/read` / `plugin/install` / `plugin/uninstall` | Plugin management |
+| `account/login/start` / `account/login/cancel` / `account/logout` | Auth |
+| `account/read` / `account/rateLimits/read` | Account info |
+| `mcpServerStatus/list` | MCP server status |
+| `mcpServer/oauth/login` | MCP OAuth |
+| `config/mcpServer/reload` | Reload MCP config |
+| `fuzzyFileSearch` | Fuzzy file search |
+| `feedback/upload` | Upload feedback |
+| `externalAgentConfig/detect` / `externalAgentConfig/import` | External agent config |
+
+### Key Protocol Notifications (Observed Wire Names)
 
 | Notification | Purpose |
 |--------------|---------|
-| `thread.started` | Thread created |
-| `turn.started` / `turn.completed` | Turn lifecycle |
-| `item.started` / `item.completed` | Item lifecycle (messages, commands, patches) |
-| `agentMessageDelta` | Streaming agent text |
-| `commandExecOutputDelta` | Streaming command output |
-| `turnDiffUpdated` | File change diffs |
-| `contextCompacted` | Context was compacted |
-| `tokenUsageUpdated` | Token usage update |
-| `rateLimitsUpdated` | Rate limit state change |
+| `thread/started` | Thread created |
+| `turn/started` | Turn begins |
+| `turn/completed` | Turn ends (status + error only, no usage) |
+| `item/started` | Item begins (commands, tool calls) |
+| `item/completed` | Item ends (agentMessage, commandExecution, fileChange, etc.) |
+| `thread/tokenUsage/updated` | Token usage with `cachedInputTokens` (**separate from turn/completed**) |
+| `thread/name/updated` | Thread title auto-generated |
+| `agentMessage/delta` | Streaming agent text chunks |
+| `commandExecOutput/delta` | Streaming command output chunks |
+| `turn/diff/updated` | File change diffs |
+| `context/compacted` | Context was compacted |
+| `account/rateLimits/updated` | Rate limit state change |
+| `thread/status/changed` | Thread status transitions |
+| `thread/closed` | Thread closed |
 
 ### Thread Item Types (App Server)
 
