@@ -198,3 +198,7 @@ export class FlatAgentAdapter implements AgentAdapter {
     throw new Error(`FlatAgent reference missing ref/config for agent '${opts.agent_name}'`);
   }
 }
+
+// Auto-register as built-in adapter
+import { AgentAdapterRegistry } from '../agents';
+AgentAdapterRegistry.registerBuiltinFactory(() => new FlatAgentAdapter());

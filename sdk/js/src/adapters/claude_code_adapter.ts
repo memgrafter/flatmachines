@@ -16,6 +16,7 @@ import * as yaml from 'yaml';
 import {
   AgentAdapter,
   AgentAdapterContext,
+  AgentAdapterRegistry,
   AgentExecutor,
   AgentRef,
   AgentResult,
@@ -577,3 +578,6 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     return yaml.parse(raw);
   }
 }
+
+// Auto-register as built-in adapter
+AgentAdapterRegistry.registerBuiltinFactory(() => new ClaudeCodeAdapter());

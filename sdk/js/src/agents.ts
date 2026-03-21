@@ -6,6 +6,9 @@
  * build_rate_limit_windows, build_rate_limit_state).
  */
 
+// Built-in adapter factories (set by adapter modules on import)
+const _builtinFactories: Array<() => AgentAdapter> = [];
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Agent Result Types (see flatagents-runtime.d.ts for canonical spec)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -131,18 +134,21 @@ export class AgentAdapterRegistry {
   private _adapters = new Map<string, AgentAdapter>();
 
   constructor(adapters?: Iterable<AgentAdapter>) {
-    // Register built-in adapters
-    try {
-      const { FlatAgentAdapter } = require('./adapters/flatagent_adapter');
-      this.register(new FlatAgentAdapter());
-    } catch {}
-    try {
-      const { ClaudeCodeAdapter } = require('./adapters/claude_code_adapter');
-      this.register(new ClaudeCodeAdapter());
-    } catch {}
+    // Register built-in adapters (loaded lazily to handle both ESM and CJS)
+    this._registerBuiltins();
     if (adapters) {
       for (const adapter of adapters) this.register(adapter);
     }
+  }
+
+  private _registerBuiltins(): void {
+    for (const factory of _builtinFactories) {
+      try { this.register(factory()); } catch {}
+    }
+  }
+
+  static registerBuiltinFactory(factory: () => AgentAdapter): void {
+    _builtinFactories.push(factory);
   }
 
   register(adapter: AgentAdapter): void {
