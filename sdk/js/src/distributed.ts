@@ -241,9 +241,20 @@ export function createRegistrationBackend(type: string = 'memory', opts?: Record
 
 export {
   MemoryWorkBackend,
+  MemoryWorkBackend as WorkBackend,
   SQLiteWorkBackend,
   MemoryWorkPool,
+  MemoryWorkPool as WorkPool,
   SQLiteWorkPool,
   createWorkBackend,
 } from './work';
-export type { WorkItem, WorkPool, WorkBackend } from './work';
+// Runtime-accessible WorkItem class for backward compat
+export const WorkItem = class WorkItem {
+  id: string; data: any; claimed_by?: string; claimed_at?: string;
+  attempts: number; max_retries: number; status?: string;
+  constructor(opts?: any) {
+    this.id = opts?.id ?? ''; this.data = opts?.data;
+    this.attempts = opts?.attempts ?? 0; this.max_retries = opts?.max_retries ?? 3;
+    this.status = opts?.status;
+  }
+};

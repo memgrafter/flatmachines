@@ -159,6 +159,17 @@ class CallThrottle {
   }
 }
 
+/**
+ * Create a CallThrottle from a config dict. No defaults applied.
+ * This is the Python throttle_from_config equivalent.
+ */
+export function throttle_from_config(config: Record<string, any>): CallThrottle {
+  return new CallThrottle(
+    Number(config.rate_limit_delay ?? 0),
+    Number(config.rate_limit_jitter ?? 0),
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Executor
 // ─────────────────────────────────────────────────────────────────────────────
