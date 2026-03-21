@@ -732,6 +732,390 @@ This controls how tool output is truncated before being sent to the model.
 
 ---
 
+## Fork-with-Cache: Recommended Architecture
+
+### Problem
+
+The SessionHoldback pattern (seed once, fork N cache-warm children) is the
+core orchestration primitive for parallel fan-out. Claude Code provides
+`--fork-session` in exec mode. Codex CLI does not -- `codex fork` is
+interactive-only and `codex exec resume` advances the same thread.
+
+### Recommendation: App-Server `thread/fork` via stdio JSON-RPC
+
+The `codex app-server --listen stdio://` command exposes a full JSON-RPC
+protocol over stdin/stdout. It supports `thread/start`, `thread/fork`,
+`turn/start`, `turn/interrupt`, and `thread/read` -- everything needed for
+proper fork-with-cache semantics with thread isolation.
+
+**Why this over the alternatives:**
+- `thread/fork` creates a genuinely new thread ID with the full parent history
+- Each fork gets its own rollout file and thread entry
+- The Responses API prefix cache hits automatically on the shared prefix
+- Single long-lived process manages all threads (no per-call subprocess overhead)
+- Full notification stream for observability (`item.started`, `item.completed`, etc.)
+
+### Protocol Flow
+
+```
+1. Start app-server:  codex app-server --listen stdio://
+2. Initialize:        { method: "initialize", params: {...} }
+3. Seed thread:       { method: "thread/start", params: { cwd, model, ... } }
+                      -> response: { thread: { id: "parent-uuid", ... } }
+4. Send seed prompt:  { method: "turn/start", params: { threadId: "parent-uuid", input: [...] } }
+                      -> notifications: item.started, item.completed, turn.completed
+5. Fork N children:   { method: "thread/fork", params: { threadId: "parent-uuid" } }
+                      -> response: { thread: { id: "child-uuid-1", turns: [...] } }
+6. Send child tasks:  { method: "turn/start", params: { threadId: "child-uuid-1", input: [...] } }
+                      -> each child gets cache hits on the shared prefix
+```
+
+### Implementation Sample
+
+```python
+"""CodexAppServerTransport -- stdio JSON-RPC transport for codex app-server.
+
+This is the core building block for the Codex CLI adapter's fork-with-cache
+support.  It manages the app-server subprocess lifecycle and provides
+typed async methods for thread/turn operations.
+"""
+
+import asyncio
+import json
+import logging
+import os
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Transport
+# ---------------------------------------------------------------------------
+
+class CodexAppServerTransport:
+    """Manages a single `codex app-server --listen stdio://` subprocess.
+
+    Multiplexes JSON-RPC requests/responses and server notifications
+    over stdin/stdout.  Notifications are dispatched to registered
+    callbacks; responses are correlated by request ID.
+    """
+
+    def __init__(
+        self,
+        codex_bin: str = "codex",
+        cwd: Optional[str] = None,
+        session_source: str = "exec",
+    ) -> None:
+        self._codex_bin = codex_bin
+        self._cwd = cwd
+        self._session_source = session_source
+        self._proc: Optional[asyncio.subprocess.Process] = None
+        self._next_id = 1
+        self._pending: Dict[int, asyncio.Future] = {}
+        self._notification_cb: Optional[Callable[[dict], None]] = None
+        self._reader_task: Optional[asyncio.Task] = None
+
+    # -- Lifecycle ----------------------------------------------------------
+
+    async def start(self) -> None:
+        """Spawn the app-server subprocess and begin reading."""
+        self._proc = await asyncio.create_subprocess_exec(
+            self._codex_bin, "app-server",
+            "--listen", "stdio://",
+            "--session-source", self._session_source,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=self._cwd,
+            env=os.environ.copy(),
+        )
+        self._reader_task = asyncio.create_task(self._read_loop())
+
+        # Initialize the protocol
+        resp = await self._request("initialize", {
+            "clientVersion": "flatmachines-0.1",
+            "clientName": "flatmachines",
+        })
+        logger.info("App-server initialized: %s", resp)
+
+    async def stop(self) -> None:
+        """Terminate the app-server subprocess."""
+        if self._proc and self._proc.returncode is None:
+            self._proc.terminate()
+            await self._proc.wait()
+        if self._reader_task:
+            self._reader_task.cancel()
+
+    # -- JSON-RPC core ------------------------------------------------------
+
+    async def _request(self, method: str, params: dict) -> dict:
+        """Send a JSON-RPC request and await the response."""
+        req_id = self._next_id
+        self._next_id += 1
+        msg = {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}
+
+        future: asyncio.Future = asyncio.get_event_loop().create_future()
+        self._pending[req_id] = future
+
+        assert self._proc and self._proc.stdin
+        line = json.dumps(msg) + "\n"
+        self._proc.stdin.write(line.encode())
+        await self._proc.stdin.drain()
+
+        return await future
+
+    async def _read_loop(self) -> None:
+        """Read JSON-RPC messages from stdout, dispatch responses/notifications."""
+        assert self._proc and self._proc.stdout
+        while True:
+            line = await self._proc.stdout.readline()
+            if not line:
+                break
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            if "id" in msg and msg["id"] in self._pending:
+                # Response to a request
+                future = self._pending.pop(msg["id"])
+                if "error" in msg:
+                    future.set_exception(
+                        RuntimeError(f"RPC error: {msg['error']}")
+                    )
+                else:
+                    future.set_result(msg.get("result", {}))
+            elif "method" in msg:
+                # Server notification
+                if self._notification_cb:
+                    self._notification_cb(msg)
+
+    def on_notification(self, cb: Callable[[dict], None]) -> None:
+        """Register a callback for server notifications."""
+        self._notification_cb = cb
+
+    # -- Thread operations --------------------------------------------------
+
+    async def thread_start(
+        self,
+        cwd: str,
+        model: str = "gpt-5.3-codex",
+        sandbox: str = "workspace-write",
+        approval_policy: str = "never",
+        ephemeral: bool = False,
+    ) -> dict:
+        """Start a new thread. Returns Thread object with id."""
+        return await self._request("thread/start", {
+            "cwd": cwd,
+            "model": model,
+            "sandbox": sandbox,
+            "approvalPolicy": approval_policy,
+            "ephemeral": ephemeral,
+        })
+
+    async def thread_fork(self, thread_id: str, **overrides) -> dict:
+        """Fork a thread. Returns new Thread with full parent history."""
+        params = {"threadId": thread_id, **overrides}
+        return await self._request("thread/fork", params)
+
+    async def thread_resume(self, thread_id: str, **overrides) -> dict:
+        """Resume an existing thread."""
+        params = {"threadId": thread_id, **overrides}
+        return await self._request("thread/resume", params)
+
+    async def thread_read(self, thread_id: str) -> dict:
+        """Read thread state and history."""
+        return await self._request("thread/read", {
+            "threadId": thread_id,
+            "includeTurns": True,
+        })
+
+    # -- Turn operations ----------------------------------------------------
+
+    async def turn_start(
+        self,
+        thread_id: str,
+        text: str,
+        output_schema: Optional[dict] = None,
+    ) -> dict:
+        """Send a user message and start a new turn."""
+        params: Dict[str, Any] = {
+            "threadId": thread_id,
+            "input": [{"type": "text", "text": text}],
+        }
+        if output_schema:
+            params["outputSchema"] = output_schema
+        return await self._request("turn/start", params)
+
+    async def turn_interrupt(self, thread_id: str) -> dict:
+        """Interrupt a running turn."""
+        return await self._request("turn/interrupt", {"threadId": thread_id})
+
+
+# ---------------------------------------------------------------------------
+# SessionHoldback for Codex (using app-server transport)
+# ---------------------------------------------------------------------------
+
+class CodexSessionHoldback:
+    """Manages a frozen holdback thread for cache-warm parallel fan-out.
+
+    Equivalent to claude_code_sessions.SessionHoldback but uses
+    the app-server's thread/fork instead of CLI --fork-session.
+
+    Usage:
+        transport = CodexAppServerTransport(cwd="/path/to/repo")
+        await transport.start()
+
+        holdback = CodexSessionHoldback(transport)
+        seed_result = await holdback.seed("Read and understand the codebase.")
+
+        # Fork N children -- each gets full context + cache hits
+        results = await holdback.fork_n([
+            "Implement the auth module",
+            "Implement the database layer",
+            "Write the test suite",
+        ])
+
+        await transport.stop()
+    """
+
+    def __init__(
+        self,
+        transport: CodexAppServerTransport,
+        model: str = "gpt-5.3-codex",
+        cwd: str = ".",
+    ) -> None:
+        self._transport = transport
+        self._model = model
+        self._cwd = cwd
+        self._holdback_thread_id: Optional[str] = None
+        self._fork_count = 0
+
+    async def seed(self, task: str) -> dict:
+        """Create the holdback thread and run the seed prompt."""
+        resp = await self._transport.thread_start(
+            cwd=self._cwd,
+            model=self._model,
+        )
+        self._holdback_thread_id = resp["thread"]["id"]
+
+        # Collect turn notifications until turn.completed
+        turn_result = await self._run_turn(self._holdback_thread_id, task)
+        return turn_result
+
+    async def fork(self, task: str) -> dict:
+        """Fork from holdback and execute a task on the child thread."""
+        assert self._holdback_thread_id, "Call seed() first"
+
+        # Fork creates a new thread with parent's full history
+        fork_resp = await self._transport.thread_fork(self._holdback_thread_id)
+        child_id = fork_resp["thread"]["id"]
+        self._fork_count += 1
+
+        # Run the task on the forked child
+        turn_result = await self._run_turn(child_id, task)
+        turn_result["child_thread_id"] = child_id
+        return turn_result
+
+    async def fork_n(
+        self,
+        tasks: List[str],
+        max_concurrent: int = 4,
+    ) -> List[dict]:
+        """Fork N children in parallel."""
+        sem = asyncio.Semaphore(max_concurrent)
+
+        async def _limited(task: str) -> dict:
+            async with sem:
+                return await self.fork(task)
+
+        return await asyncio.gather(*[_limited(t) for t in tasks])
+
+    async def _run_turn(self, thread_id: str, text: str) -> dict:
+        """Start a turn and wait for completion via notifications."""
+        collected_items = []
+        turn_done = asyncio.Event()
+        turn_result: Dict[str, Any] = {}
+
+        def _on_notification(msg: dict) -> None:
+            method = msg.get("method", "")
+            params = msg.get("params", {})
+            if params.get("threadId") != thread_id:
+                return
+            if method == "notifications/item.completed":
+                collected_items.append(params.get("item", {}))
+            elif method == "notifications/turn.completed":
+                turn_result["status"] = "completed"
+                turn_result["usage"] = params.get("usage")
+                turn_done.set()
+            elif method == "notifications/turn.failed":
+                turn_result["status"] = "failed"
+                turn_result["error"] = params.get("error")
+                turn_done.set()
+
+        self._transport.on_notification(_on_notification)
+        await self._transport.turn_start(thread_id, text)
+        await turn_done.wait()
+
+        turn_result["items"] = collected_items
+        turn_result["thread_id"] = thread_id
+
+        # Extract final agent message
+        for item in reversed(collected_items):
+            if item.get("type") == "agentMessage":
+                turn_result["content"] = item.get("text", "")
+                break
+
+        return turn_result
+```
+
+### Cache Behavior
+
+The Responses API automatically caches conversation prefixes. When a fork
+inherits the parent's history and sends it to the API, the shared prefix
+is a cache hit:
+
+```
+Seed:   [system + dev prompt + AGENTS.md + seed prompt + seed response]
+        -> cached_input_tokens ≈ 8,960 (system prefix only)
+
+Fork 1: [system + dev prompt + AGENTS.md + seed prompt + seed response + fork task]
+        -> cached_input_tokens ≈ 21,248 (full seed prefix cached)
+
+Fork 2: [same prefix as Fork 1 + different fork task]
+        -> cached_input_tokens ≈ 21,248 (same prefix, same cache)
+```
+
+No explicit warm/TTL management needed. The fork inherits the full
+conversation history from the rollout file, and the Responses API
+matches the common prefix for cache.
+
+### Inspection & Self-Inspection
+
+The app-server protocol supports full session introspection:
+
+```python
+# Read a thread's full history (turns + items)
+history = await transport.thread_read(thread_id)
+for turn in history["thread"]["turns"]:
+    print(f"Turn {turn['id']}: {turn['status']}")
+    for item in turn["items"]:
+        print(f"  {item['type']}: {item.get('text', item.get('command', ''))[:80]}")
+
+# List all threads
+threads = await transport._request("thread/list", {"limit": 20})
+
+# Query session state from SQLite
+# sqlite3 ~/.codex/state_5.sqlite "SELECT id, model, title FROM threads ORDER BY created_at DESC LIMIT 5;"
+```
+
+For self-inspection from within a FlatMachine:
+- Hook `on_state_exit` reads the thread history via `thread/read`
+- Context accumulates token usage from `turn.completed` notifications
+- Machine transitions can branch on `context.cached_input_tokens` ratios
+
+---
+
 ## Key Observations for FlatMachines Orchestration
 
 ### 1. Simpler JSONL Format
@@ -746,18 +1130,11 @@ Parsing is straightforward.
 The thread ID is stable across resumes. Cache warming is automatic via the
 Responses API prefix cache.
 
-### 3. No Fork in Exec Mode
+### 3. Fork via App-Server (Not Exec)
 
-Unlike Claude Code (`--fork-session`), Codex CLI has no exec-mode fork.
-The `codex fork` command is interactive-only. For parallel fan-out from a
-shared context, use `codex exec resume` with the same thread ID from
-multiple processes (each will get cache hits but advance the same thread).
-
-**Implication:** The SessionHoldback fork pattern from Claude Code adapter
-needs adaptation. Options:
-- Use resume from the same session (conversation diverges after the resume point)
-- Use the app-server protocol's `thread/fork` via WebSocket
-- Seed context via prompt engineering rather than session history
+`codex exec` has no fork. The adapter uses `codex app-server --listen stdio://`
+with `thread/fork` JSON-RPC for proper cache-warm fan-out. See the
+**Fork-with-Cache** section above for the full architecture and code sample.
 
 ### 4. Output Schema Support
 
