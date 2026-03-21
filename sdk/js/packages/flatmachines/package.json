@@ -1,0 +1,48 @@
+{
+  "name": "@anthropic/flatmachines",
+  "version": "2.4.3",
+  "description": "TypeScript SDK for FlatMachines — state machine orchestration for agent workflows",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": {
+        "import": "./dist/index.d.mts",
+        "require": "./dist/index.d.ts"
+      },
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "schemas"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "llm",
+    "orchestration",
+    "state-machine",
+    "agents",
+    "yaml"
+  ],
+  "author": "memgrafter@gmail.com",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@anthropic/flatagents": "2.4.3",
+    "cel-js": "^0.8.2",
+    "yaml": "^2.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.8",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0"
+  }
+}
