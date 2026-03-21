@@ -584,6 +584,60 @@ export class FlatMachine {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Tool loop helper methods (exposed for testing, matching Python)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  _render_guardrail(value: any, vars: Record<string, any>, type: new (v: any) => any): any {
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'string' && value.includes('{{')) {
+      const rendered = renderTemplate(value, vars, "flatmachine");
+      if (type === Number) return Number(rendered);
+      return rendered;
+    }
+    return type === Number ? Number(value) : value;
+  }
+
+  _build_assistant_message(result: any): Record<string, any> {
+    const msg: Record<string, any> = { role: 'assistant', content: result.content ?? '' };
+    const toolCalls = result.tool_calls;
+    if (toolCalls?.length) {
+      msg.tool_calls = toolCalls.map((tc: any) => ({
+        id: tc.id,
+        type: 'function',
+        function: {
+          name: tc.name ?? tc.tool,
+          arguments: typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.arguments ?? {}),
+        },
+      }));
+    }
+    return msg;
+  }
+
+  _extract_cost(result: any): number {
+    const cost = result?.cost;
+    if (cost == null) return 0;
+    if (typeof cost === 'number') return cost;
+    if (typeof cost === 'object' && 'total' in cost) return Number(cost.total);
+    return 0;
+  }
+
+  _resolve_tool_definitions(agentName?: string, provider?: any): any[] {
+    const tp = provider ?? this.toolProvider;
+    const defs = tp?.get_tool_definitions?.() ?? [];
+    // Check if agent has inline tools
+    if (agentName) {
+      const agentConfig = this.config.data.agents?.[agentName];
+      if (agentConfig && typeof agentConfig === 'object') {
+        const inlineTools = (agentConfig as any).data?.tools ?? (agentConfig as any).tools;
+        if (Array.isArray(inlineTools)) {
+          return [...defs, ...inlineTools];
+        }
+      }
+    }
+    return defs;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Existing methods (updated)
   // ─────────────────────────────────────────────────────────────────────────
 
