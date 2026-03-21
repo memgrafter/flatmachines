@@ -33,7 +33,7 @@ function getDatabaseSync(): any {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class SQLiteCheckpointBackend implements PersistenceBackend {
-  private db: any;
+  public readonly db: any;
   private _configStore: SQLiteConfigStore | null = null;
 
   constructor(dbPath: string = 'flatmachines.sqlite') {

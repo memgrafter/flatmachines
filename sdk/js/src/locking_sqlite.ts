@@ -15,28 +15,43 @@ export class SQLiteLeaseLock implements ExecutionLock {
   private renewIntervalSeconds: number;
   private _heartbeatTimers = new Map<string, ReturnType<typeof setInterval>>();
 
-  constructor(opts: {
+  constructor(optsOrDb: {
     dbPath: string;
-    ownerId: string;
+    ownerId?: string;
+    phase?: string;
+    ttlSeconds?: number;
+    renewIntervalSeconds?: number;
+  } | any, dbOpts?: {
+    ownerId?: string;
     phase?: string;
     ttlSeconds?: number;
     renewIntervalSeconds?: number;
   }) {
-    let DatabaseSync: any;
-    try {
-      DatabaseSync = require('node:sqlite').DatabaseSync;
-    } catch {
-      throw new Error('SQLiteLeaseLock requires Node.js ≥22.5 with built-in node:sqlite module.');
+    // Accept either { dbPath, ... } options or a raw db instance
+    if (optsOrDb && typeof optsOrDb === 'object' && typeof optsOrDb.exec === 'function') {
+      // Raw db instance passed
+      this.db = optsOrDb;
+      this.ownerId = dbOpts?.ownerId ?? `${process.pid}:${Date.now()}`;
+      this.phase = dbOpts?.phase ?? 'machine';
+      this.ttlSeconds = Math.max(dbOpts?.ttlSeconds ?? 300, 30);
+      this.renewIntervalSeconds = Math.max(dbOpts?.renewIntervalSeconds ?? 100, 5);
+    } else {
+      const opts = optsOrDb as { dbPath: string; ownerId?: string; phase?: string; ttlSeconds?: number; renewIntervalSeconds?: number };
+      let DatabaseSync: any;
+      try {
+        DatabaseSync = require('node:sqlite').DatabaseSync;
+      } catch {
+        throw new Error('SQLiteLeaseLock requires Node.js ≥22.5 with built-in node:sqlite module.');
+      }
+      this.ownerId = opts.ownerId ?? `${process.pid}:${Date.now()}`;
+      this.phase = opts.phase ?? 'machine';
+      this.ttlSeconds = Math.max(opts.ttlSeconds ?? 300, 30);
+      this.renewIntervalSeconds = Math.max(opts.renewIntervalSeconds ?? 100, 5);
+      this.db = new DatabaseSync(opts.dbPath);
+      this.db.exec('PRAGMA journal_mode = WAL');
+      this.db.exec('PRAGMA synchronous = NORMAL');
+      this.db.exec('PRAGMA busy_timeout = 10000');
     }
-    this.ownerId = opts.ownerId;
-    this.phase = opts.phase ?? 'machine';
-    this.ttlSeconds = Math.max(opts.ttlSeconds ?? 300, 30);
-    this.renewIntervalSeconds = Math.max(opts.renewIntervalSeconds ?? 100, 5);
-
-    this.db = new DatabaseSync(opts.dbPath);
-    this.db.exec('PRAGMA journal_mode = WAL');
-    this.db.exec('PRAGMA synchronous = NORMAL');
-    this.db.exec('PRAGMA busy_timeout = 10000');
     this._ensureSchema();
   }
 

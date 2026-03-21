@@ -20,8 +20,10 @@ import { AgentResponse, FinishReason } from './agent_response';
 import { getExecutionType } from './execution';
 import { evaluate } from './expression';
 import { CheckpointManager, LocalFileBackend, MemoryBackend } from './persistence';
+import { SQLiteCheckpointBackend, SQLiteConfigStore } from './persistence_sqlite';
 import { inMemoryResultBackend } from './results';
 import { LocalFileLock, NoOpLock } from './locking';
+import { SQLiteLeaseLock } from './locking_sqlite';
 import { renderTemplate } from './templating';
 import { HooksRegistry } from './hooks';
 import {
@@ -131,6 +133,12 @@ export class FlatMachine {
     } else if (this.config.data.persistence?.enabled) {
       const backend = this.createPersistenceBackend(this.config.data.persistence);
       this.checkpointManager = new CheckpointManager(backend);
+      // Auto-wire SQLiteLeaseLock + SQLiteConfigStore when using sqlite persistence
+      if (this.config.data.persistence?.backend === 'sqlite' && backend instanceof SQLiteCheckpointBackend) {
+        if (this.executionLock instanceof NoOpLock && !options.executionLock) {
+          this.executionLock = new SQLiteLeaseLock((backend as SQLiteCheckpointBackend).db);
+        }
+      }
     } else if (backendConfig?.persistence) {
       const backend = this.createSettingsPersistenceBackend(backendConfig.persistence);
       this.checkpointManager = new CheckpointManager(backend);
@@ -315,9 +323,12 @@ export class FlatMachine {
     this.context.machine = Object.freeze({
       execution_id: this.executionId,
       machine_name: this.config.data.name ?? 'unnamed',
+      spec_version: this.config.spec_version ?? '0.1.0',
       step,
       current_state: state,
-      parent_execution_id: this.parentExecutionId,
+      parent_execution_id: this.parentExecutionId ?? null,
+      total_api_calls: this.totalApiCalls,
+      total_cost: this.totalCost,
     });
   }
 
@@ -752,17 +763,16 @@ export class FlatMachine {
   private createSettingsPersistenceBackend(setting: BackendConfig["persistence"]): PersistenceBackend {
     if (setting === "memory") return new MemoryBackend();
     if (setting === "local") return new LocalFileBackend();
-    throw new Error(`Unsupported persistence backend: ${setting}`);
+    throw new Error(`Unknown persistence backend '${setting}'`);
   }
 
   private createPersistenceBackend(config: NonNullable<MachineConfig["data"]["persistence"]>) {
     if (config.backend === "memory") return new MemoryBackend();
     if (config.backend === "local") return new LocalFileBackend();
     if (config.backend === "sqlite") {
-      const { SQLiteCheckpointBackend } = require('./persistence_sqlite');
       return new SQLiteCheckpointBackend(config.db_path ?? 'flatmachines.sqlite');
     }
-    throw new Error(`Unsupported persistence backend: ${config.backend}`);
+    throw new Error(`Unknown persistence backend '${config.backend}'`);
   }
 
   private createAgent(agentRef: any): FlatAgent {

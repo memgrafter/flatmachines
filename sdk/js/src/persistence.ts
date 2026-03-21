@@ -6,11 +6,13 @@ export class MemoryBackend implements PersistenceBackend {
   private store = new Map<string, MachineSnapshot>();
 
   async save(key: string, snapshot: MachineSnapshot): Promise<void> {
-    this.store.set(key, snapshot);
+    // Deep clone via JSON to strip frozen objects and break references
+    this.store.set(key, JSON.parse(JSON.stringify(snapshot)));
   }
 
   async load(key: string): Promise<MachineSnapshot | null> {
-    return this.store.get(key) ?? null;
+    const s = this.store.get(key);
+    return s ? JSON.parse(JSON.stringify(s)) : null;
   }
 
   async delete(key: string): Promise<void> {
