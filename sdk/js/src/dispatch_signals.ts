@@ -15,9 +15,15 @@ import { SQLiteCheckpointBackend } from './persistence_sqlite';
 export async function run_once(
   signalBackend: SignalBackend,
   persistenceBackend: PersistenceBackend,
-  resumeFn?: (executionId: string, signalData: any) => Promise<void>,
+  resumeFnOrOpts?: ((executionId: string, signalData: any) => Promise<void>) | { resumer?: any; resumeFn?: (executionId: string, signalData: any) => Promise<void> },
 ): Promise<Record<string, string[]>> {
-  const dispatcher = new SignalDispatcher(signalBackend, persistenceBackend, { resumeFn });
+  let opts: { resumer?: any; resumeFn?: (eid: string, data: any) => Promise<void> } = {};
+  if (typeof resumeFnOrOpts === 'function') {
+    opts = { resumeFn: resumeFnOrOpts };
+  } else if (resumeFnOrOpts) {
+    opts = resumeFnOrOpts;
+  }
+  const dispatcher = new SignalDispatcher(signalBackend, persistenceBackend, opts);
   return dispatcher.dispatchAll();
 }
 

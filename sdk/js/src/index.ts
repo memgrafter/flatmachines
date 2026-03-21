@@ -250,6 +250,8 @@ export type { Signal, SignalBackend, TriggerBackend } from './signals';
 export { SignalDispatcher } from './dispatcher';
 export type { MachineResumer } from './dispatcher';
 
+export { run_once, run_listen } from './dispatch_signals';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Resume (Phase 3.5)
 // ─────────────────────────────────────────────────────────────────────────────

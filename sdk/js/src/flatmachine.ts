@@ -145,12 +145,9 @@ export class FlatMachine {
     // Store resolved config as raw string
     this._config_raw = yaml.stringify(this.config);
 
-    // Compute config hash
-    if (this._config_raw) {
-      this._config_hash = configHash(this._config_raw);
-    }
-    // Store config in config store if available (async, fire-and-forget)
+    // Compute config hash and store in config store (only if config store available)
     if (this._config_store && this._config_raw) {
+      this._config_hash = configHash(this._config_raw);
       this._config_store.put(this._config_raw).catch(() => {});
     }
 
