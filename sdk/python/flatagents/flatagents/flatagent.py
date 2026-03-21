@@ -815,6 +815,11 @@ class FlatAgent:
             if key not in _KNOWN_MODEL_FIELDS and key not in params and value is not None:
                 params[key] = value
 
+        # Forward session_id from input_data into params for the Codex backend so
+        # prompt_cache_key is set, enabling KV-cache hits across continuation turns.
+        if self._backend == "codex" and "session_id" in input_data and "session_id" not in params:
+            params["session_id"] = input_data["session_id"]
+
         # Add tools if available
         if _external_tools:
             # Caller provided tools in OpenAI format — use directly
@@ -1007,7 +1012,7 @@ class FlatAgent:
             details = getattr(usage, 'prompt_tokens_details', None)
             if details:
                 cache_read = getattr(details, 'cached_tokens', 0) or 0
-        
+
         return cache_read, cache_write
     
     def _calculate_cost(

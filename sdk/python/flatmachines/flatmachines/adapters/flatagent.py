@@ -207,10 +207,19 @@ class FlatAgentExecutor(AgentExecutor):
         pre_calls = self._agent.total_api_calls
         pre_cost = self._agent.total_cost
 
+        # Pass execution_id as session_id so the Codex backend can set
+        # prompt_cache_key, enabling KV-cache hits across continuation turns.
+        extra: Dict[str, Any] = {}
+        if context and self._agent._backend == "codex":
+            execution_id = context.get("execution_id")
+            if execution_id and not self._agent._model_config.get("codex_session_id"):
+                extra["session_id"] = str(execution_id)
+
         response = await self._agent.call(
             tools=tools,
             messages=messages,
             **input_data,
+            **extra,
         )
 
         delta_calls = self._agent.total_api_calls - pre_calls
