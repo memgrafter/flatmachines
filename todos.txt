@@ -1,0 +1,45 @@
+- Explore FlatAgent-level provider/profile fallback hooks (or document why fallback swapping should be FlatMachine-only). Use case: avoid dual-agent YAML files by swapping profile/provider at runtime with safe key handling.
+- Anthropic prompt caching support. Anthropic supports automatic caching via a top-level cache_control param on the request body (no content-block restructuring needed). FlatAgent already forwards unknown model config keys to litellm params, so callers can add cache_control: {type: ephemeral} to their model config and it passes through. Verify this works end-to-end through litellm → OpenRouter → Anthropic and document it. If litellm strips the param, add it to the explicit pass-through list. See plan-checker for usage example.
+- ToolLoopAgent per-turn callback / input_data refresh. Currently run() takes input_data once and only renders templates on turn 0. There is no hook to inject dynamic state (remaining budget, elapsed cost, steering context) into subsequent turns. Callers who need per-turn injection must reimplement the loop (see plan-atomizer _run_tool_loop). Options: (a) accept a per-turn callback that returns extra messages to append after tool results, receiving current (turns, tool_calls, usage) as args; (b) accept a callable that returns updated input_data for re-rendering each turn. Option (a) is simpler and doesn't require re-rendering. The existing SteeringProvider is close but receives no loop state.
+- Port the live Codex cache tests built in swarm worker back into flatmachines/flatagents proper test suites (unit + integration). Specifically cover: execution_id->session_id/prompt_cache_key plumbing in execute_with_tools, first-3-message prefix stability across continuation turns, and large-initial-prompt continuation cache-hit behavior.
+- Headful logging: flatagents assumes headless operation and forces console output that can't be cleanly suppressed by embedding applications. Two independent problems in monitoring.py need fixing:
+  1. setup_logging() adds a StreamHandler(sys.stdout) to the "flatagents" namespace logger with propagate=False. This means host applications that configure the root logger never see flatagents logs, and can't redirect them. The stdout handler fires even if the host already configured logging.
+     - Fix: change setup_logging() to NOT add any handlers by default. Instead, set propagate=True so flatagents logs flow to whatever the host application configured on root. Only add the stdout handler when there's an explicit opt-in (e.g. FLATAGENTS_LOG_HANDLER=stdout env var, or a new add_console_handler=True kwarg). This follows the Python logging best practice: libraries configure loggers and levels, applications configure handlers.
+     - Files: sdk/python/flatagents/flatagents/monitoring.py — setup_logging(), around line 125-133.
+     - Code change: replace the unconditional stdout handler block:
+       ```python
+       # BEFORE
+       if not lib_logger.handlers:
+           stdout_handler = logging.StreamHandler(sys.stdout)
+           stdout_handler.setFormatter(formatter)
+           lib_logger.addHandler(stdout_handler)
+       lib_logger.propagate = False
+       
+       # AFTER
+       add_console = os.getenv('FLATAGENTS_LOG_HANDLER', '').lower() in ('stdout', 'console', 'true')
+       if force or add_console:
+           if not lib_logger.handlers:
+               stdout_handler = logging.StreamHandler(sys.stdout)
+               stdout_handler.setFormatter(formatter)
+               lib_logger.addHandler(stdout_handler)
+           lib_logger.propagate = False
+       else:
+           # Library default: propagate to root, let host app decide output
+           lib_logger.propagate = True
+       ```
+  2. _CompactConsoleMetricExporter.export() writes directly to sys.stdout.write() bypassing logging entirely (line ~290-291). When otel is installed and OTEL_METRICS_EXPORTER is unset (defaults to "console"), metrics JSON lines dump to stdout on a 5-second interval regardless of any logging config.
+     - Fix: change the console exporter default. When otel is available but no explicit OTEL_METRICS_EXPORTER is set, default to "none" (disabled) instead of "console". Add "none" as a recognized exporter_type that skips reader/provider setup entirely. Console export becomes opt-in via OTEL_METRICS_EXPORTER=console.
+     - Files: sdk/python/flatagents/flatagents/monitoring.py — _init_metrics(), around line 236.
+     - Code change:
+       ```python
+       # BEFORE
+       exporter_type = os.getenv('OTEL_METRICS_EXPORTER', 'console').lower()
+       
+       # AFTER
+       exporter_type = os.getenv('OTEL_METRICS_EXPORTER', 'none').lower()
+       if exporter_type == 'none':
+           _metrics_enabled = False
+           return
+       ```
+  3. Tests: add tests confirming (a) default setup_logging() adds no handlers and sets propagate=True, (b) FLATAGENTS_LOG_HANDLER=stdout adds the handler and sets propagate=False, (c) default _init_metrics() with otel installed does not create a console exporter, (d) OTEL_METRICS_EXPORTER=console creates the exporter.
+  Motivation: sterling-swarm prototype needed 15 lines of workaround code to suppress flatagents console output. Any headful app (CLI, TUI, REPL) embedding flatagents hits the same problem. The fix is backward-compatible: headless/daemon users who already see logs on stdout can set FLATAGENTS_LOG_HANDLER=stdout to preserve current behavior.
