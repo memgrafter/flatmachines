@@ -30,8 +30,8 @@ const DEFAULT_EFFORT = 'high';
 const DEFAULT_EXIT_SENTINEL = '<<AGENT_EXIT>>';
 const DEFAULT_CONTINUATION_PROMPT = 'Continue working. When fully done, emit <<AGENT_EXIT>> on its own line.';
 const DEFAULT_MAX_CONTINUATIONS = 100;
-const DEFAULT_RATE_LIMIT_DELAY = 3000; // ms
-const DEFAULT_RATE_LIMIT_JITTER = 4000; // ms
+const DEFAULT_RATE_LIMIT_DELAY = 3.0; // seconds
+const DEFAULT_RATE_LIMIT_JITTER = 4.0; // seconds
 const SIGTERM_GRACE_MS = 5000;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -117,18 +117,18 @@ class StreamCollector {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class CallThrottle {
-  private delay: number;
-  private jitter: number;
+  public _delay: number;
+  public _jitter: number;
   private lastCall = 0;
   private lock = Promise.resolve();
 
   constructor(delay: number, jitter: number) {
-    this.delay = Math.max(0, delay);
-    this.jitter = Math.max(0, jitter);
+    this._delay = Math.max(0, delay);
+    this._jitter = Math.max(0, jitter);
   }
 
   get enabled(): boolean {
-    return this.delay > 0 || this.jitter > 0;
+    return this._delay > 0 || this._jitter > 0;
   }
 
   reset(): void {
@@ -147,12 +147,13 @@ class CallThrottle {
           resolve(0);
           return;
         }
-        const jitterMs = Math.random() * 2 * this.jitter;
-        const next = this.lastCall + this.delay + jitterMs;
+        const delayMs = this._delay * 1000;
+        const jitterMs = Math.random() * 2 * this._jitter * 1000;
+        const next = this.lastCall + delayMs + jitterMs;
         const waitMs = Math.max(0, next - now);
         if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
         this.lastCall = Date.now();
-        resolve(waitMs);
+        resolve(waitMs / 1000); // Return seconds
       });
     });
   }

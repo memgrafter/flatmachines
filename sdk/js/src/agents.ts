@@ -131,6 +131,15 @@ export class AgentAdapterRegistry {
   private _adapters = new Map<string, AgentAdapter>();
 
   constructor(adapters?: Iterable<AgentAdapter>) {
+    // Register built-in adapters
+    try {
+      const { FlatAgentAdapter } = require('./adapters/flatagent_adapter');
+      this.register(new FlatAgentAdapter());
+    } catch {}
+    try {
+      const { ClaudeCodeAdapter } = require('./adapters/claude_code_adapter');
+      this.register(new ClaudeCodeAdapter());
+    } catch {}
     if (adapters) {
       for (const adapter of adapters) this.register(adapter);
     }
