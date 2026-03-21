@@ -1,7 +1,7 @@
 {
   "name": "@anthropic/flatmachines",
   "version": "2.4.3",
-  "description": "TypeScript SDK for FlatMachines — state machine orchestration for agent workflows",
+  "description": "TypeScript SDK for FlatMachines — state-machine orchestration for agent workflows",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
