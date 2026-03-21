@@ -55,7 +55,15 @@ export class WebhookHooks implements MachineHooks {
 }
 
 export class CompositeHooks implements MachineHooks {
-  constructor(private hooks: MachineHooks[]) {}
+  public hooks: MachineHooks[];
+
+  constructor(hooks: MachineHooks[]) {
+    this.hooks = hooks;
+    // Bind tool-loop hooks so they work when extracted from the instance
+    this.on_tool_calls = this.on_tool_calls.bind(this);
+    this.on_tool_result = this.on_tool_result.bind(this);
+    this.get_tool_provider = this.get_tool_provider.bind(this);
+  }
 
   async onMachineStart(context: Record<string, any>): Promise<Record<string, any>> {
     let result = context;
@@ -156,12 +164,15 @@ export class CompositeHooks implements MachineHooks {
     return result;
   }
 
-  async on_tool_calls(state: string, toolCalls: any[], context: Record<string, any>): Promise<Record<string, any>> {
+  on_tool_calls(state: string, toolCalls: any[], context: Record<string, any>): Record<string, any> {
     let result = context;
     for (const hook of this.hooks) {
       if (hook.on_tool_calls) {
         try {
-          result = await hook.on_tool_calls(state, toolCalls, result);
+          const hookResult = hook.on_tool_calls(state, toolCalls, result);
+          if (hookResult && typeof hookResult === 'object' && !('then' in hookResult)) {
+            result = hookResult as Record<string, any>;
+          }
         } catch {
           // Continue with next hook on error
         }
@@ -170,12 +181,15 @@ export class CompositeHooks implements MachineHooks {
     return result;
   }
 
-  async on_tool_result(state: string, toolResult: any, context: Record<string, any>): Promise<Record<string, any>> {
+  on_tool_result(state: string, toolResult: any, context: Record<string, any>): Record<string, any> {
     let result = context;
     for (const hook of this.hooks) {
       if (hook.on_tool_result) {
         try {
-          result = await hook.on_tool_result(state, toolResult, result);
+          const hookResult = hook.on_tool_result(state, toolResult, result);
+          if (hookResult && typeof hookResult === 'object' && !('then' in hookResult)) {
+            result = hookResult as Record<string, any>;
+          }
         } catch {
           // Continue with next hook on error
         }
