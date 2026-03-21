@@ -24,7 +24,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo "=== JavaScript SDK Release (dual-package) ===""
+echo "=== JavaScript SDK Release (dual-package) ==="
 if [ "$DRY_RUN" = true ]; then
     echo ""
     echo "════════════════════════════════════════════════════════════"
