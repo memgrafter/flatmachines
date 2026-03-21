@@ -9,6 +9,7 @@ import { ExecutionLock } from './types';
 
 export class SQLiteLeaseLock implements ExecutionLock {
   private db: any;
+  private _ownsDb: boolean;
   private ownerId: string;
   private phase: string;
   private ttlSeconds: number;
@@ -31,6 +32,7 @@ export class SQLiteLeaseLock implements ExecutionLock {
     if (optsOrDb && typeof optsOrDb === 'object' && typeof optsOrDb.exec === 'function') {
       // Raw db instance passed
       this.db = optsOrDb;
+      this._ownsDb = false;
       this.ownerId = dbOpts?.ownerId ?? `${process.pid}:${Date.now()}`;
       this.phase = dbOpts?.phase ?? 'machine';
       this.ttlSeconds = Math.max(dbOpts?.ttlSeconds ?? 300, 30);
@@ -43,6 +45,7 @@ export class SQLiteLeaseLock implements ExecutionLock {
       } catch {
         throw new Error('SQLiteLeaseLock requires Node.js ≥22.5 with built-in node:sqlite module.');
       }
+      this._ownsDb = true;
       this.ownerId = opts.ownerId ?? `${process.pid}:${Date.now()}`;
       this.phase = opts.phase ?? 'machine';
       this.ttlSeconds = Math.max(opts.ttlSeconds ?? 300, 30);
@@ -156,6 +159,6 @@ export class SQLiteLeaseLock implements ExecutionLock {
     for (const key of this._heartbeatTimers.keys()) {
       this._stopHeartbeat(key);
     }
-    this.db.close();
+    if (this._ownsDb) this.db.close();
   }
 }

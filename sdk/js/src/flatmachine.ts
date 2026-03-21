@@ -91,6 +91,9 @@ export class FlatMachine {
   private totalApiCalls = 0;
   private totalCost = 0;
 
+  // Config store for SQLite auto-wiring
+  public _config_store?: any;
+
   // New Phase 3+ backends
   private signalBackend?: SignalBackend;
   private triggerBackend: TriggerBackend;
@@ -137,6 +140,9 @@ export class FlatMachine {
       if (this.config.data.persistence?.backend === 'sqlite' && backend instanceof SQLiteCheckpointBackend) {
         if (this.executionLock instanceof NoOpLock && !options.executionLock) {
           this.executionLock = new SQLiteLeaseLock((backend as SQLiteCheckpointBackend).db);
+        }
+        if (!this._config_store) {
+          this._config_store = (backend as SQLiteCheckpointBackend).configStore;
         }
       }
     } else if (backendConfig?.persistence) {

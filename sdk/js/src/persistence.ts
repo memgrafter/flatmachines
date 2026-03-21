@@ -28,10 +28,12 @@ export class MemoryBackend implements PersistenceBackend {
     // Use key ordering as tiebreaker (later keys = more recent)
     const execMap = new Map<string, { key: string; snapshot: MachineSnapshot }>();
     for (const [key, snapshot] of this.store.entries()) {
+      // Skip non-snapshot entries (e.g., latest pointers stored as strings)
+      if (!snapshot || typeof snapshot !== 'object' || !snapshot.execution_id) continue;
       const eid = snapshot.execution_id;
       const existing = execMap.get(eid);
-      if (!existing || snapshot.step > existing.snapshot.step ||
-          (snapshot.step === existing.snapshot.step && key > existing.key)) {
+      if (!existing || (snapshot.step ?? 0) > (existing.snapshot.step ?? 0) ||
+          ((snapshot.step ?? 0) === (existing.snapshot.step ?? 0) && key > existing.key)) {
         execMap.set(eid, { key, snapshot });
       }
     }
@@ -41,12 +43,12 @@ export class MemoryBackend implements PersistenceBackend {
       if (options?.waiting_channel != null) {
         if ((snapshot as any).waiting_channel !== options.waiting_channel) continue;
       }
-      if (options?.event != null) {
+      if (options?.event != null && options.event !== null) {
         if ((snapshot as any).event !== options.event) continue;
       }
       results.push(eid);
     }
-    return results;
+    return results.sort();
   }
 
   async deleteExecution(executionId: string): Promise<void> {
@@ -118,22 +120,23 @@ export class LocalFileBackend implements PersistenceBackend {
   async listExecutionIds(options?: { event?: string; waiting_channel?: string }): Promise<string[]> {
     // List all files, group by execution ID, check latest
     const allKeys = await this.list('');
-    const execMap = new Map<string, MachineSnapshot>();
+    const execMap = new Map<string, { key: string; snapshot: MachineSnapshot }>();
     for (const key of allKeys) {
       const snapshot = await this.load(key);
-      if (!snapshot) continue;
+      if (!snapshot || !snapshot.execution_id) continue;
       const eid = snapshot.execution_id;
       const existing = execMap.get(eid);
-      if (!existing || snapshot.step > existing.step) {
-        execMap.set(eid, snapshot);
+      if (!existing || (snapshot.step ?? 0) > (existing.snapshot.step ?? 0) ||
+          ((snapshot.step ?? 0) === (existing.snapshot.step ?? 0) && key > existing.key)) {
+        execMap.set(eid, { key, snapshot });
       }
     }
     const results: string[] = [];
-    for (const [eid, snapshot] of execMap.entries()) {
+    for (const [eid, { snapshot }] of execMap.entries()) {
       if (options?.waiting_channel != null) {
         if ((snapshot as any).waiting_channel !== options.waiting_channel) continue;
       }
-      if (options?.event != null) {
+      if (options?.event != null && options.event !== null) {
         if ((snapshot as any).event !== options.event) continue;
       }
       results.push(eid);
