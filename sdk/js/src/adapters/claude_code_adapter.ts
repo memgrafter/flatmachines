@@ -287,16 +287,46 @@ export class ClaudeCodeExecutor implements AgentExecutor {
   // Single invocation
   // ─────────────────────────────────────────────────────────────────────────
 
-  private async invokeOnce(
+  /**
+   * Invoke the Claude CLI once. Also available as _invoke_once for session holdback.
+   */
+  async invokeOnce(
+    taskOrOpts: string | { task: string; session_id?: string; resume?: boolean; context?: Record<string, any>; fork_session?: boolean },
+    sessionId?: string,
+    resume?: boolean,
+    context?: Record<string, any>,
+  ): Promise<AgentResult> {
+    // Support both positional and object-style arguments
+    if (typeof taskOrOpts === 'object') {
+      return this._invokeOnceInternal(
+        taskOrOpts.task,
+        taskOrOpts.session_id ?? randomUUID(),
+        taskOrOpts.resume ?? false,
+        taskOrOpts.context,
+        taskOrOpts.fork_session,
+      );
+    }
+    return this._invokeOnceInternal(taskOrOpts, sessionId!, resume!, context);
+  }
+
+  // Alias for Python compat
+  async _invoke_once(
+    opts: { task: string; session_id?: string; resume?: boolean; context?: Record<string, any>; fork_session?: boolean },
+  ): Promise<AgentResult> {
+    return this.invokeOnce(opts);
+  }
+
+  private async _invokeOnceInternal(
     task: string,
     sessionId: string,
     resume: boolean,
     context?: Record<string, any>,
+    forkSession?: boolean,
   ): Promise<AgentResult> {
     await this.throttle.wait();
 
     const cfg = this.merged;
-    const args = this.buildArgs(task, sessionId, resume);
+    const args = this.buildArgs(task, sessionId, resume, forkSession);
 
     let workingDir = cfg.working_dir;
     if (workingDir) {
@@ -399,13 +429,16 @@ export class ClaudeCodeExecutor implements AgentExecutor {
   // Arg builder
   // ─────────────────────────────────────────────────────────────────────────
 
-  private buildArgs(task: string, sessionId: string, resume: boolean): string[] {
+  buildArgs(task: string, sessionId: string, resume: boolean, forkSession?: boolean): string[] {
     const cfg = this.merged;
     const claudeBin = String(cfg.claude_bin ?? 'claude');
     const args = [claudeBin, '-p', task, '--output-format', 'stream-json', '--verbose'];
 
     if (resume) {
       args.push('--resume', sessionId);
+      if (forkSession) {
+        args.push('--fork-session');
+      }
     } else {
       args.push('--session-id', sessionId);
     }
