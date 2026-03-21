@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Dict, Optional
 
 from ..agents import (
@@ -74,7 +75,7 @@ class FlatAgentExecutor(AgentExecutor):
             return str(execution_id)
         # Canonical path: context.machine.execution_id (injected per state entry)
         machine = context.get("machine")
-        if isinstance(machine, dict):
+        if isinstance(machine, Mapping):
             mid = machine.get("execution_id")
             if mid:
                 return str(mid)
