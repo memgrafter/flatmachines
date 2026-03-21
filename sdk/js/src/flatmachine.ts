@@ -421,8 +421,15 @@ export class FlatMachine {
     const agentName = def.agent!;
     const executor = this.getExecutor(agentName);
 
+    // Resolve tool provider (hooks can override)
+    let activeToolProvider = this.toolProvider;
+    if (this.hooks?.get_tool_provider) {
+      const hookProvider = this.hooks.get_tool_provider(stateName, this.context);
+      if (hookProvider) activeToolProvider = hookProvider;
+    }
+
     // Resolve tool definitions
-    const toolDefs = this.toolProvider?.get_tool_definitions() ?? [];
+    const toolDefs = activeToolProvider?.get_tool_definitions() ?? [];
 
     // Build initial input
     const agentInput = this.render(def.input ?? {}, { context: this.context, input: this.input });
@@ -499,6 +506,13 @@ export class FlatMachine {
         context._tool_loop_stop = 'max_tool_calls'; break;
       }
 
+      // Fire on_tool_calls hook
+      if (this.hooks?.on_tool_calls && pendingCalls.length) {
+        const hookResult = await this.hooks.on_tool_calls(stateName, pendingCalls, context);
+        if (hookResult) context = hookResult;
+        if (context._abort_tool_loop) { context._tool_loop_stop = 'aborted'; break; }
+      }
+
       // Execute tools
       for (const tc of pendingCalls) {
         // Allow/deny check
@@ -511,11 +525,17 @@ export class FlatMachine {
           continue;
         }
 
+        // Skip tools that hooks flagged for skipping
+        if (context._skip_tool_ids?.includes(tc.id) || context._skip_tool_names?.includes(tc.name ?? tc.tool)) {
+          chain.push({ role: 'tool', tool_call_id: tc.id, content: 'Tool skipped by hook.' });
+          continue;
+        }
+
         let toolResult: ToolResult;
-        if (this.toolProvider) {
+        if (activeToolProvider) {
           try {
             toolResult = await Promise.race([
-              this.toolProvider.execute_tool(tc.tool, tc.id, tc.arguments),
+              activeToolProvider.execute_tool(tc.tool, tc.id, tc.arguments),
               new Promise<ToolResult>((_, reject) => setTimeout(() => reject(new Error('timeout')), toolTimeout)),
             ]);
           } catch (e: any) {
@@ -528,6 +548,17 @@ export class FlatMachine {
         toolCallsCount += 1;
         chain.push({ role: 'tool', tool_call_id: tc.id, content: toolResult.content });
         context._tool_calls_count = toolCallsCount;
+
+        // Fire on_tool_result hook
+        if (this.hooks?.on_tool_result) {
+          const hookResult = await this.hooks.on_tool_result(stateName, {
+            ...tc,
+            name: tc.name ?? tc.tool,
+            result: toolResult,
+          }, context);
+          if (hookResult) context = hookResult;
+          if (context._abort_tool_loop) { context._tool_loop_stop = 'aborted'; break; }
+        }
 
         // Checkpoint after each tool call
         if (this.shouldCheckpoint("execute")) {

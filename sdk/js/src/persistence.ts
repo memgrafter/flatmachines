@@ -207,6 +207,14 @@ export class CheckpointManager {
   }
 
   /**
+   * Load the latest checkpoint for the configured execution ID.
+   * Alias for restore().
+   */
+  async loadLatest(): Promise<MachineSnapshot | null> {
+    return this.restore();
+  }
+
+  /**
    * Access the underlying persistence backend.
    */
   get persistenceBackend(): PersistenceBackend {

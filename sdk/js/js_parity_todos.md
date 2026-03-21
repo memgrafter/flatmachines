@@ -1,57 +1,63 @@
 # JS SDK Python Parity TODOs
 
-## Status: 148 failing / 1717 passing (from 347 failing initially)
+## Status: 63 failing / 1800 passing (from 347 failing initially, ~82% reduction)
 
-## Remaining failure areas (by count)
+## Remaining failure areas
 
-### tool-loop-machine.parity.test.ts (31)
-- Tool loop machine integration: tool_loop state config, chain preservation, checkpoint state
-- Needs: tool loop agent integration with machine states, denied tools, crash/resume
+### tool-loop-machine.parity.test.ts (24)
+- Tool loop hooks: on_tool_calls, on_tool_result, get_tool_provider, steering, abort
+- Chain management: continuation reuse, synthetic user prompts
+- Guardrail rendering with Jinja templates
+- Checkpoint contains tool_loop_state
+- Cost tracking through loop
+- Denied/allowed tool filtering sent to agent
+- Non-capable adapter error
+- Composite hooks for tool loop
 
-### claude-code-live.parity.test.ts (27)
-- Claude Code adapter: throttle, sessions (seed/adopt/fork/warm), metrics
-- Needs: ClaudeCodeSession class, throttle configuration, adapter registration
+### tool-loop.parity.test.ts (8)
+- File I/O integration (write/read actual files)
+- Hook-driven file tracking
+- Mid-loop conditional transitions
+- Denied tools integration
+- Crash/resume mid tool loop
+- Chain preservation to context
+- Multi-state machine with tool loop
 
-### misc-runtime.parity.test.ts (24)
-- Serialization warnings (safe_serialize)
-- Markdown/JSON extraction (StructuredExtractor)  
-- Backward compat re-exports (distributed module)
-- Call throttle (ClaudeCodeExecutor)
-- tojson filter stays string
+### claude-code-live.parity.test.ts (6)
+- Injected throttle wins over default
+- Timeout raises
+- Agent monitor metrics (model in agent_id)
+- Continuation summary log
+- Cancel process already dead
+- Fork N parallel (assertion issue)
 
-### misc-persistence-resume.parity.test.ts (18)
-- Resume with config store
-- Clone snapshot
-- Hooks registry
+### misc-runtime.parity.test.ts (5)
+- Call throttle tests (test using ClaudeCodeExecutor where Python uses throttle_from_config)
+- Backward compat tests
 
-### misc-machine-core.parity.test.ts (17)
-- Agent ref resolution (yaml/JSON refs, inline config, config_raw)
-- Profiles discovery
-- Load status from checkpoint
-- Peer propagation
+### misc-machine-core.parity.test.ts (5)
+- CheckpointManager.loadLatest
+- Peer propagation (persistence to child machines)
+- Profile discovery (FlatAgent discovers profiles.yml)
 
-### persistence-config.parity.test.ts (14)
-- SQLite backend lifecycle (listExecutionIds, deleteExecution across backends)
-- Config store auto-wiring
-- Auto lock detection
-
-### tool-loop.parity.test.ts (9)
-- Tool loop features: denied tools, crash/resume, checkpoint state
-
-### persistence-integration.parity.test.ts (8)
-- Webhook hooks, counter hooks, error recovery
+### persistence-config.parity.test.ts (4)
+- SQLite auto lock/config store wiring edge cases
+- Existing backends unchanged
+- Latest pointer tests
 
 ### flatagent-backends.parity.test.ts (4)
-- Codex backend integration, distributed backends
+- Codex backend integration
+- Distributed backend tests
 
 ### signals-integration.parity.test.ts (3)
-- Socket trigger, signal+trigger integration
+- Socket trigger
+- Signal + trigger integration
+
+### persistence-integration.parity.test.ts (2)
+- Webhook hooks (on_error, on_checkpoint events)
+
+### misc-persistence-resume.parity.test.ts (1)
+- Dispatcher integration edge case
 
 ### codex-auth-client.parity.test.ts (1)
 - Token exchange edge case
-
-### dispatcher-wait.parity.test.ts (0 or 1)  
-- Mostly fixed
-
-### context-machine.parity.test.ts (1)
-- Step condition with frozen machine object
