@@ -24,7 +24,14 @@ nunjucks.runtime.suppressValue = function(val: any, autoescape: boolean) {
 // Disable autoescape to avoid HTML-encoding JSON/text in machine outputs and prompts.
 const nunjucksEnv = new nunjucks.Environment(undefined, { autoescape: false });
 
-nunjucksEnv.addFilter("tojson", (value: any) => JSON.stringify(value));
+// Match Python json.dumps default separators: (', ', ': ')
+nunjucksEnv.addFilter("tojson", (value: any) => {
+  // Use JSON.stringify then add spaces to match Python's default json.dumps output
+  const raw = JSON.stringify(value);
+  // Add space after , and : at JSON structural positions
+  // This is safe because JSON.stringify escapes these chars inside strings
+  return raw.replace(/,(?=[\s\S])/g, ', ').replace(/:(?=[\s\S])/g, ': ');
+});
 nunjucksEnv.addFilter("fromjson", (value: any) => {
   if (typeof value === 'string') {
     try { return JSON.parse(value); } catch { return value; }

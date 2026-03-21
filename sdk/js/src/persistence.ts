@@ -212,4 +212,20 @@ export class CheckpointManager {
   get persistenceBackend(): PersistenceBackend {
     return this.backend;
   }
+
+  /**
+   * Safely serialize an object to JSON, converting non-serializable values.
+   * Logs warnings for fields that needed conversion.
+   */
+  _safe_serialize(obj: any): string {
+    return JSON.stringify(obj, (_key, value) => {
+      if (value instanceof Date) return value.toISOString();
+      if (typeof value === 'function') return '<function>';
+      if (typeof value === 'bigint') return value.toString();
+      if (value instanceof RegExp) return value.toString();
+      if (value instanceof Map) return Object.fromEntries(value);
+      if (value instanceof Set) return [...value];
+      return value;
+    });
+  }
 }

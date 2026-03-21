@@ -234,3 +234,16 @@ export function createRegistrationBackend(type: string = 'memory', opts?: Record
   if (type === 'sqlite') return new SQLiteRegistrationBackend(opts?.db_path);
   throw new Error(`Unknown registration backend type: ${type}`);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Re-exports for backward compatibility (Python SDK exposes these from distributed module)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export {
+  MemoryWorkBackend,
+  SQLiteWorkBackend,
+  MemoryWorkPool,
+  SQLiteWorkPool,
+  createWorkBackend,
+} from './work';
+export type { WorkItem, WorkPool, WorkBackend } from './work';

@@ -326,7 +326,20 @@ export {
   createWorkBackend,
 } from './work';
 
-export type { WorkItem, WorkPool, WorkBackend } from './work';
+// Re-export type interfaces as runtime-accessible symbols for backward compat
+export { MemoryWorkPool as WorkPool } from './work';
+export { MemoryWorkBackend as WorkBackend } from './work';
+export type { WorkItem } from './work';
+// Also provide a runtime-accessible WorkItem constructor
+export const WorkItem = class WorkItem {
+  id: string; data: any; claimed_by?: string; claimed_at?: string;
+  attempts: number; max_retries: number; status?: string;
+  constructor(opts?: any) {
+    this.id = opts?.id ?? ''; this.data = opts?.data;
+    this.attempts = opts?.attempts ?? 0; this.max_retries = opts?.max_retries ?? 3;
+    this.status = opts?.status;
+  }
+};
 
 export { DistributedWorkerHooks } from './distributed_hooks';
 

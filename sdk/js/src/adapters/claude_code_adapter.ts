@@ -123,14 +123,30 @@ class CallThrottle {
   private lock = Promise.resolve();
 
   constructor(delay: number, jitter: number) {
-    this.delay = delay;
-    this.jitter = jitter;
+    this.delay = Math.max(0, delay);
+    this.jitter = Math.max(0, jitter);
+  }
+
+  get enabled(): boolean {
+    return this.delay > 0 || this.jitter > 0;
+  }
+
+  reset(): void {
+    this.lastCall = 0;
+    this.lock = Promise.resolve();
   }
 
   async wait(): Promise<number> {
+    if (!this.enabled) return 0;
     return new Promise<number>((resolve) => {
       this.lock = this.lock.then(async () => {
         const now = Date.now();
+        if (this.lastCall === 0) {
+          // First call — no wait
+          this.lastCall = now;
+          resolve(0);
+          return;
+        }
         const jitterMs = Math.random() * 2 * this.jitter;
         const next = this.lastCall + this.delay + jitterMs;
         const waitMs = Math.max(0, next - now);

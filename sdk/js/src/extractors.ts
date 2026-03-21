@@ -18,7 +18,7 @@ export interface Extractor {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function stripMarkdownJson(text: string): string {
-  const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const match = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   return match ? match[1]!.trim() : text.trim();
 }
 
@@ -77,19 +77,27 @@ export class FreeThinkingExtractor implements Extractor {
 export class StructuredExtractor implements Extractor {
   constructor(private schema?: Record<string, any>) {}
 
-  extract(response: any): Record<string, any> {
+  extract(response: any): any {
+    if (response === null || response === undefined) return response;
     let content: string;
     if (typeof response === 'string') {
       content = response;
     } else {
       content = response?.text ?? response?.choices?.[0]?.message?.content ?? '';
     }
-    if (!content) return {};
+    if (content === '') return '';
 
+    // Try stripping markdown fences first
+    const stripped = stripMarkdownJson(content);
     try {
-      return JSON.parse(stripMarkdownJson(content));
-    } catch (e: any) {
-      return { _raw: content, _error: e.message };
+      return JSON.parse(stripped);
+    } catch {
+      // Try to find JSON object or array in the text
+      const jsonMatch = content.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+      if (jsonMatch) {
+        try { return JSON.parse(jsonMatch[1]!); } catch { /* fall through */ }
+      }
+      return { _raw: content, _error: 'Could not parse JSON' };
     }
   }
 }
