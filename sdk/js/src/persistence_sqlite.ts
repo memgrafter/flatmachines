@@ -96,10 +96,17 @@ export class SQLiteCheckpointBackend implements PersistenceBackend {
     const now = new Date().toISOString();
     const jsonStr = JSON.stringify(snapshot);
 
-    // latest pointer
+    // latest pointer — store the value directly as a forward ref
     const latestKey = `${executionId}/latest`;
     if (key === latestKey) {
-      // Should not happen with our CheckpointManager, but handle gracefully
+      const now = new Date().toISOString();
+      this.db.prepare(`
+        INSERT INTO machine_latest (execution_id, latest_key, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(execution_id) DO UPDATE SET
+          latest_key = excluded.latest_key,
+          updated_at = excluded.updated_at
+      `).run(executionId, typeof snapshot === 'string' ? snapshot : JSON.stringify(snapshot), now);
       return;
     }
 
@@ -150,6 +157,14 @@ export class SQLiteCheckpointBackend implements PersistenceBackend {
 
   async load(key: string): Promise<MachineSnapshot | null> {
     SQLiteCheckpointBackend.validateKey(key);
+    // Handle latest pointer
+    const executionId = SQLiteCheckpointBackend.executionIdFromKey(key);
+    if (key === `${executionId}/latest`) {
+      const latestRow = this.db.prepare(
+        'SELECT latest_key FROM machine_latest WHERE execution_id = ?'
+      ).get(executionId);
+      return latestRow ? latestRow.latest_key as any : null;
+    }
     const row = this.db.prepare(
       'SELECT snapshot_json FROM machine_checkpoints WHERE checkpoint_key = ?'
     ).get(key);

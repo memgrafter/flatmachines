@@ -52,6 +52,11 @@ export class WebhookHooks implements MachineHooks {
     await this.send("action", { action, context });
     return context;
   }
+
+  async onError(state: string, error: Error, context: Record<string, any>) {
+    await this.send("error", { state, error: { message: error.message, name: error.name }, context });
+    return null;
+  }
 }
 
 export class CompositeHooks implements MachineHooks {
