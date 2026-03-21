@@ -1,4 +1,4 @@
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 
 from .baseagent import (
     # Base agent (abstract, for multi-step agents)
