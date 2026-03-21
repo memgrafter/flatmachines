@@ -107,12 +107,13 @@ export class FlatMachine {
   private expressionEngine: 'simple' | 'cel' = 'simple';
 
   constructor(options: MachineOptions | ExtendedMachineOptions) {
-    this.config = typeof options.config === "string"
+    const configIsPath = typeof options.config === "string";
+    this.config = configIsPath
       ? yaml.parse(readFileSync(options.config, "utf-8")) as MachineConfig
       : options.config;
     this._hooksRegistry = options.hooksRegistry ?? new HooksRegistry();
     this.hooks = this.resolveHooks(options.hooks);
-    this.configDir = options.configDir ?? process.cwd();
+    this.configDir = options.configDir ?? (configIsPath ? dirname(resolve(options.config as string)) : process.cwd());
     this.profilesFile = this.resolveProfilesFile(options.profilesFile);
     this.executionId = options.executionId ?? this.executionId;
     this.parentExecutionId = options.parentExecutionId;
