@@ -114,7 +114,15 @@ export class FlatMachine {
     this._hooksRegistry = options.hooksRegistry ?? new HooksRegistry();
     this.hooks = this.resolveHooks(options.hooks);
     this.configDir = options.configDir ?? (configIsPath ? dirname(resolve(options.config as string)) : process.cwd());
-    this.profilesFile = this.resolveProfilesFile(options.profilesFile);
+    // FlatMachine does NOT auto-discover profiles.yml — only resolve explicit or config-level paths
+    if (options.profilesFile) {
+      this.profilesFile = options.profilesFile;
+    } else {
+      const configProfiles = (this.config as any)?.data?.profiles;
+      if (typeof configProfiles === "string" && configProfiles.trim().length > 0) {
+        this.profilesFile = resolve(this.configDir, configProfiles);
+      }
+    }
     this.executionId = options.executionId ?? this.executionId;
     this.parentExecutionId = options.parentExecutionId;
 
@@ -972,10 +980,12 @@ export class FlatMachine {
           (agents as any)[name] = resolved;
         }
       } else if (typeof ref === 'object' && ref !== null && ref.ref) {
-        // Typed ref: { type: "...", ref: "./path.yml" }
+        // Typed ref: { type: "...", ref: "./path.yml", config?: {...} }
         const resolved = this.resolveAgentRefPath(ref.ref);
         if (resolved) {
-          const result: any = { ...ref, config: resolved };
+          // Merge inline config overrides on top of file config
+          const mergedConfig = ref.config ? { ...resolved, ...ref.config } : resolved;
+          const result: any = { ...ref, config: mergedConfig };
           delete result.ref;
           (agents as any)[name] = result;
         }
@@ -1077,7 +1087,12 @@ export class FlatMachine {
     return { config: resolved, configDir: dirname(resolved) };
   }
 
-  private resolveProfilesFile(explicitPath?: string): string | undefined {
+  /**
+   * Resolve profiles file path. When called with an explicit path, returns it.
+   * When called with empty/undefined, discovers profiles.yml in configDir.
+   * NOTE: FlatMachine constructor does NOT call this for auto-discovery.
+   */
+  resolveProfilesFile(explicitPath?: string): string | undefined {
     // 1. Explicit non-empty path takes precedence
     if (explicitPath && explicitPath.trim().length > 0) return explicitPath;
     // 2. Config-level profiles setting

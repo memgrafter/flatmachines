@@ -1,6 +1,6 @@
 import * as yaml from "yaml";
-import { readFileSync } from 'fs';
-import { dirname } from 'path';
+import { readFileSync, existsSync } from 'fs';
+import { dirname, resolve } from 'path';
 import { AgentConfig, ModelConfig } from './types';
 import { MCPToolProvider } from './mcp';
 import { LLMBackend, Message, VercelAIBackend } from './llm';
@@ -74,6 +74,14 @@ export class FlatAgent {
       // AgentConfig provided directly
       this.config = configOrOptions as AgentConfig;
       this.configDir = process.cwd();
+    }
+
+    // Auto-discover profiles.yml if not explicitly set
+    if (!this.profilesFile) {
+      const discovered = resolve(this.configDir, 'profiles.yml');
+      if (existsSync(discovered)) {
+        this.profilesFile = discovered;
+      }
     }
 
     const configData = this.config && typeof this.config === "object"
