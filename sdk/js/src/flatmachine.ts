@@ -422,6 +422,11 @@ export class FlatMachine {
     const agentName = def.agent!;
     const executor = this.getExecutor(agentName);
 
+    // Check if executor supports tool calls
+    if (!('execute_with_tools' in executor) || typeof (executor as any).execute_with_tools !== 'function') {
+      throw new Error(`Agent '${agentName}' does not support tool calls (execute_with_tools). Use a tool-capable adapter.`);
+    }
+
     // Resolve tool provider (hooks can override)
     let activeToolProvider = this.toolProvider;
     if (this.hooks?.get_tool_provider) {
@@ -472,6 +477,7 @@ export class FlatMachine {
       const turnCost = typeof result.cost === 'number' ? result.cost
         : (result.cost && typeof result.cost === 'object') ? ((result.cost as any).total ?? 0) : 0;
       loopCost += turnCost;
+      this.totalCost += turnCost;
 
       context._tool_loop_turns = turns;
       context._tool_loop_cost = loopCost;
