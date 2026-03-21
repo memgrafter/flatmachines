@@ -93,6 +93,8 @@ export class FlatMachine {
 
   // Config store for SQLite auto-wiring
   public _config_store?: any;
+  // Resolved config as raw string
+  public _config_raw?: string;
 
   // New Phase 3+ backends
   private signalBackend?: SignalBackend;
@@ -130,6 +132,12 @@ export class FlatMachine {
 
     // Expression engine
     this.expressionEngine = (this.config.data.expression_engine as any) ?? 'simple';
+
+    // Resolve agent references at construction time
+    this.resolveAgentRefs();
+
+    // Store resolved config as raw string
+    this._config_raw = yaml.stringify(this.config);
 
     if (options.persistence) {
       this.checkpointManager = new CheckpointManager(options.persistence);
@@ -791,6 +799,49 @@ export class FlatMachine {
     throw new Error(`Unknown persistence backend '${config.backend}'`);
   }
 
+  /**
+   * Resolve agent references at construction time.
+   * - String refs (paths): read the file and inline the config
+   * - Typed refs with `ref`: read the file and inline as `config`
+   * - Already-inline configs: left as-is
+   */
+  private resolveAgentRefs(): void {
+    const agents = this.config.data.agents;
+    if (!agents || typeof agents !== 'object') return;
+
+    for (const [name, ref] of Object.entries(agents as Record<string, any>)) {
+      if (typeof ref === 'string') {
+        // String path reference
+        const resolved = this.resolveAgentRefPath(ref);
+        if (resolved) {
+          (agents as any)[name] = resolved;
+        }
+      } else if (typeof ref === 'object' && ref !== null && ref.ref) {
+        // Typed ref: { type: "...", ref: "./path.yml" }
+        const resolved = this.resolveAgentRefPath(ref.ref);
+        if (resolved) {
+          const result: any = { ...ref, config: resolved };
+          delete result.ref;
+          (agents as any)[name] = result;
+        }
+      }
+    }
+  }
+
+  private resolveAgentRefPath(refPath: string): any | null {
+    try {
+      const fullPath = resolve(this.configDir, refPath);
+      if (!existsSync(fullPath)) return null;
+      const content = readFileSync(fullPath, 'utf-8');
+      if (fullPath.endsWith('.json')) {
+        return JSON.parse(content);
+      }
+      return yaml.parse(content);
+    } catch {
+      return null;
+    }
+  }
+
   private createAgent(agentRef: any): FlatAgent {
     if (agentRef && typeof agentRef === "object") {
       if (agentRef.spec === "flatagent" && agentRef.data) {
@@ -869,13 +920,17 @@ export class FlatMachine {
   }
 
   private resolveProfilesFile(explicitPath?: string): string | undefined {
+    // 1. Explicit non-empty path takes precedence
+    if (explicitPath && explicitPath.trim().length > 0) return explicitPath;
+    // 2. Config-level profiles setting
     const configProfiles = (this.config as any)?.data?.profiles;
     if (typeof configProfiles === "string" && configProfiles.trim().length > 0) {
       return resolve(this.configDir, configProfiles);
     }
+    // 3. Auto-discover profiles.yml in config directory
     const discovered = resolve(this.configDir, "profiles.yml");
     if (existsSync(discovered)) return discovered;
-    return explicitPath;
+    return undefined;
   }
 
   private getMachineName(machineRef: any): string {
