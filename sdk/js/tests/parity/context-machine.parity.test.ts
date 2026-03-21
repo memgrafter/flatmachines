@@ -1,27 +1,77 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, it } from 'vitest'
 
-describe('context-machine parity (python test_context_machine.py manifest-owned)', () => {
-  const pyFile = 'sdk/python/tests/unit/test_context_machine.py';
+import {
+  CheckpointManager,
+  FlatMachine,
+  MemoryBackend,
+  MemorySignalBackend,
+  type MachineConfig,
+  type MachineHooks,
+} from '../../src'
 
-  test(`manifest-trace: ${pyFile}::TestContextMachinePresent.test_context_machine_present_at_state_enter`, () => {
-    const entries = ['start', 'middle', 'done'];
-    expect(entries).toContain('start');
-    expect(entries).toContain('middle');
-  });
+const PY_FILE = 'sdk/python/tests/unit/test_context_machine.py'
 
-  test(`manifest-trace: ${pyFile}::TestContextMachinePresent.test_context_machine_has_all_fields`, () => {
-    const meta = {
-      execution_id: 'exec-1',
-      machine_name: 'test-machine',
-      parent_execution_id: null,
-      spec_version: '2.0.0',
-      step: 1,
-      current_state: 'start',
-      total_api_calls: 0,
-      total_cost: 0,
-    };
+const simpleConfig = (states?: MachineConfig['data']['states']): MachineConfig => ({
+  spec: 'flatmachine',
+  spec_version: '2.0.0',
+  data: {
+    name: 'test-machine',
+    context: {
+      task: '{{ input.task }}',
+    },
+    agents: {},
+    states:
+      states ??
+      {
+        start: {
+          type: 'initial',
+          transitions: [{ to: 'middle' }],
+        },
+        middle: {
+          transitions: [{ to: 'done' }],
+        },
+        done: {
+          type: 'final',
+          output: {
+            result: 'ok',
+          },
+        },
+      },
+  },
+})
 
-    expect(Object.keys(meta).sort()).toEqual([
+const buildCaptureHooks = () => {
+  const stateEntries: Record<string, Record<string, unknown>> = {}
+  const hooks: MachineHooks = {
+    async onStateEnter(state, context) {
+      const machineMeta = context.machine as Record<string, unknown> | undefined
+      if (machineMeta) {
+        stateEntries[state] = { ...machineMeta }
+      }
+      return context
+    },
+  }
+  return { hooks, stateEntries }
+}
+
+describe('context-machine parity (python unit test_context_machine.py)', () => {
+  it(`${PY_FILE}::TestContextMachinePresent.test_context_machine_present_at_state_enter`, async () => {
+    const { hooks, stateEntries } = buildCaptureHooks()
+    const machine = new FlatMachine({ config: simpleConfig(), hooks })
+
+    await machine.execute({ task: 'test' })
+
+    expect(stateEntries.start).toBeDefined()
+    expect(stateEntries.middle).toBeDefined()
+  })
+
+  it(`${PY_FILE}::TestContextMachinePresent.test_context_machine_has_all_fields`, async () => {
+    const { hooks, stateEntries } = buildCaptureHooks()
+    const machine = new FlatMachine({ config: simpleConfig(), hooks })
+
+    await machine.execute({ task: 'test' })
+
+    expect(Object.keys(stateEntries.start ?? {}).sort()).toEqual([
       'current_state',
       'execution_id',
       'machine_name',
@@ -30,127 +80,290 @@ describe('context-machine parity (python test_context_machine.py manifest-owned)
       'step',
       'total_api_calls',
       'total_cost',
-    ]);
-  });
+    ])
+  })
 
-  test(`manifest-trace: ${pyFile}::TestContextMachinePresent.test_context_machine_values_correct`, () => {
-    const executionId = 'exec-123';
-    const meta = {
-      execution_id: executionId,
-      machine_name: 'test-machine',
-      parent_execution_id: null,
-      current_state: 'start',
-      total_api_calls: 0,
-      total_cost: 0,
-    };
+  it(`${PY_FILE}::TestContextMachinePresent.test_context_machine_values_correct`, async () => {
+    const { hooks, stateEntries } = buildCaptureHooks()
+    const machine = new FlatMachine({ config: simpleConfig(), hooks })
 
-    expect(meta.execution_id).toBe(executionId);
-    expect(meta.machine_name).toBe('test-machine');
-    expect(meta.parent_execution_id).toBeNull();
-    expect(meta.current_state).toBe('start');
-    expect(meta.total_api_calls).toBe(0);
-    expect(meta.total_cost).toBe(0);
-  });
+    await machine.execute({ task: 'test' })
 
-  test(`manifest-trace: ${pyFile}::TestContextMachineImmutable.test_mapping_proxy_type`, () => {
-    const machineMeta = Object.freeze({ execution_id: 'exec-immutable' });
-    expect(Object.isFrozen(machineMeta)).toBe(true);
-  });
+    const meta = stateEntries.start ?? {}
+    expect(meta.execution_id).toBe(machine.executionId)
+    expect(meta.machine_name).toBe('test-machine')
+    expect(meta.parent_execution_id).toBeNull()
+    expect(meta.current_state).toBe('start')
+    expect(meta.total_api_calls).toBe(0)
+    expect(meta.total_cost).toBe(0)
+  })
 
-  test(`manifest-trace: ${pyFile}::TestContextMachineImmutable.test_write_raises_type_error`, () => {
-    const machineMeta = Object.freeze({ execution_id: 'exec-immutable' }) as { execution_id: string };
-    expect(() => {
-      // @ts-expect-error parity: immutable machine metadata should reject mutation
-      machineMeta.execution_id = 'tampered';
-    }).toThrow();
-  });
+  it(`${PY_FILE}::TestContextMachineImmutable.test_mapping_proxy_type`, async () => {
+    let capturedMachine: Record<string, unknown> | undefined
+    const hooks: MachineHooks = {
+      async onStateEnter(state, context) {
+        if (state === 'start') {
+          capturedMachine = context.machine as Record<string, unknown>
+        }
+        return context
+      },
+    }
 
-  test(`manifest-trace: ${pyFile}::TestContextMachineOverwrite.test_overwrite_discarded_at_next_step`, () => {
-    const executionId = 'exec-overwrite';
-    let context: Record<string, unknown> = {
-      machine: { execution_id: executionId, current_state: 'middle' },
-    };
+    const machine = new FlatMachine({ config: simpleConfig(), hooks })
+    await machine.execute({ task: 'test' })
 
-    context.machine = { execution_id: 'tampered' };
-    context.machine = { execution_id: executionId, current_state: 'done' };
+    expect(capturedMachine).toBeDefined()
+    expect(Object.isFrozen(capturedMachine as object)).toBe(true)
+  })
 
-    expect((context.machine as { execution_id: string }).execution_id).toBe(executionId);
-    expect((context.machine as { current_state: string }).current_state).toBe('done');
-  });
+  it(`${PY_FILE}::TestContextMachineImmutable.test_write_raises_type_error`, async () => {
+    let errorRaised = false
+    const hooks: MachineHooks = {
+      async onStateEnter(state, context) {
+        if (state === 'start') {
+          try {
+            ;(context.machine as Record<string, unknown>).execution_id = 'tampered'
+          } catch (err) {
+            errorRaised = err instanceof TypeError
+          }
+        }
+        return context
+      },
+    }
 
-  test(`manifest-trace: ${pyFile}::TestContextMachineUpdates.test_step_increments`, () => {
-    const stateEntries = {
-      start: { step: 1 },
-      middle: { step: 2 },
-      done: { step: 3 },
-    };
+    const machine = new FlatMachine({ config: simpleConfig(), hooks })
+    await machine.execute({ task: 'test' })
 
-    expect(stateEntries.start.step).toBe(1);
-    expect(stateEntries.middle.step).toBe(2);
-    expect(stateEntries.done.step).toBe(3);
-  });
+    expect(errorRaised).toBe(true)
+  })
 
-  test(`manifest-trace: ${pyFile}::TestContextMachineUpdates.test_current_state_updates`, () => {
-    const stateEntries = {
-      start: { current_state: 'start' },
-      middle: { current_state: 'middle' },
-      done: { current_state: 'done' },
-    };
+  it(`${PY_FILE}::TestContextMachineOverwrite.test_overwrite_discarded_at_next_step`, async () => {
+    let sawOverwrite = false
+    const stateEntries: Record<string, Record<string, unknown>> = {}
 
-    expect(stateEntries.start.current_state).toBe('start');
-    expect(stateEntries.middle.current_state).toBe('middle');
-    expect(stateEntries.done.current_state).toBe('done');
-  });
+    const hooks: MachineHooks = {
+      async onStateEnter(state, context) {
+        if (state === 'middle') {
+          context.machine = { execution_id: 'tampered' }
+          sawOverwrite = true
+        }
+        const machineMeta = context.machine as Record<string, unknown> | undefined
+        if (machineMeta) {
+          stateEntries[state] = { ...machineMeta }
+        }
+        return context
+      },
+    }
 
-  test(`manifest-trace: ${pyFile}::TestContextMachineInConditions.test_condition_on_step`, () => {
-    let step = 1;
-    while (step < 3) step += 1;
-    expect(step >= 3).toBe(true);
-  });
+    const machine = new FlatMachine({ config: simpleConfig(), hooks })
+    await machine.execute({ task: 'test' })
 
-  test(`manifest-trace: ${pyFile}::TestContextMachineInConditions.test_condition_on_execution_id`, () => {
-    const context = {
-      machine: { execution_id: 'exec-abc' },
-      my_id: 'exec-abc',
-    };
+    expect(sawOverwrite).toBe(true)
+    expect(stateEntries.done?.execution_id).toBe(machine.executionId)
+    expect(stateEntries.done?.current_state).toBe('done')
+  })
 
-    expect(context.machine.execution_id === context.my_id).toBe(true);
-  });
+  it(`${PY_FILE}::TestContextMachineUpdates.test_step_increments`, async () => {
+    const { hooks, stateEntries } = buildCaptureHooks()
+    const machine = new FlatMachine({ config: simpleConfig(), hooks })
 
-  test(`manifest-trace: ${pyFile}::TestContextMachineInConditions.test_condition_on_machine_name`, () => {
-    const context = { machine: { machine_name: 'test-machine' } };
-    expect(context.machine.machine_name).toBe('test-machine');
-  });
+    await machine.execute({ task: 'test' })
 
-  test(`manifest-trace: ${pyFile}::TestContextMachineInTemplates.test_template_renders_execution_id`, () => {
-    const executionId = 'exec-template';
-    const rendered = {
-      id: executionId,
-      name: 'test-machine',
-    };
+    expect(stateEntries.start?.step).toBe(1)
+    expect(stateEntries.middle?.step).toBe(2)
+    expect(stateEntries.done?.step).toBe(3)
+  })
 
-    expect(rendered.id).toBe(executionId);
-    expect(rendered.name).toBe('test-machine');
-  });
+  it(`${PY_FILE}::TestContextMachineUpdates.test_current_state_updates`, async () => {
+    const { hooks, stateEntries } = buildCaptureHooks()
+    const machine = new FlatMachine({ config: simpleConfig(), hooks })
 
-  test(`manifest-trace: ${pyFile}::TestContextMachineSerialization.test_checkpoint_serializes_with_proxy`, () => {
-    const snapshot = {
-      context: {
-        machine: {
-          machine_name: 'test-machine',
+    await machine.execute({ task: 'test' })
+
+    expect(stateEntries.start?.current_state).toBe('start')
+    expect(stateEntries.middle?.current_state).toBe('middle')
+    expect(stateEntries.done?.current_state).toBe('done')
+  })
+
+  it(`${PY_FILE}::TestContextMachineInConditions.test_condition_on_step`, async () => {
+    const machine = new FlatMachine({
+      config: simpleConfig({
+        start: {
+          type: 'initial',
+          transitions: [{ to: 'loop' }],
+        },
+        loop: {
+          transitions: [
+            { condition: 'context.machine.step >= 3', to: 'done' },
+            { to: 'loop' },
+          ],
+        },
+        done: {
+          type: 'final',
+          output: { result: 'ok' },
+        },
+      }),
+    })
+
+    const result = await machine.execute({ task: 'test' })
+    expect(result).toEqual({ result: 'ok' })
+  })
+
+  it(`${PY_FILE}::TestContextMachineInConditions.test_condition_on_execution_id`, async () => {
+    const hooks: MachineHooks = {
+      async onStateEnter(state, context) {
+        if (state === 'start') {
+          context.my_id = (context.machine as Record<string, unknown>).execution_id
+        }
+        return context
+      },
+    }
+
+    const machine = new FlatMachine({
+      config: simpleConfig({
+        start: {
+          type: 'initial',
+          transitions: [{ to: 'check' }],
+        },
+        check: {
+          transitions: [
+            { condition: 'context.machine.execution_id == context.my_id', to: 'done' },
+            { to: 'fail' },
+          ],
+        },
+        done: {
+          type: 'final',
+          output: { matched: true },
+        },
+        fail: {
+          type: 'final',
+          output: { matched: false },
+        },
+      }),
+      hooks,
+    })
+
+    const result = await machine.execute({ task: 'test' })
+    expect(result).toEqual({ matched: true })
+  })
+
+  it(`${PY_FILE}::TestContextMachineInConditions.test_condition_on_machine_name`, async () => {
+    const machine = new FlatMachine({
+      config: simpleConfig({
+        start: {
+          type: 'initial',
+          transitions: [
+            { condition: "context.machine.machine_name == 'test-machine'", to: 'done' },
+            { to: 'fail' },
+          ],
+        },
+        done: {
+          type: 'final',
+          output: { matched: true },
+        },
+        fail: {
+          type: 'final',
+          output: { matched: false },
+        },
+      }),
+    })
+
+    const result = await machine.execute({ task: 'test' })
+    expect(result).toEqual({ matched: true })
+  })
+
+  it(`${PY_FILE}::TestContextMachineInTemplates.test_template_renders_execution_id`, async () => {
+    const machine = new FlatMachine({
+      config: simpleConfig({
+        start: {
+          type: 'initial',
+          transitions: [{ to: 'done' }],
+        },
+        done: {
+          type: 'final',
+          output: {
+            id: '{{ context.machine.execution_id }}',
+            name: '{{ context.machine.machine_name }}',
+          },
+        },
+      }),
+    })
+
+    const result = await machine.execute({ task: 'test' })
+    expect(result.id).toBe(machine.executionId)
+    expect(result.name).toBe('test-machine')
+  })
+
+  it(`${PY_FILE}::TestContextMachineSerialization.test_checkpoint_serializes_with_proxy`, async () => {
+    const persistence = new MemoryBackend()
+    const machine = new FlatMachine({
+      config: simpleConfig(),
+      persistence,
+    })
+
+    await machine.execute({ task: 'test' })
+
+    const manager = new CheckpointManager(persistence)
+    const snapshot = await manager.restore(machine.executionId)
+
+    expect(snapshot).not.toBeNull()
+    expect(typeof snapshot?.context.machine).toBe('object')
+    expect(Object.isFrozen(snapshot?.context.machine as object)).toBe(false)
+    expect((snapshot?.context.machine as Record<string, unknown>).machine_name).toBe('test-machine')
+  })
+
+  it(`${PY_FILE}::TestContextMachineResume.test_rebuilt_on_resume`, async () => {
+    const persistence = new MemoryBackend()
+    const signalBackend = new MemorySignalBackend()
+
+    const waitConfig: MachineConfig = {
+      spec: 'flatmachine',
+      spec_version: '2.0.0',
+      data: {
+        name: 'resume-test',
+        context: {},
+        agents: {},
+        states: {
+          start: {
+            type: 'initial',
+            transitions: [{ to: 'wait_state' }],
+          },
+          wait_state: {
+            wait_for: 'test/signal',
+            output_to_context: {
+              signal_value: '{{ output.value }}',
+            },
+            transitions: [{ to: 'done' }],
+          },
+          done: {
+            type: 'final',
+            output: {
+              exec_id: '{{ context.machine.execution_id }}',
+            },
+          },
         },
       },
-    };
+    }
 
-    expect(typeof snapshot.context.machine).toBe('object');
-    expect(snapshot.context.machine.machine_name).toBe('test-machine');
-  });
+    const machine1 = new FlatMachine({
+      config: waitConfig,
+      persistence,
+      signalBackend,
+    })
 
-  test(`manifest-trace: ${pyFile}::TestContextMachineResume.test_rebuilt_on_resume`, () => {
-    const stale = { execution_id: 'old', current_state: 'waiting' };
-    const live = { execution_id: 'new', current_state: 'resumed' };
+    const execId = machine1.executionId
+    const result1 = await machine1.execute({})
+    expect(result1._waiting).toBe(true)
 
-    expect(live).not.toEqual(stale);
-    expect(live.current_state).toBe('resumed');
-  });
-});
+    await signalBackend.send('test/signal', { value: 'hello' })
+
+    const machine2 = new FlatMachine({
+      config: waitConfig,
+      persistence,
+      signalBackend,
+    })
+
+    const result2 = await machine2.resume(execId)
+    expect(result2.exec_id).toBe(execId)
+  })
+})
