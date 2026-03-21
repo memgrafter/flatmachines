@@ -601,6 +601,9 @@ export class FlatMachine {
       }
     }
 
+    // Save chain to context for preservation/inspection
+    context._tool_loop_chain = [...chain];
+
     // Build output
     const output: Record<string, any> = {
       content: lastContent,
