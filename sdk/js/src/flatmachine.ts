@@ -530,12 +530,13 @@ export class FlatMachine {
       // Execute tools
       for (const tc of pendingCalls) {
         // Allow/deny check
-        if (deniedTools.size && deniedTools.has(tc.tool)) {
-          chain.push({ role: 'tool', tool_call_id: tc.id, content: `Tool '${tc.tool}' is not allowed.` });
+        const toolName = tc.name ?? tc.tool;
+        if (deniedTools.size && deniedTools.has(toolName)) {
+          chain.push({ role: 'tool', tool_call_id: tc.id, content: `Tool '${toolName}' is not allowed.` });
           continue;
         }
-        if (allowedTools.size && !allowedTools.has(tc.tool)) {
-          chain.push({ role: 'tool', tool_call_id: tc.id, content: `Tool '${tc.tool}' is not allowed.` });
+        if (allowedTools.size && !allowedTools.has(toolName)) {
+          chain.push({ role: 'tool', tool_call_id: tc.id, content: `Tool '${toolName}' is not allowed.` });
           continue;
         }
 
@@ -552,14 +553,14 @@ export class FlatMachine {
         if (activeToolProvider) {
           try {
             toolResult = await Promise.race([
-              activeToolProvider.execute_tool(tc.tool, tc.id, tc.arguments),
+              activeToolProvider.execute_tool(tc.name ?? tc.tool, tc.id, tc.arguments),
               new Promise<ToolResult>((_, reject) => setTimeout(() => reject(new Error('timeout')), toolTimeout)),
             ]);
           } catch (e: any) {
-            toolResult = { content: e?.message === 'timeout' ? `Tool '${tc.tool}' timed out` : `Error: ${e}`, is_error: true };
+            toolResult = { content: e?.message === 'timeout' ? `Tool '${toolName}' timed out` : `Error: ${e}`, is_error: true };
           }
         } else {
-          toolResult = { content: `No tool provider configured for '${tc.tool}'`, is_error: true };
+          toolResult = { content: `No tool provider configured for '${toolName}'`, is_error: true };
         }
 
         toolCallsCount += 1;
