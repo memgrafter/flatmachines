@@ -110,7 +110,7 @@ describe('persistence integration parity', () => {
               { to: 'count_up' },
             ],
           },
-          end: { type: 'final', output: { final_count: '{{ context.count }}' } },
+          end: { type: 'final', output: { final_count: 'context.count' } },
         },
       },
     }
@@ -147,7 +147,7 @@ describe('persistence integration parity', () => {
               { to: 'count_up' },
             ],
           },
-          end: { type: 'final', output: { final_count: '{{ context.count }}' } },
+          end: { type: 'final', output: { final_count: 'context.count' } },
         },
       },
     }
@@ -365,7 +365,7 @@ describe('persistence integration parity', () => {
               { to: 'count' },
             ],
           },
-          end: { type: 'final', output: { final_count: '{{ context.count }}' } },
+          end: { type: 'final', output: { final_count: 'context.count' } },
         },
       },
     }
@@ -412,7 +412,7 @@ describe('persistence integration parity', () => {
             action: 'increment',
             transitions: [{ condition: 'context.count >= 1', to: 'end' }, { to: 'count' }],
           },
-          end: { type: 'final', output: { final_count: '{{ context.count }}' } },
+          end: { type: 'final', output: { final_count: 'context.count' } },
         },
       },
     }
@@ -494,9 +494,9 @@ describe('persistence integration parity', () => {
           end: {
             type: 'final',
             output: {
-              count: '{{ context.count }}',
-              retries: '{{ context.retries }}',
-              attempts: '{{ context.attempts }}',
+              count: 'context.count',
+              retries: 'context.retries',
+              attempts: 'context.attempts',
             },
           },
         },
@@ -528,8 +528,8 @@ describe('persistence integration parity', () => {
           end: {
             type: 'final',
             output: {
-              last_error: '{{ context.last_error }}',
-              last_error_type: '{{ context.last_error_type }}',
+              last_error: 'context.last_error',
+              last_error_type: 'context.last_error_type',
             },
           },
         },
@@ -563,7 +563,7 @@ describe('persistence integration parity', () => {
               { to: 'count' },
             ],
           },
-          end: { type: 'final', output: { final_count: '{{ context.count }}' } },
+          end: { type: 'final', output: { final_count: 'context.count' } },
         },
       },
     }
@@ -612,8 +612,8 @@ describe('persistence integration parity', () => {
             type: 'final',
             output: {
               status: 'failed',
-              retries: '{{ context.retries }}',
-              last_error: '{{ context.last_error }}',
+              retries: 'context.retries',
+              last_error: 'context.last_error',
             },
           },
         },
@@ -780,7 +780,7 @@ describe('persistence integration parity', () => {
         name: 'child',
         states: {
           start: { type: 'initial', transitions: [{ to: 'end' }] },
-          end: { type: 'final', output: { child_value: '{{ input.value }}' } },
+          end: { type: 'final', output: { child_value: 'input.value' } },
         },
       },
     }
@@ -796,7 +796,7 @@ describe('persistence integration parity', () => {
           start: { type: 'initial', transitions: [{ to: 'call_child' }] },
           call_child: {
             machine: 'child_machine',
-            input: { value: '{{ context.parent_value }}' },
+            input: { value: 'context.parent_value' },
             transitions: [{ to: 'end' }],
           },
           end: { type: 'final', output: { done: true } },
@@ -826,7 +826,7 @@ describe('persistence integration parity', () => {
         name: 'child',
         states: {
           start: { type: 'initial', transitions: [{ to: 'end' }] },
-          end: { type: 'final', output: { child_value: '{{ input.value }}' } },
+          end: { type: 'final', output: { child_value: 'input.value' } },
         },
       },
     }
@@ -842,11 +842,11 @@ describe('persistence integration parity', () => {
           start: { type: 'initial', transitions: [{ to: 'call_child' }] },
           call_child: {
             machine: 'child_machine',
-            input: { value: '{{ context.parent_value }}' },
-            output_to_context: { child_value: '{{ output.child_value }}' },
+            input: { value: 'context.parent_value' },
+            output_to_context: { child_value: 'output.child_value' },
             transitions: [{ to: 'end' }],
           },
-          end: { type: 'final', output: { final: '{{ context.child_value }}' } },
+          end: { type: 'final', output: { final: 'context.child_value' } },
         },
       },
     }
