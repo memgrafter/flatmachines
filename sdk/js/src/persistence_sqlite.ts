@@ -99,7 +99,6 @@ export class SQLiteCheckpointBackend implements PersistenceBackend {
     // latest pointer — store the value directly as a forward ref
     const latestKey = `${executionId}/latest`;
     if (key === latestKey) {
-      const now = new Date().toISOString();
       this.db.prepare(`
         INSERT INTO machine_latest (execution_id, latest_key, updated_at)
         VALUES (?, ?, ?)

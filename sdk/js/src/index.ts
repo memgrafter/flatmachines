@@ -199,7 +199,7 @@ export { SQLiteLeaseLock } from './locking_sqlite';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { VercelAIBackend, MockLLMBackend } from './llm';
-export type { LLMBackend, LLMBackendConfig, LLMOptions, Message, ToolCall, ToolDefinition, MockResponse } from './llm';
+export type { LLMBackend, LLMBackendConfig, LLMOptions, Message, ToolCall as LLMToolCall, ToolDefinition, MockResponse } from './llm';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Codex Backend (Phase 6 — providers)

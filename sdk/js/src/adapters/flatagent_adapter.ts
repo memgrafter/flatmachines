@@ -80,7 +80,7 @@ export class FlatAgentExecutor implements AgentExecutor {
     let error: AgentErrorDict | null = null;
     if (response.error) {
       error = {
-        code: mapErrorCode(response.error.error_type, response.error.status_code),
+        code: mapErrorCode(response.error.error_type, response.error.status_code ?? undefined),
         type: response.error.error_type,
         message: response.error.message,
         retryable: response.error.retryable,
@@ -92,7 +92,7 @@ export class FlatAgentExecutor implements AgentExecutor {
     let rateLimit: RateLimitState | null = null;
     if (response.rate_limit) {
       const rawHeaders = response.rate_limit.raw_headers ?? {};
-      rateLimit = buildRateLimitState(rawHeaders, response.rate_limit.retry_after);
+      rateLimit = buildRateLimitState(rawHeaders, response.rate_limit.retry_after ?? undefined);
       // Fallback from normalized fields
       if (!rateLimit.windows?.length) {
         const windows: any[] = [];

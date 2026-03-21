@@ -173,9 +173,21 @@ export class SocketTrigger implements TriggerBackend {
 
   async notify(channel: string): Promise<void> {
     try {
-      const dgram = require('node:dgram');
-      const socket = dgram.createSocket('unix_dgram' as any);
-      socket.send(Buffer.from(channel, 'utf-8'), this.socketPath, () => { socket.close(); });
+      const net = require('node:net');
+      await new Promise<void>((resolve, reject) => {
+        const socket = net.createConnection({ path: this.socketPath }, () => {
+          socket.write(channel, 'utf-8', () => {
+            socket.end();
+            resolve();
+          });
+        });
+        socket.on('error', () => {
+          // No dispatcher listening — signal is still in the backend
+          resolve();
+        });
+        // Prevent hanging if server never responds
+        socket.setTimeout(2000, () => { socket.destroy(); resolve(); });
+      });
     } catch {
       // No dispatcher listening — signal is still in the backend
     }

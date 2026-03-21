@@ -15,7 +15,6 @@ import {
   BackendConfig,
   HooksRef
 } from './types';
-import { FlatAgent } from './flatagent';
 import { AgentResponse, FinishReason } from './agent_response';
 import { getExecutionType } from './execution';
 import { evaluate } from './expression';
@@ -73,7 +72,6 @@ export interface ExtendedMachineOptions extends MachineOptions {
 export class FlatMachine {
   public config: MachineConfig;
   public executionId: string = randomUUID();
-  private agents = new Map<string, FlatAgent>();
   private executors = new Map<string, AgentExecutor>();
   private context: Record<string, any> = {};
   private input: Record<string, any> = {};
@@ -98,6 +96,8 @@ export class FlatMachine {
   public _config_raw?: string;
   // Config hash for resume support
   public _config_hash?: string;
+  // Whether config store put is pending (deferred from constructor)
+  private _configStorePending = false;
 
   // New Phase 3+ backends
   private signalBackend?: SignalBackend;
@@ -109,8 +109,8 @@ export class FlatMachine {
   constructor(options: MachineOptions | ExtendedMachineOptions) {
     const configIsPath = typeof options.config === "string";
     this.config = configIsPath
-      ? yaml.parse(readFileSync(options.config, "utf-8")) as MachineConfig
-      : options.config;
+      ? yaml.parse(readFileSync(options.config as string, "utf-8")) as MachineConfig
+      : options.config as MachineConfig;
     this._hooksRegistry = options.hooksRegistry ?? new HooksRegistry();
     this.hooks = this.resolveHooks(options.hooks);
     this.configDir = options.configDir ?? (configIsPath ? dirname(resolve(options.config as string)) : process.cwd());
@@ -155,11 +155,13 @@ export class FlatMachine {
     // Store resolved config as raw string
     this._config_raw = yaml.stringify(this.config);
 
-    // Compute config hash and store in config store (only if config store available)
-    if (this._config_store && this._config_raw) {
+    // Compute config hash synchronously (hash is needed for checkpoints)
+    if (this._config_raw) {
       this._config_hash = configHash(this._config_raw);
-      this._config_store.put(this._config_raw).catch(() => {});
     }
+
+    // Config store put is deferred to execute() to avoid constructor async race
+    this._configStorePending = !!(this._config_store && this._config_raw);
 
     if (options.persistence) {
       this.checkpointManager = new CheckpointManager(options.persistence);
@@ -204,7 +206,11 @@ export class FlatMachine {
   }
 
   async execute(input?: Record<string, any>, resumeSnapshot?: MachineSnapshot): Promise<any> {
-    // CEL expression engine is supported via cel-js (optional dependency)
+    // Flush deferred config store put (moved from constructor to avoid async race)
+    if (this._configStorePending && this._config_store && this._config_raw) {
+      await this._config_store.put(this._config_raw);
+      this._configStorePending = false;
+    }
 
     // Acquire execution lock
     const lockKey = resumeSnapshot?.execution_id ?? this.executionId;
@@ -713,7 +719,7 @@ export class FlatMachine {
     return 0;
   }
 
-  _resolve_tool_definitions = (agentName?: string, provider?: any): any[] => {
+  _resolve_tool_definitions(agentName?: string, provider?: any): any[] {
     const tp = provider ?? this?.toolProvider;
     const defs = tp?.get_tool_definitions?.() ?? [];
     // Check if agent has inline tools
@@ -1005,24 +1011,6 @@ export class FlatMachine {
     } catch {
       return null;
     }
-  }
-
-  private createAgent(agentRef: any): FlatAgent {
-    if (agentRef && typeof agentRef === "object") {
-      if (agentRef.spec === "flatagent" && agentRef.data) {
-        return new FlatAgent({ config: agentRef, profilesFile: this.profilesFile, configDir: this.configDir });
-      }
-      if (agentRef.path) {
-        return new FlatAgent({
-          config: `${this.configDir}/${agentRef.path}`,
-          profilesFile: this.profilesFile,
-        });
-      }
-    }
-    return new FlatAgent({
-      config: `${this.configDir}/${agentRef}`,
-      profilesFile: this.profilesFile,
-    });
   }
 
   private createMachine(

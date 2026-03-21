@@ -131,20 +131,34 @@ export class SubprocessInvoker implements MachineInvoker {
     const { join } = require('path');
     const { tmpdir } = require('os');
 
-    // Write config to temp file
+    // Write config and input to temp files (avoids shell injection)
     const tmpDir = mkdtempSync(join(tmpdir(), 'flatmachines-'));
     const configPath = join(tmpDir, 'config.json');
+    const inputPath = join(tmpDir, 'input.json');
+    const metaPath = join(tmpDir, 'meta.json');
     writeFileSync(configPath, JSON.stringify(targetConfig));
+    writeFileSync(inputPath, JSON.stringify(inputData));
+    writeFileSync(metaPath, JSON.stringify({ executionId }));
+
+    // Write a launcher script that reads data from files (no interpolation)
+    const launcherPath = join(tmpDir, 'launcher.cjs');
+    const sdkPath = require.resolve('./flatmachine').replace(/\\/g, '/');
+    writeFileSync(launcherPath, [
+      `const { readFileSync } = require('fs');`,
+      `const { join } = require('path');`,
+      `const dir = ${JSON.stringify(tmpDir)};`,
+      `const config = JSON.parse(readFileSync(join(dir, 'config.json'), 'utf-8'));`,
+      `const input = JSON.parse(readFileSync(join(dir, 'input.json'), 'utf-8'));`,
+      `const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf-8'));`,
+      `const { FlatMachine } = require(${JSON.stringify(sdkPath)});`,
+      `const machine = new FlatMachine({ config, executionId: meta.executionId });`,
+      `machine.execute(input).catch(e => { console.error(e); process.exit(1); });`,
+    ].join('\n'));
 
     // Spawn detached process
     const child = spawn(
       process.execPath,
-      ['-e', `
-        const { FlatMachine } = require('./flatmachine');
-        const config = require('${configPath}');
-        const machine = new FlatMachine({ config, executionId: '${executionId}' });
-        machine.execute(${JSON.stringify(inputData)}).catch(console.error);
-      `],
+      [launcherPath],
       {
         detached: true,
         stdio: 'ignore',

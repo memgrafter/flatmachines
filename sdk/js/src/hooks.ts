@@ -5,16 +5,11 @@ export class WebhookHooks implements MachineHooks {
 
   private async send(event: string, data: Record<string, any>) {
     try {
-      const body = JSON.stringify({ event, ...data, timestamp: new Date().toISOString() }, (key, value) => {
+      const seen = new WeakSet();
+      const body = JSON.stringify({ event, ...data, timestamp: new Date().toISOString() }, (_key, value) => {
         if (typeof value === 'object' && value !== null) {
-          const seen = new WeakSet();
-          return JSON.parse(JSON.stringify(value, (k, v) => {
-            if (typeof v === 'object' && v !== null) {
-              if (seen.has(v)) return '[Circular]';
-              seen.add(v);
-            }
-            return v;
-          }));
+          if (seen.has(value)) return '[Circular]';
+          seen.add(value);
         }
         return value;
       });
@@ -169,13 +164,13 @@ export class CompositeHooks implements MachineHooks {
     return result;
   }
 
-  on_tool_calls(state: string, toolCalls: any[], context: Record<string, any>): Record<string, any> {
+  async on_tool_calls(state: string, toolCalls: any[], context: Record<string, any>): Promise<Record<string, any>> {
     let result = context;
     for (const hook of this.hooks) {
       if (hook.on_tool_calls) {
         try {
-          const hookResult = hook.on_tool_calls(state, toolCalls, result);
-          if (hookResult && typeof hookResult === 'object' && !('then' in hookResult)) {
+          const hookResult = await hook.on_tool_calls(state, toolCalls, result);
+          if (hookResult && typeof hookResult === 'object') {
             result = hookResult as Record<string, any>;
           }
         } catch {
@@ -186,13 +181,13 @@ export class CompositeHooks implements MachineHooks {
     return result;
   }
 
-  on_tool_result(state: string, toolResult: any, context: Record<string, any>): Record<string, any> {
+  async on_tool_result(state: string, toolResult: any, context: Record<string, any>): Promise<Record<string, any>> {
     let result = context;
     for (const hook of this.hooks) {
       if (hook.on_tool_result) {
         try {
-          const hookResult = hook.on_tool_result(state, toolResult, result);
-          if (hookResult && typeof hookResult === 'object' && !('then' in hookResult)) {
+          const hookResult = await hook.on_tool_result(state, toolResult, result);
+          if (hookResult && typeof hookResult === 'object') {
             result = hookResult as Record<string, any>;
           }
         } catch {

@@ -113,7 +113,7 @@ function buildToolResultMessage(toolCallId: string, content: string): Record<str
   return { role: 'tool', tool_call_id: toolCallId, content };
 }
 
-function mapFinishReason(reason?: FinishReason): [StopReason, string | undefined] {
+function mapFinishReason(reason?: FinishReason | null): [StopReason, string | undefined] {
   if (reason == null || reason === FinishReason.STOP) return [StopReason.COMPLETE, undefined];
   if (reason === FinishReason.ABORTED) return [StopReason.ABORTED, 'agent aborted'];
   if (reason === FinishReason.LENGTH) return [StopReason.ERROR, 'model stopped due to max token length'];
@@ -218,7 +218,7 @@ export class ToolLoopAgent {
 
       // Error response
       if (response.error) {
-        return { content: response.content, messages: chain, tool_calls_count: toolCallsCount, turns, stop_reason: StopReason.ERROR, usage, error: response.error.message };
+        return { content: response.content ?? undefined, messages: chain, tool_calls_count: toolCallsCount, turns, stop_reason: StopReason.ERROR, usage, error: response.error.message };
       }
 
       // Seed chain with initial user prompt

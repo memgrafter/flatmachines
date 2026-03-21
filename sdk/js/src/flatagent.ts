@@ -194,42 +194,42 @@ export class FlatAgent {
       // Extract structured output
       const output = finishReason === FinishReason.TOOL_USE ? undefined : this.extractOutput(text);
 
-      return {
+      return new AgentResponse({
         content: text,
-        output,
-        tool_calls: toolCalls?.length ? toolCalls : undefined,
+        output: output ?? null,
+        tool_calls: toolCalls?.length ? toolCalls : null,
         raw_response: rawResponse,
-        usage,
-        rate_limit: rateLimit,
+        usage: usage ?? null,
+        rate_limit: rateLimit ?? null,
         finish_reason: finishReason,
         rendered_user_prompt: opts?.messages?.length ? undefined : user,
-      };
+      });
     } catch (err: any) {
       const statusCode = extractStatusCode(err);
-      return {
-        content: undefined,
-        output: undefined,
-        error: {
+      return new AgentResponse({
+        content: null,
+        output: null,
+        error: new ErrorInfo({
           error_type: err?.name ?? err?.constructor?.name ?? 'Error',
           message: err?.message ?? String(err),
-          status_code: statusCode,
+          status_code: statusCode ?? null,
           retryable: isRetryableError(err, statusCode),
-        },
+        }),
         finish_reason: FinishReason.ERROR,
-      };
+      });
     }
   }
 
   private _extractUsage(rawResponse: any): UsageInfo | undefined {
     const usage = rawResponse?.usage;
     if (!usage) return undefined;
-    return {
+    return new UsageInfo({
       input_tokens: usage.promptTokens ?? usage.prompt_tokens ?? 0,
       output_tokens: usage.completionTokens ?? usage.completion_tokens ?? 0,
       total_tokens: usage.totalTokens ?? usage.total_tokens ?? 0,
       cache_read_tokens: usage.cacheReadTokens ?? usage.cache_read_tokens ?? 0,
       cache_write_tokens: usage.cacheWriteTokens ?? usage.cache_write_tokens ?? 0,
-    };
+    });
   }
 
   private _extractToolCalls(rawResponse: any): AgentToolCall[] | undefined {
@@ -237,7 +237,7 @@ export class FlatAgent {
     const toolCalls = rawResponse?.toolCalls ?? rawResponse?.tool_calls;
     if (!toolCalls?.length) return undefined;
 
-    return toolCalls.map((tc: any) => ({
+    return toolCalls.map((tc: any) => new AgentToolCall({
       id: tc.toolCallId ?? tc.id ?? '',
       server: '',
       tool: tc.toolName ?? tc.function?.name ?? tc.name ?? '',
