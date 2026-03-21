@@ -1012,6 +1012,8 @@ export class FlatMachine {
     return new FlatMachine({
       config: resolved.config,
       configDir: resolved.configDir,
+      persistence: this.checkpointManager?.persistenceBackend,
+      executionLock: this.executionLock,
       resultBackend: this.resultBackend,
       hooksRegistry: this._hooksRegistry,
       executionId: overrides?.executionId,
@@ -1021,6 +1023,7 @@ export class FlatMachine {
       triggerBackend: this.triggerBackend,
       agentRegistry: this.agentRegistry,
       toolProvider: this.toolProvider,
+      configStore: this._config_store,
     } as ExtendedMachineOptions);
   }
 
