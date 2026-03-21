@@ -254,7 +254,7 @@ export type { MachineResumer } from './dispatcher';
 // Resume (Phase 3.5)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export { ConfigStoreResumer } from './resume';
+export { ConfigStoreResumer, ConfigStoreResumer as ConfigFileResumer } from './resume';
 export type { ConfigStoreResumerOptions, ReferenceResolver } from './resume';
 
 // ─────────────────────────────────────────────────────────────────────────────

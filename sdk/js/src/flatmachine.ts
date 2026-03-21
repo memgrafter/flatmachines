@@ -20,7 +20,7 @@ import { AgentResponse, FinishReason } from './agent_response';
 import { getExecutionType } from './execution';
 import { evaluate } from './expression';
 import { CheckpointManager, LocalFileBackend, MemoryBackend } from './persistence';
-import { SQLiteCheckpointBackend, SQLiteConfigStore } from './persistence_sqlite';
+import { SQLiteCheckpointBackend, SQLiteConfigStore, configHash } from './persistence_sqlite';
 import { inMemoryResultBackend } from './results';
 import { LocalFileLock, NoOpLock } from './locking';
 import { SQLiteLeaseLock } from './locking_sqlite';
@@ -63,6 +63,7 @@ export interface ExtendedMachineOptions extends MachineOptions {
   triggerBackend?: TriggerBackend;
   agentRegistry?: AgentAdapterRegistry;
   toolProvider?: ToolProvider;
+  configStore?: any;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -95,6 +96,8 @@ export class FlatMachine {
   public _config_store?: any;
   // Resolved config as raw string
   public _config_raw?: string;
+  // Config hash for resume support
+  public _config_hash?: string;
 
   // New Phase 3+ backends
   private signalBackend?: SignalBackend;
@@ -123,6 +126,9 @@ export class FlatMachine {
     this.signalBackend = extOpts.signalBackend;
     this.triggerBackend = extOpts.triggerBackend ?? new NoOpTrigger();
     this.toolProvider = extOpts.toolProvider;
+    if (extOpts.configStore && !this._config_store) {
+      this._config_store = extOpts.configStore;
+    }
 
     // Agent adapter registry with default flatagent adapter
     this.agentRegistry = extOpts.agentRegistry ?? new AgentAdapterRegistry();
@@ -138,6 +144,15 @@ export class FlatMachine {
 
     // Store resolved config as raw string
     this._config_raw = yaml.stringify(this.config);
+
+    // Compute config hash
+    if (this._config_raw) {
+      this._config_hash = configHash(this._config_raw);
+    }
+    // Store config in config store if available (async, fire-and-forget)
+    if (this._config_store && this._config_raw) {
+      this._config_store.put(this._config_raw).catch(() => {});
+    }
 
     if (options.persistence) {
       this.checkpointManager = new CheckpointManager(options.persistence);
@@ -383,6 +398,7 @@ export class FlatMachine {
       waiting_channel: channel,
       parent_execution_id: this.parentExecutionId,
       pending_launches: this.pendingLaunches.length ? this.pendingLaunches : undefined,
+      config_hash: this._config_hash,
     });
   }
 
@@ -727,6 +743,7 @@ export class FlatMachine {
       total_cost: this.totalCost,
       parent_execution_id: this.parentExecutionId,
       pending_launches: this.pendingLaunches.length ? this.pendingLaunches : undefined,
+      config_hash: this._config_hash,
     });
   }
 
