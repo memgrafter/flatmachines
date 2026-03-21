@@ -175,6 +175,10 @@ export class SQLiteCheckpointBackend implements PersistenceBackend {
   async delete(key: string): Promise<void> {
     SQLiteCheckpointBackend.validateKey(key);
     const executionId = SQLiteCheckpointBackend.executionIdFromKey(key);
+    if (key === `${executionId}/latest`) {
+      this.db.prepare('DELETE FROM machine_latest WHERE execution_id = ?').run(executionId);
+      return;
+    }
     this.db.prepare('DELETE FROM machine_checkpoints WHERE checkpoint_key = ?').run(key);
     this.db.prepare('DELETE FROM machine_latest WHERE execution_id = ? AND latest_key = ?').run(executionId, key);
   }
