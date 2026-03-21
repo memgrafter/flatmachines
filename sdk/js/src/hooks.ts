@@ -155,6 +155,55 @@ export class CompositeHooks implements MachineHooks {
     }
     return result;
   }
+
+  async on_tool_calls(state: string, toolCalls: any[], context: Record<string, any>): Promise<Record<string, any>> {
+    let result = context;
+    for (const hook of this.hooks) {
+      if (hook.on_tool_calls) {
+        try {
+          result = await hook.on_tool_calls(state, toolCalls, result);
+        } catch {
+          // Continue with next hook on error
+        }
+      }
+    }
+    return result;
+  }
+
+  async on_tool_result(state: string, toolResult: any, context: Record<string, any>): Promise<Record<string, any>> {
+    let result = context;
+    for (const hook of this.hooks) {
+      if (hook.on_tool_result) {
+        try {
+          result = await hook.on_tool_result(state, toolResult, result);
+        } catch {
+          // Continue with next hook on error
+        }
+      }
+    }
+    return result;
+  }
+
+  get_tool_provider(state: string, context: Record<string, any>): any {
+    for (const hook of this.hooks) {
+      if (hook.get_tool_provider) {
+        const provider = hook.get_tool_provider(state, context);
+        if (provider) return provider;
+      }
+    }
+    return null;
+  }
+
+  async get_steering_messages(state: string, context: Record<string, any>): Promise<any[]> {
+    const messages: any[] = [];
+    for (const hook of this.hooks) {
+      if (hook.get_steering_messages) {
+        const hookMsgs = await hook.get_steering_messages(state, context);
+        if (hookMsgs?.length) messages.push(...hookMsgs);
+      }
+    }
+    return messages;
+  }
 }
 
 /**

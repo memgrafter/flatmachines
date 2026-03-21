@@ -662,12 +662,12 @@ export class FlatMachine {
     return 0;
   }
 
-  _resolve_tool_definitions(agentName?: string, provider?: any): any[] {
-    const tp = provider ?? this.toolProvider;
+  _resolve_tool_definitions = (agentName?: string, provider?: any): any[] => {
+    const tp = provider ?? this?.toolProvider;
     const defs = tp?.get_tool_definitions?.() ?? [];
     // Check if agent has inline tools
-    if (agentName) {
-      const agentConfig = this.config.data.agents?.[agentName];
+    if (agentName && this?.config) {
+      const agentConfig = this.config.data?.agents?.[agentName];
       if (agentConfig && typeof agentConfig === 'object') {
         const inlineTools = (agentConfig as any).data?.tools ?? (agentConfig as any).tools;
         if (Array.isArray(inlineTools)) {
