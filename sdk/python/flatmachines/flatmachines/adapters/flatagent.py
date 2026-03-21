@@ -62,6 +62,24 @@ class FlatAgentExecutor(AgentExecutor):
     def metadata(self) -> Dict[str, Any]:
         return getattr(self._agent, "metadata", {})
 
+    @staticmethod
+    def _resolve_execution_id(context: Optional[Dict[str, Any]]) -> Optional[str]:
+        """Resolve execution_id from machine context, checking both the legacy
+        top-level key and the canonical context['machine']['execution_id'] path."""
+        if not isinstance(context, dict):
+            return None
+        # Top-level (set at machine init, may be overwritten)
+        execution_id = context.get("execution_id")
+        if execution_id:
+            return str(execution_id)
+        # Canonical path: context.machine.execution_id (injected per state entry)
+        machine = context.get("machine")
+        if isinstance(machine, dict):
+            mid = machine.get("execution_id")
+            if mid:
+                return str(mid)
+        return None
+
     def _map_response(self, response, delta_calls: int, delta_cost: float) -> AgentResult:
         """Map a FlatAgent AgentResponse to a FlatMachines AgentResult."""
         from typing import List as _List
@@ -211,9 +229,9 @@ class FlatAgentExecutor(AgentExecutor):
         # prompt_cache_key, enabling KV-cache hits across continuation turns.
         extra: Dict[str, Any] = {}
         if context and self._agent._backend == "codex":
-            execution_id = context.get("execution_id")
-            if execution_id and not self._agent._model_config.get("codex_session_id"):
-                extra["session_id"] = str(execution_id)
+            execution_id = self._resolve_execution_id(context)
+            if execution_id and not self._agent._model_config_raw.get("codex_session_id"):
+                extra["session_id"] = execution_id
 
         response = await self._agent.call(
             tools=tools,
