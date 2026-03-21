@@ -1,45 +1,45 @@
-# JS SDK Python Parity TODOs
+# JS SDK Python Parity Status
 
-## Status: 31 failing / 1834 passing / 51 skipped / 824 todo (2740 total)
-## Started at: 347 failing → 31 failing (91% reduction)
+## Final: 28 failing / 1837 passing / 51 skipped / 824 todo (2740 total)
+## Started at: 347 failing → 28 failing (92% reduction)
 
-## Summary of what was done
+## What was done
 
-### New modules created
-- `src/monitoring_providers.ts` — Provider-specific rate limit classes (Cerebras, Anthropic, OpenAI)
-- `src/dispatch_signals.ts` — run_once/run_listen + CLI parser
-- `src/providers/codex_login.ts` — OAuth login flow
-- `src/adapters/claude_code_sessions.ts` — SessionHoldback pattern
+### New modules
+- `monitoring_providers.ts` — CerebrasRateLimits, AnthropicRateLimits, OpenAIRateLimits
+- `dispatch_signals.ts` — run_once/run_listen + CLI
+- `providers/codex_login.ts` — OAuth login
+- `adapters/claude_code_sessions.ts` — SessionHoldback
 
-### Major SDK changes
-- Converted agent_response interfaces to constructable classes
-- Python-compatible template rendering (True/False/None/list/dict via nunjucks patch)
-- Bare path vs template resolution matching Python's _render_template behavior
-- FlatAgent helper methods (_extract_cache_tokens, _calculate_cost, _extract_finish_reason, etc.)
-- FlatMachine helper methods (_render_guardrail, _build_assistant_message, _extract_cost, etc.)
-- Full tool-loop hooks (on_tool_calls, on_tool_result, get_tool_provider, steering, skip)
-- Agent ref resolution at construction time
-- Config hash/store support for resume
-- Auto-wiring of SQLiteLeaseLock + SQLiteConfigStore + LocalFileLock
-- Peer propagation (persistence, lock, configStore to child machines)
-- Backward-compatible re-exports and runtime WorkPool/WorkBackend/WorkItem
-- Tool loop chain preservation to context
-- Tool loop checkpoints with tool_loop_state
+### Key SDK changes
+- agent_response interfaces → constructable classes
+- Python-compatible template rendering (nunjucks suppressValue patch)
+- Bare path vs template resolution matching Python
+- FlatAgent/FlatMachine helper methods
+- Full tool-loop hooks + chain preservation
+- Agent ref resolution, config hash/store
+- Auto-wiring persistence backends
+- Profile discovery separated: FlatAgent auto-discovers, FlatMachine does not
 
-### Remaining 31 failures
+## Remaining 28 failures
 
 | Area | Count | Nature |
 |------|-------|--------|
-| tool-loop-machine | 6 | Chain scoping, test porting issues ({{ }} vs bare path), LoggingHooks |
+| tool-loop-machine | 6 | Chain scoping, test porting ({{ }} vs bare path), LoggingHooks |
 | claude-code-live | 6 | Throttle injection, timeout, monitor metrics, cancel, fork_n |
-| misc-runtime | 5 | Throttle config path mismatch, backward compat |
-| flatagent-backends | 4 | Codex backend integration, distributed backends |
-| misc-machine-core | 3 | Profile discovery |
-| signals-integration | 3 | Socket trigger tests |
-| tool-loop | 1 | Checkpoint metrics (cost tracking assertion) |
+| misc-runtime | 5 | Throttle config mismatch, backward compat |
+| flatagent-backends | 4 | Codex backend, distributed backend |
+| signals-integration | 3 | Socket trigger |
+| tool-loop | 1 | Checkpoint metrics |
 | persistence-integration | 1 | Webhook checkpoint event |
 | misc-persistence-resume | 1 | Dispatcher edge case |
-| codex-auth-client | 1 | Token exchange edge case |
+| codex-auth-client | 1 | Token exchange |
 
-## SDK split status
-NOT started. The JS SDK remains monolithic in sdk/js/.
+## Passing test suites (0 failures)
+- metrics.parity.test.ts (216/216)
+- context-machine.parity.test.ts (14/14)
+- dispatcher-wait.parity.test.ts (44/44)
+- misc-machine-core.parity.test.ts (68/68)
+- persistence-config.parity.test.ts (58/58)
+- misc-unit.parity.test.ts (all)
+- signals-core.parity.test.ts (all)
