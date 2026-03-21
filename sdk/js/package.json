@@ -47,6 +47,7 @@
     "@ai-sdk/openai-compatible": "^2.0.12",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "ai": "^6.0.37",
+    "cel-js": "^0.8.2",
     "nunjucks": "^3.2.4",
     "yaml": "^2.4.0"
   },

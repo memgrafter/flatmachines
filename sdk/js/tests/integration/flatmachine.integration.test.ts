@@ -2,11 +2,11 @@
 // Integration tests for FlatMachine functionality
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { FlatMachine } from '../src/flatmachine';
+import { FlatMachine } from '../../src/flatmachine';
 import { existsSync } from 'fs';
 import * as yaml from 'yaml';
 import { join, dirname } from 'path';
-import { MemoryBackend } from '../src/persistence';
+import { MemoryBackend } from '../../src/persistence';
 
 const parseMachineConfig = (config: string) => yaml.parse(config);
 

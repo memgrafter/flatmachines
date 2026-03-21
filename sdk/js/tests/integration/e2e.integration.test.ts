@@ -2,7 +2,7 @@
 // End-to-end integration tests for complete FlatAgents workflows
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { MemoryBackend } from '../src/persistence';
+import { MemoryBackend } from '../../src/persistence';
 import { mkdirSync } from 'fs';
 import * as yaml from 'yaml';
 

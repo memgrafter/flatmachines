@@ -2,12 +2,12 @@
 // Integration tests for persistence functionality
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { FlatMachine } from '../src/flatmachine';
-import { MemoryBackend, LocalFileBackend, CheckpointManager } from '../src/persistence';
+import { FlatMachine } from '../../src/flatmachine';
+import { MemoryBackend, LocalFileBackend, CheckpointManager } from '../../src/persistence';
 import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
 import * as yaml from 'yaml';
 import { join } from 'path';
-import { MachineSnapshot } from '../src/types';
+import { MachineSnapshot } from '../../src/types';
 
 const parseMachineConfig = (config: string) => yaml.parse(config);
 
