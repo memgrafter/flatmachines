@@ -570,9 +570,9 @@ export class FlatMachine {
           if (context._abort_tool_loop) { context._tool_loop_stop = 'aborted'; break; }
         }
 
-        // Checkpoint after each tool call
+        // Checkpoint after each tool call with tool_loop_state
         if (this.shouldCheckpoint("execute")) {
-          await this.checkpoint(stateName, this.currentStep, "tool_call");
+          await this.checkpointWithToolLoop(stateName, this.currentStep, chain, turns, toolCallsCount, loopCost);
         }
 
         // Check for abort or conditional transition
@@ -628,6 +628,32 @@ export class FlatMachine {
       }
     }
     return null;
+  }
+
+  private async checkpointWithToolLoop(
+    state: string, step: number,
+    chain: Array<Record<string, any>>,
+    turns: number, toolCallsCount: number, loopCost: number,
+  ): Promise<void> {
+    if (!this.checkpointManager) return;
+    await this.checkpointManager.checkpoint({
+      execution_id: this.executionId,
+      machine_name: this.config.data.name ?? "unnamed",
+      spec_version: this.config.spec_version ?? "0.4.0",
+      current_state: state,
+      context: this.context,
+      step,
+      created_at: new Date().toISOString(),
+      event: "tool_call",
+      parent_execution_id: this.parentExecutionId,
+      config_hash: this._config_hash,
+      tool_loop_state: {
+        chain: [...chain],
+        turns,
+        tool_calls_count: toolCallsCount,
+        cost: loopCost,
+      },
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────────
