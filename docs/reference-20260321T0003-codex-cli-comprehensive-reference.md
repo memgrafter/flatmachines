@@ -759,16 +759,21 @@ proper fork-with-cache semantics with thread isolation.
 
 ```
 1. Start app-server:  codex app-server --listen stdio://
-2. Initialize:        { method: "initialize", params: {...} }
-3. Seed thread:       { method: "thread/start", params: { cwd, model, ... } }
-                      -> response: { thread: { id: "parent-uuid", ... } }
+2. Initialize:        { method: "initialize", params: { clientInfo: { name, version } } }
+3. Seed thread:       { method: "thread/start", params: { cwd, model, sandbox, approvalPolicy } }
+                      -> response: { thread: { id: "parent-uuid", ... }, model, sandbox, ... }
 4. Send seed prompt:  { method: "turn/start", params: { threadId: "parent-uuid", input: [...] } }
-                      -> notifications: item.started, item.completed, turn.completed
-5. Fork N children:   { method: "thread/fork", params: { threadId: "parent-uuid" } }
+                      -> notifications: item/completed, thread/tokenUsage/updated, turn/completed
+5. Fork N children:   { method: "thread/fork", params: { threadId: "parent-uuid", model: "gpt-5.3-codex" } }
                       -> response: { thread: { id: "child-uuid-1", turns: [...] } }
 6. Send child tasks:  { method: "turn/start", params: { threadId: "child-uuid-1", input: [...] } }
                       -> each child gets cache hits on the shared prefix
 ```
+
+**CRITICAL: Pass `model` on `thread/fork`.** Without it, the fork auto-upgrades
+to `gpt-5.4` due to the model migration notice in `config.toml`. The parent
+thread records `gpt-5.3-codex` in SQLite either way, but the actual API call
+uses the upgraded model. Always pass `"model": "gpt-5.3-codex"` explicitly.
 
 ### Implementation Sample
 
@@ -831,10 +836,12 @@ class CodexAppServerTransport:
         )
         self._reader_task = asyncio.create_task(self._read_loop())
 
-        # Initialize the protocol
+        # Initialize the protocol (clientInfo is required)
         resp = await self._request("initialize", {
-            "clientVersion": "flatmachines-0.1",
-            "clientName": "flatmachines",
+            "clientInfo": {
+                "name": "flatmachines",
+                "version": "0.1.0",
+            },
         })
         logger.info("App-server initialized: %s", resp)
 
@@ -913,9 +920,16 @@ class CodexAppServerTransport:
             "ephemeral": ephemeral,
         })
 
-    async def thread_fork(self, thread_id: str, **overrides) -> dict:
-        """Fork a thread. Returns new Thread with full parent history."""
-        params = {"threadId": thread_id, **overrides}
+    async def thread_fork(self, thread_id: str, model: Optional[str] = None, **overrides) -> dict:
+        """Fork a thread. Returns new Thread with full parent history.
+
+        IMPORTANT: Always pass model explicitly. Without it, codex
+        auto-upgrades to the latest model (e.g., gpt-5.4) due to
+        model migration notices in config.toml.
+        """
+        params: Dict[str, Any] = {"threadId": thread_id, **overrides}
+        if model:
+            params["model"] = model
         return await self._request("thread/fork", params)
 
     async def thread_resume(self, thread_id: str, **overrides) -> dict:
@@ -1007,8 +1021,11 @@ class CodexSessionHoldback:
         """Fork from holdback and execute a task on the child thread."""
         assert self._holdback_thread_id, "Call seed() first"
 
-        # Fork creates a new thread with parent's full history
-        fork_resp = await self._transport.thread_fork(self._holdback_thread_id)
+        # Fork creates a new thread with parent's full history.
+        # Pin the model to avoid auto-upgrade via config.toml migrations.
+        fork_resp = await self._transport.thread_fork(
+            self._holdback_thread_id, model=self._model,
+        )
         child_id = fork_resp["thread"]["id"]
         self._fork_count += 1
 
@@ -1032,7 +1049,14 @@ class CodexSessionHoldback:
         return await asyncio.gather(*[_limited(t) for t in tasks])
 
     async def _run_turn(self, thread_id: str, text: str) -> dict:
-        """Start a turn and wait for completion via notifications."""
+        """Start a turn and wait for completion via notifications.
+
+        Notification methods observed (codex-cli 0.116.0):
+          - item/completed          -> item data (agentMessage, commandExecution, etc.)
+          - thread/tokenUsage/updated -> token usage with cachedInputTokens
+          - turn/completed          -> turn status (no usage, just status + error)
+          - turn/failed             -> turn error
+        """
         collected_items = []
         turn_done = asyncio.Event()
         turn_result: Dict[str, Any] = {}
@@ -1042,15 +1066,26 @@ class CodexSessionHoldback:
             params = msg.get("params", {})
             if params.get("threadId") != thread_id:
                 return
-            if method == "notifications/item.completed":
+            if "item/completed" in method:
                 collected_items.append(params.get("item", {}))
-            elif method == "notifications/turn.completed":
+            elif "tokenUsage/updated" in method:
+                # Token usage arrives here, NOT in turn/completed
+                usage = params.get("tokenUsage", {}).get("total", {})
+                turn_result["usage"] = {
+                    "input_tokens": usage.get("inputTokens", 0),
+                    "cached_input_tokens": usage.get("cachedInputTokens", 0),
+                    "output_tokens": usage.get("outputTokens", 0),
+                    "reasoning_tokens": usage.get("reasoningOutputTokens", 0),
+                    "context_window": params.get("tokenUsage", {}).get(
+                        "modelContextWindow", 0),
+                }
+            elif "turn/completed" in method:
                 turn_result["status"] = "completed"
-                turn_result["usage"] = params.get("usage")
                 turn_done.set()
-            elif method == "notifications/turn.failed":
+            elif "turn/failed" in method:
                 turn_result["status"] = "failed"
-                turn_result["error"] = params.get("error")
+                turn = params.get("turn", {})
+                turn_result["error"] = turn.get("error")
                 turn_done.set()
 
         self._transport.on_notification(_on_notification)
@@ -1068,6 +1103,91 @@ class CodexSessionHoldback:
 
         return turn_result
 ```
+
+### Verified Behavior (codex-cli 0.116.0, 2026-03-21)
+
+**App-server ↔ CLI full interop confirmed:**
+
+1. **Shared storage.** App-server threads are written to the same
+   `~/.codex/state_5.sqlite` and `~/.codex/sessions/` rollout files as
+   CLI-created threads. Source is recorded as `exec` when started with
+   `--session-source exec`.
+
+2. **CLI can resume app-server sessions.** `codex exec resume <thread-id>`
+   works on threads created via the app-server. Full conversation history
+   is preserved and cache hits occur on the shared prefix (observed:
+   21,248 cached tokens on resume of an app-server-seeded thread).
+
+3. **Fork children are independently resumable.** Both parent and forked
+   child threads appear in `state_5.sqlite` and can be resumed from CLI
+   independently.
+
+4. **Model pinning on fork.** Without explicit `model` in `thread/fork`,
+   the fork auto-upgrades to `gpt-5.4` (due to `notice.model_migrations`
+   in `config.toml`). With `"model": "gpt-5.3-codex"`, the fork stays
+   on the requested model. The response object confirms: `model: "gpt-5.3-codex"`.
+
+5. **Rollout files are standard.** App-server rollouts use the same
+   internal JSONL format as CLI sessions (`session_meta`, `event_msg`,
+   `response_item`, `turn_context`). No special handling needed for
+   parsing or replay.
+
+### App-Server Notification Protocol (Observed)
+
+Token usage is delivered via a **separate notification**, not inside
+`turn/completed`:
+
+```json
+{
+  "method": "thread/tokenUsage/updated",
+  "params": {
+    "threadId": "...",
+    "turnId": "...",
+    "tokenUsage": {
+      "total": {
+        "totalTokens": 12328,
+        "inputTokens": 12310,
+        "cachedInputTokens": 8960,
+        "outputTokens": 18,
+        "reasoningOutputTokens": 10
+      },
+      "last": { ... },
+      "modelContextWindow": 258400
+    }
+  }
+}
+```
+
+`turn/completed` contains only the turn status and error (if any):
+
+```json
+{
+  "method": "turn/completed",
+  "params": {
+    "threadId": "...",
+    "turn": {
+      "id": "...",
+      "items": [],
+      "status": "completed",
+      "error": null
+    }
+  }
+}
+```
+
+**Full notification sequence for a turn:**
+
+| Order | Method | Key Fields |
+|-------|--------|------------|
+| 1 | `item/completed` | `item: { type: "userMessage", ... }` |
+| 2 | `item/completed` | `item: { type: "reasoning", ... }` |
+| 3 | `item/completed` | `item: { type: "agentMessage", text: "..." }` |
+| 4 | `thread/tokenUsage/updated` | `tokenUsage: { total: { cachedInputTokens, ... } }` |
+| 5 | `turn/completed` | `turn: { status: "completed" }` |
+
+Items may also include `commandExecution`, `fileChange`, `mcpToolCall`, etc.
+for tool-using turns. `item/started` precedes `item/completed` for long-running
+items like command execution.
 
 ### Cache Behavior
 
@@ -1096,7 +1216,10 @@ The app-server protocol supports full session introspection:
 
 ```python
 # Read a thread's full history (turns + items)
-history = await transport.thread_read(thread_id)
+history = await transport._request("thread/read", {
+    "threadId": thread_id,
+    "includeTurns": True,
+})
 for turn in history["thread"]["turns"]:
     print(f"Turn {turn['id']}: {turn['status']}")
     for item in turn["items"]:
@@ -1105,14 +1228,18 @@ for turn in history["thread"]["turns"]:
 # List all threads
 threads = await transport._request("thread/list", {"limit": 20})
 
-# Query session state from SQLite
+# Query session state from SQLite (works from any process)
 # sqlite3 ~/.codex/state_5.sqlite "SELECT id, model, title FROM threads ORDER BY created_at DESC LIMIT 5;"
+
+# Resume any app-server thread from CLI
+# codex exec resume --json --full-auto --model gpt-5.3-codex "<thread-id>" "Follow-up"
 ```
 
 For self-inspection from within a FlatMachine:
 - Hook `on_state_exit` reads the thread history via `thread/read`
-- Context accumulates token usage from `turn.completed` notifications
+- Context accumulates token usage from `thread/tokenUsage/updated` notifications
 - Machine transitions can branch on `context.cached_input_tokens` ratios
+- External tools can query `state_5.sqlite` or resume threads via CLI
 
 ---
 
