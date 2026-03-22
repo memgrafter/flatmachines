@@ -15,7 +15,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo "--- FlatAgent HelloWorld Demo Runner ---"
+echo "--- FlatMachine HelloWorld Demo Runner ---"
 
 # Get the directory the script is located in
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -56,15 +56,15 @@ fi
 # 1. Install Dependencies
 echo "📦 Installing dependencies..."
 if [ "$LOCAL_INSTALL" = true ]; then
-    echo "  - Using local flatagents SDK..."
+    echo "  - Using local flatmachines SDK..."
     cd "$JS_SDK_PATH"
     npm run build
     cd "$SCRIPT_DIR"
-    # Swap to local dependency
-    npm pkg set dependencies.@memgrafter/flatagents="file:../../../js"
+    # Swap to local dependency (flatmachines re-exports flatagents)
+    npm pkg set dependencies.@memgrafter/flatmachines="file:../../../js/packages/flatmachines"
 else
     # Ensure we're using the npm package
-    npm pkg set dependencies.@memgrafter/flatagents="^0.8.0"
+    npm pkg set dependencies.@memgrafter/flatmachines="^2.5.0"
 fi
 
 echo "  - Installing helloworld demo package..."

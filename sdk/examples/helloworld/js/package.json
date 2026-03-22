@@ -1,7 +1,7 @@
 {
   "name": "flatagents-helloworld",
   "version": "0.1.0",
-  "description": "'Hello, World!' demo for FlatAgent.",
+  "description": "'Hello, World!' demo for FlatMachines.",
   "type": "module",
   "main": "src/helloworld/main.js",
   "scripts": {
@@ -10,7 +10,7 @@
     "start": "node dist/helloworld/main.js"
   },
   "dependencies": {
-    "@memgrafter/flatagents": "^0.8.0",
+    "@memgrafter/flatmachines": "^2.5.0",
     "yaml": "^2.3.0"
   },
   "devDependencies": {
@@ -20,6 +20,7 @@
   },
   "keywords": [
     "flatagents",
+    "flatmachines",
     "demo",
     "hello-world"
   ],
