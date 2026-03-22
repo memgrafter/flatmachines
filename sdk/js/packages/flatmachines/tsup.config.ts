@@ -5,5 +5,5 @@ export default defineConfig({
   format: ['cjs', 'esm'],
   dts: true,
   clean: true,
-  external: ['@anthropic/flatmachines'],
+  external: ['@memgrafter/flatmachines'],
 });

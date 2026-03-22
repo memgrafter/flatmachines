@@ -43,8 +43,8 @@ MACHINES_VERSION=$(node -p "require('./packages/flatmachines/package.json').vers
 WORKSPACE_VERSION=$(node -p "require('./package.json').version")
 
 echo "Package versions:"
-echo "  @anthropic/flatagents:    $AGENTS_VERSION"
-echo "  @anthropic/flatmachines:  $MACHINES_VERSION"
+echo "  @memgrafter/flatagents:    $AGENTS_VERSION"
+echo "  @memgrafter/flatmachines:  $MACHINES_VERSION"
 echo "  workspace:                $WORKSPACE_VERSION"
 
 if [[ "$AGENTS_VERSION" != "$MACHINES_VERSION" ]]; then
@@ -62,7 +62,7 @@ fi
 PACKAGE_VERSION="$AGENTS_VERSION"
 
 # Validate flatmachines depends on the same version of flatagents
-MACHINES_AGENT_DEP=$(node -p "require('./packages/flatmachines/package.json').dependencies['@anthropic/flatagents']")
+MACHINES_AGENT_DEP=$(node -p "require('./packages/flatmachines/package.json').dependencies['@memgrafter/flatagents']")
 if [[ "$MACHINES_AGENT_DEP" != "$PACKAGE_VERSION" ]]; then
     echo ""
     echo "RELEASE ABORTED: flatmachines depends on flatagents@$MACHINES_AGENT_DEP, expected $PACKAGE_VERSION"
@@ -115,27 +115,44 @@ fi
 echo ""
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Schema validation (check both package dirs)
+# Copy schemas into each package dir
 # ─────────────────────────────────────────────────────────────────────────────
 
-echo "Checking schemas/ folder versions..."
+echo "Copying schemas into package dirs..."
+for PKG in flatagents flatmachines; do
+    PKG_SCHEMAS="packages/$PKG/schemas"
+    mkdir -p "$PKG_SCHEMAS"
+    cp schemas/*.d.ts schemas/*.json "$PKG_SCHEMAS/"
+    if [[ -f schemas/README.md ]]; then
+        cp schemas/README.md "$PKG_SCHEMAS/"
+    fi
+    echo "  ✓ packages/$PKG/schemas/"
+done
+echo ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Schema validation (per-package)
+# ─────────────────────────────────────────────────────────────────────────────
+
+echo "Checking schemas/ versions..."
 SCHEMA_SPECS=("flatagent" "flatmachine" "profiles" "flatagents-runtime")
 SCHEMA_FAILED=0
 
-for spec in "${SCHEMA_SPECS[@]}"; do
-    # Check in root schemas/ (legacy) or package schemas/
-    SCHEMA_FILE="schemas/${spec}.d.ts"
-    if [[ ! -f "$SCHEMA_FILE" ]]; then
-        echo "  ⚠ $SCHEMA_FILE not found (skipped)"
-        continue
-    fi
-    SCHEMA_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$SDK_DIR/$SCHEMA_FILE")
-    if [[ "$SCHEMA_VERSION" != "$PACKAGE_VERSION" ]]; then
-        echo "  ✗ $SCHEMA_FILE version ($SCHEMA_VERSION) != package.json ($PACKAGE_VERSION)"
-        SCHEMA_FAILED=1
-    else
-        echo "  ✓ $SCHEMA_FILE ($SCHEMA_VERSION)"
-    fi
+for PKG in flatagents flatmachines; do
+    for spec in "${SCHEMA_SPECS[@]}"; do
+        SCHEMA_FILE="packages/$PKG/schemas/${spec}.d.ts"
+        if [[ ! -f "$SCHEMA_FILE" ]]; then
+            echo "  ⚠ $SCHEMA_FILE not found (skipped)"
+            continue
+        fi
+        SCHEMA_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$SDK_DIR/$SCHEMA_FILE")
+        if [[ "$SCHEMA_VERSION" != "$PACKAGE_VERSION" ]]; then
+            echo "  ✗ $SCHEMA_FILE version ($SCHEMA_VERSION) != package.json ($PACKAGE_VERSION)"
+            SCHEMA_FAILED=1
+        else
+            echo "  ✓ $PKG/${spec}.d.ts ($SCHEMA_VERSION)"
+        fi
+    done
 done
 
 if [[ "$SCHEMA_FAILED" -eq 1 ]]; then
@@ -154,11 +171,11 @@ echo "Installing dependencies..."
 npm install --silent
 echo ""
 
-echo "Building @anthropic/flatagents..."
+echo "Building @memgrafter/flatagents..."
 npm run build:agents
 echo ""
 
-echo "Building @anthropic/flatmachines..."
+echo "Building @memgrafter/flatmachines..."
 npm run build:machines
 echo ""
 
@@ -177,14 +194,18 @@ echo ""
 # ─────────────────────────────────────────────────────────────────────────────
 
 if [ "$DRY_RUN" = true ]; then
-    echo "DRY RUN: Running npm publish --dry-run for both packages..."
+    echo "DRY RUN: Running npm publish --dry-run for all packages..."
     echo ""
 
-    echo "── @anthropic/flatagents ──"
+    echo "── @memgrafter/flatagents ──"
     (cd packages/flatagents && npm publish --dry-run)
     echo ""
 
-    echo "── @anthropic/flatmachines ──"
+    echo "── @memgrafter/flatmachines ──"
+    (cd packages/flatmachines && npm publish --dry-run)
+    echo ""
+
+    echo "── flatmachines (unscoped, one-time) ──"
     (cd packages/flatmachines && npm publish --dry-run)
     echo ""
 
@@ -201,15 +222,25 @@ else
     echo "//registry.npmjs.org/:_authToken=${NPMJS_TOKEN_MEMGRAFTER}" > "$NPMRC_TMP"
 
     # Publish flatagents first (flatmachines depends on it)
-    echo "Publishing @anthropic/flatagents@$PACKAGE_VERSION..."
+    echo "Publishing @memgrafter/flatagents@$PACKAGE_VERSION..."
     (cd packages/flatagents && NPM_CONFIG_USERCONFIG="$NPMRC_TMP" npm publish)
     echo ""
 
-    echo "Publishing @anthropic/flatmachines@$PACKAGE_VERSION..."
+    echo "Publishing @memgrafter/flatmachines@$PACKAGE_VERSION..."
     (cd packages/flatmachines && NPM_CONFIG_USERCONFIG="$NPMRC_TMP" npm publish)
     echo ""
 
+    # One-time publish to unscoped 'flatmachines' for discoverability (then deprecate)
+    echo "Publishing flatmachines@$PACKAGE_VERSION (unscoped, one-time)..."
+    ORIG_NAME=$(node -p "require('./packages/flatmachines/package.json').name")
+    TEMP_PKG="packages/flatmachines/package.json"
+    node -e "const p=require('./$TEMP_PKG'); p.name='flatmachines'; require('fs').writeFileSync('$TEMP_PKG', JSON.stringify(p, null, 2)+'\n')"
+    (cd packages/flatmachines && NPM_CONFIG_USERCONFIG="$NPMRC_TMP" npm publish)
+    node -e "const p=require('./$TEMP_PKG'); p.name='$ORIG_NAME'; require('fs').writeFileSync('$TEMP_PKG', JSON.stringify(p, null, 2)+'\n')"
+    echo ""
+
     echo "Released:"
-    echo "  @anthropic/flatagents@$PACKAGE_VERSION"
-    echo "  @anthropic/flatmachines@$PACKAGE_VERSION"
+    echo "  @memgrafter/flatagents@$PACKAGE_VERSION"
+    echo "  @memgrafter/flatmachines@$PACKAGE_VERSION"
+    echo "  flatmachines@$PACKAGE_VERSION (unscoped — remember to deprecate)"
 fi
