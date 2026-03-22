@@ -175,15 +175,43 @@ class ExpressionParser {
       return Number(token);
     }
 
-    if (token.includes('.')) {
-      const parts = token.split('.');
-      let obj: any = ctx;
-
-      for (const part of parts) {
-        if (obj && typeof obj === 'object' && part in obj) {
-          obj = obj[part];
+    if (token.includes('.') || token.includes('[')) {
+      // Split on dots, then handle bracket indexing within each segment
+      // e.g. "context.items[0].name" → ["context", "items", 0, "name"]
+      const segments: (string | number)[] = [];
+      for (const dotPart of token.split('.')) {
+        // Split bracket indices: "items[0]" → "items", 0
+        const bracketMatch = dotPart.match(/^([^\[]*)((?:\[\d+\])*)$/);
+        if (bracketMatch) {
+          const base = bracketMatch[1]!;
+          const indices = bracketMatch[2]!;
+          if (base) segments.push(base);
+          // Extract all [N] indices
+          const idxMatches = indices.matchAll(/\[(\d+)\]/g);
+          for (const m of idxMatches) {
+            segments.push(Number(m[1]));
+          }
         } else {
-          return undefined;
+          segments.push(dotPart);
+        }
+      }
+
+      let obj: any = ctx;
+      for (const seg of segments) {
+        if (obj == null) return undefined;
+        if (typeof seg === 'number') {
+          // Array/string indexing
+          if (typeof obj === 'string' || Array.isArray(obj)) {
+            obj = obj[seg];
+          } else {
+            return undefined;
+          }
+        } else {
+          if (typeof obj === 'object' && seg in obj) {
+            obj = obj[seg];
+          } else {
+            return undefined;
+          }
         }
       }
 
