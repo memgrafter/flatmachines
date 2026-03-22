@@ -36,11 +36,18 @@ fi
 echo ""
 
 # Setup virtualenv with build tools
-if [ ! -d ~/virtualenvs/twine ]; then
-    python3 -m venv ~/virtualenvs/twine
-    ~/virtualenvs/twine/bin/pip install --upgrade build twine
+VENV_PATH="$SDK_DIR/.venv"
+if ! command -v uv &> /dev/null; then
+    echo "📥 Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
 fi
-source ~/virtualenvs/twine/bin/activate
+if [ ! -d "$VENV_PATH" ]; then
+    echo "🔧 Creating virtual environment..."
+    uv venv "$VENV_PATH"
+fi
+uv pip install --python "$VENV_PATH/bin/python" --upgrade build twine
+source "$VENV_PATH/bin/activate"
 
 # Sync and validate __version__ with pyproject.toml for each package
 for PKG in $PACKAGES; do
