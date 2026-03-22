@@ -257,7 +257,7 @@ for PKG in $PACKAGES; do
     cd "$SDK_DIR/$PKG"
     echo "Building $PKG..."
     rm -rf dist/ build/ *.egg-info
-    python -m build
+    uv build
 
     if [ "$DRY_RUN" = true ]; then
         echo "DRY RUN: Skipping PyPI upload for $PKG."
