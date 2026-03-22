@@ -125,7 +125,7 @@ update_file() {
         echo "  Would update: $file"
         ((++WOULD_UPDATE))
     else
-        sed_i "s/$pattern/$replacement/" "$file"
+        sed_i "s|$pattern|$replacement|" "$file"
         echo "  Updated: $file"
         ((++UPDATED))
     fi
