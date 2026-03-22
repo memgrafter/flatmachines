@@ -9,7 +9,7 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --local|-l) LOCAL_INSTALL=true; shift ;;
         --test-cache|--test-fanout-cache) TEST_ARGS+=("$1"); shift ;;
-        *) shift ;;
+        *) echo "❌ Unknown flag: $1"; echo "Usage: $0 [--local|-l] [--test-cache|--test-fanout-cache]"; exit 1 ;;
     esac
 done
 

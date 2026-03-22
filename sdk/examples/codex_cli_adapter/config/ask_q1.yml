@@ -3,7 +3,7 @@ spec_version: "2.5.0"
 data:
   name: ask-q1
   context:
-    thread_id: "{{ input.thread_id }}"
+    thread_id: input.thread_id
   agents:
     coder:
       type: codex-cli
@@ -23,13 +23,13 @@ data:
       agent: coder
       input:
         task: "From the file you read, what is the internal release build hash? Reply with just the hash."
-        resume_session: "{{ context.thread_id }}"
+        resume_session: context.thread_id
       output_to_context:
-        answer: "{{ output.result }}"
+        answer: output.result
       transitions:
         - to: done
     done:
       type: final
       output:
         question: "build hash"
-        answer: "{{ context.answer }}"
+        answer: context.answer

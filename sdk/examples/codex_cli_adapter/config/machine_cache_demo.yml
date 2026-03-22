@@ -43,8 +43,8 @@ data:
       input:
         task: "Read the file demo_context.md and acknowledge with exactly: RECEIVED"
       output_to_context:
-        seed_result: "{{ output.result }}"
-        thread_id: "{{ output.thread_id }}"
+        seed_result: output.result
+        thread_id: output.thread_id
       transitions:
         - to: verify
 
@@ -52,18 +52,18 @@ data:
       agent: coder
       input:
         task: "From the file you just read, what is the internal build identifier hash? Reply with just the hash, nothing else."
-        resume_session: "{{ context.thread_id }}"
+        resume_session: context.thread_id
       output_to_context:
-        verify_result: "{{ output.result }}"
+        verify_result: output.result
       transitions:
         - to: done
 
     done:
       type: final
       output:
-        seed_result: "{{ context.seed_result }}"
-        verify_result: "{{ context.verify_result }}"
-        thread_id: "{{ context.thread_id }}"
+        seed_result: context.seed_result
+        verify_result: context.verify_result
+        thread_id: context.thread_id
 
 metadata:
   description: |
