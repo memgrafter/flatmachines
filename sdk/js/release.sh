@@ -115,22 +115,6 @@ fi
 echo ""
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Copy schemas into each package dir
-# ─────────────────────────────────────────────────────────────────────────────
-
-echo "Copying schemas into package dirs..."
-for PKG in flatagents flatmachines; do
-    PKG_SCHEMAS="packages/$PKG/schemas"
-    mkdir -p "$PKG_SCHEMAS"
-    cp schemas/*.d.ts schemas/*.json "$PKG_SCHEMAS/"
-    if [[ -f schemas/README.md ]]; then
-        cp schemas/README.md "$PKG_SCHEMAS/"
-    fi
-    echo "  ✓ packages/$PKG/schemas/"
-done
-echo ""
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Schema validation (per-package)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -142,7 +126,8 @@ for PKG in flatagents flatmachines; do
     for spec in "${SCHEMA_SPECS[@]}"; do
         SCHEMA_FILE="packages/$PKG/schemas/${spec}.d.ts"
         if [[ ! -f "$SCHEMA_FILE" ]]; then
-            echo "  ⚠ $SCHEMA_FILE not found (skipped)"
+            echo "  ⚠ $SCHEMA_FILE not found (run: scripts/generate-spec-assets.sh)"
+            SCHEMA_FAILED=1
             continue
         fi
         SCHEMA_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$SDK_DIR/$SCHEMA_FILE")
@@ -158,7 +143,7 @@ done
 if [[ "$SCHEMA_FAILED" -eq 1 ]]; then
     echo ""
     echo "RELEASE ABORTED: schemas/ folder out of sync."
-    echo "Run: npx tsx scripts/generate-spec-assets.ts"
+    echo "Run: scripts/generate-spec-assets.sh"
     exit 1
 fi
 echo ""
