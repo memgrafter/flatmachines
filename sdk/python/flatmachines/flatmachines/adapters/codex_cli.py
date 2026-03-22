@@ -958,7 +958,7 @@ class CodexCliExecutor(AgentExecutor):
             monitor.metrics["tokens"] = inp + out
             cached = result.usage.get("cached_input_tokens", 0)
             if cached:
-                monitor.metrics["cached_input_tokens"] = cached
+                monitor.metrics["cache_read_tokens"] = cached
         if result.error:
             monitor.metrics["error"] = True
             monitor.metrics["error_type"] = result.error.get("type", "unknown")

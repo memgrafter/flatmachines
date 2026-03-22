@@ -1,0 +1,35 @@
+spec: flatmachine
+spec_version: "2.5.0"
+data:
+  name: ask-q1
+  context:
+    thread_id: "{{ input.thread_id }}"
+  agents:
+    coder:
+      type: codex-cli
+      config:
+        model: gpt-5.3-codex
+        reasoning_effort: high
+        sandbox: read-only
+        approval_policy: never
+        skip_git_repo_check: true
+        ephemeral: true
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: ask
+    ask:
+      agent: coder
+      input:
+        task: "From the file you read, what is the internal release build hash? Reply with just the hash."
+        resume_session: "{{ context.thread_id }}"
+      output_to_context:
+        answer: "{{ output.result }}"
+      transitions:
+        - to: done
+    done:
+      type: final
+      output:
+        question: "build hash"
+        answer: "{{ context.answer }}"

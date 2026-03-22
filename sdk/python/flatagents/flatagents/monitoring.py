@@ -480,7 +480,11 @@ class AgentMonitor:
         if "input_tokens" in self.metrics or "output_tokens" in self.metrics:
             in_tok = self.metrics.get("input_tokens", 0)
             out_tok = self.metrics.get("output_tokens", 0)
-            log_parts.append(f"tokens: {in_tok}→{out_tok}")
+            tok_str = f"tokens: {in_tok}→{out_tok}"
+            cached = self.metrics.get("cache_read_tokens", 0)
+            if cached:
+                tok_str += f" (cached: {cached})"
+            log_parts.append(tok_str)
         
         # Add rate limit info if available
         if "ratelimit_remaining_requests" in self.metrics:
