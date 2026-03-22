@@ -20,7 +20,7 @@ import {
   AgentExecutor,
   AgentRef,
   AgentResult,
-} from '@anthropic/flatagents';
+} from '@memgrafter/flatagents';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Defaults

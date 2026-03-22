@@ -1,0 +1,137 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/ProfilesWrapper",
+  "definitions": {
+    "ProfilesWrapper": {
+      "type": "object",
+      "properties": {
+        "spec": {
+          "type": "string",
+          "const": "flatprofiles"
+        },
+        "spec_version": {
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/definitions/ProfilesData"
+        },
+        "metadata": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "spec",
+        "spec_version",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "ProfilesData": {
+      "type": "object",
+      "properties": {
+        "model_profiles": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/ModelProfileConfig"
+          }
+        },
+        "default": {
+          "type": "string"
+        },
+        "override": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "model_profiles"
+      ],
+      "additionalProperties": false
+    },
+    "ModelProfileConfig": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "temperature": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "number"
+        },
+        "top_p": {
+          "type": "number"
+        },
+        "top_k": {
+          "type": "number"
+        },
+        "frequency_penalty": {
+          "type": "number"
+        },
+        "presence_penalty": {
+          "type": "number"
+        },
+        "seed": {
+          "type": "number"
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "stream": {
+          "type": "boolean"
+        },
+        "backend": {
+          "type": "string",
+          "enum": [
+            "litellm",
+            "aisuite",
+            "codex"
+          ]
+        },
+        "api": {
+          "type": "string"
+        },
+        "oauth": {
+          "$ref": "#/definitions/OAuthConfig"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "OAuthConfig": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "auth_file": {
+          "type": "string"
+        },
+        "refresh": {
+          "type": "boolean"
+        },
+        "originator": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "type": "number"
+        },
+        "max_retries": {
+          "type": "number"
+        },
+        "token_url": {
+          "type": "string"
+        },
+        "client_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

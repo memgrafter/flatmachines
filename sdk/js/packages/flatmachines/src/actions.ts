@@ -143,7 +143,7 @@ export class SubprocessInvoker implements MachineInvoker {
     // Write a launcher script that reads data from files (no interpolation)
     const launcherPath = join(tmpDir, 'launcher.cjs');
     // Resolve from the package name so bundled builds find it correctly
-    const sdkPath = require.resolve('@anthropic/flatmachines').replace(/\\/g, '/');
+    const sdkPath = require.resolve('@memgrafter/flatmachines').replace(/\\/g, '/');
     writeFileSync(launcherPath, [
       `const { readFileSync } = require('fs');`,
       `const { join } = require('path');`,

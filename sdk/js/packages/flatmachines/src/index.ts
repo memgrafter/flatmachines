@@ -1,8 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Re-export everything from @anthropic/flatagents for convenience
+// Re-export everything from @memgrafter/flatagents for convenience
 // ─────────────────────────────────────────────────────────────────────────────
 
-export * from '@anthropic/flatagents';
+export * from '@memgrafter/flatagents';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Core
@@ -125,7 +125,7 @@ export type { Action, MachineInvoker } from './actions';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { validateFlatMachineConfig } from './validation';
-// Re-export the ValidationResult type (also available from @anthropic/flatagents)
+// Re-export the ValidationResult type (also available from @memgrafter/flatagents)
 export type { ValidationResult } from './validation';
 
 // ─────────────────────────────────────────────────────────────────────────────

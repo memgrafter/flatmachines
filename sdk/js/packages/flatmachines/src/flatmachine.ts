@@ -20,8 +20,8 @@ import {
   AgentExecutor, AgentResult, AgentRef,
   AgentAdapterRegistry, AgentAdapterContext,
   normalizeAgentRef, coerceAgentResult, agentResultOutputPayload,
-} from '@anthropic/flatagents';
-import type { ToolProvider, ToolResult } from '@anthropic/flatagents';
+} from '@memgrafter/flatagents';
+import type { ToolProvider, ToolResult } from '@memgrafter/flatagents';
 import { getExecutionType } from './execution';
 import { evaluate } from './expression';
 import { CheckpointManager, LocalFileBackend, MemoryBackend } from './persistence';

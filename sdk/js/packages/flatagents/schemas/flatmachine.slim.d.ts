@@ -1,4 +1,4 @@
-export const SPEC_VERSION = "2.4.3";
+export const SPEC_VERSION = "2.5.0";
 export interface MachineWrapper {
     spec: "flatmachine";
     spec_version: string;

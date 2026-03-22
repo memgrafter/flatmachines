@@ -18,7 +18,7 @@ import {
   AgentAdapterRegistry,
   AgentResponse,
   FinishReason,
-} from '@anthropic/flatagents';
+} from '@memgrafter/flatagents';
 import { resolve } from 'path';
 
 // ─────────────────────────────────────────────────────────────────────────────

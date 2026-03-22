@@ -1,7 +1,7 @@
 /**
  * FlatMachines types — machine-level configuration and runtime types.
  *
- * Re-exports agent types from @anthropic/flatagents for convenience,
+ * Re-exports agent types from @memgrafter/flatagents for convenience,
  * and defines all machine-specific interfaces.
  */
 
@@ -14,7 +14,7 @@ export type {
   ProfilesConfig,
   MCPServer,
   ToolFilter,
-} from '@anthropic/flatagents';
+} from '@memgrafter/flatagents';
 
 export interface MachineConfig {
   spec: "flatmachine";

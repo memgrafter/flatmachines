@@ -10,7 +10,7 @@ import { ConfigStore } from './persistence_sqlite';
 import { SignalBackend } from './signals';
 import { PersistenceBackend, MachineSnapshot, MachineHooks } from './types';
 import { HooksRegistry } from './hooks';
-import type { ToolProvider } from '@anthropic/flatagents';
+import type { ToolProvider } from '@memgrafter/flatagents';
 import * as yaml from 'yaml';
 
 // ─────────────────────────────────────────────────────────────────────────────
