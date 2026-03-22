@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import * as sdk from '../../src'
+import * as sdk from '@memgrafter/flatmachines'
 import {
   FinishReason,
   extractRateLimitInfo,
@@ -9,17 +9,17 @@ import {
   isRateLimited,
   isRetryableError,
   normalizeHeaders,
-} from '../../src/agent_response'
-import { FlatAgent } from '../../src/flatagent'
+} from '@memgrafter/flatagents'
+import { FlatAgent } from '@memgrafter/flatagents'
 import {
   agentResultOutputPayload,
   agentResultSuccess,
   buildRateLimitState,
   buildRateLimitWindows,
   coerceAgentResult,
-} from '../../src/agents'
-import { FlatAgentExecutor } from '../../src/adapters/flatagent_adapter'
-import { AgentMonitor, trackOperation } from '../../src/monitoring'
+} from '@memgrafter/flatagents'
+import { FlatAgentExecutor } from '@memgrafter/flatmachines'
+import { AgentMonitor, trackOperation } from '@memgrafter/flatagents'
 
 type GroupedCases = Record<string, readonly string[]>
 

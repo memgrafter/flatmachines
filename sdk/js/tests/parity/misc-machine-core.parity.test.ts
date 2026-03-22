@@ -22,7 +22,7 @@ import {
   type ExecutionLock,
   type MachineConfig,
   type MachineHooks,
-} from '../../src'
+} from '@memgrafter/flatmachines'
 
 const minimalMachine = (agents: Record<string, any>): MachineConfig => ({
   spec: 'flatmachine',

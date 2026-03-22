@@ -16,7 +16,7 @@ import {
   SQLiteLeaseLock,
   type MachineConfig,
   type MachineSnapshot,
-} from '../../src'
+} from '@memgrafter/flatmachines'
 
 const require = createRequire(import.meta.url)
 const { DatabaseSync } = require('node:sqlite') as {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { MCPToolProvider } from '../../src/mcp'
+import { MCPToolProvider } from '@memgrafter/flatagents'
 
 describe('MCPToolProvider', () => {
   beforeEach(() => {

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import * as flatmachines from '../../src'
+import * as flatmachines from '@memgrafter/flatmachines'
 import {
   CheckpointManager,
   FlatMachine,
@@ -14,15 +14,15 @@ import {
   type MachineHooks,
   type MachineSnapshot,
   type PersistenceBackend,
-} from '../../src'
+} from '@memgrafter/flatmachines'
 
 const DISPATCHER_FILE = 'sdk/python/tests/unit/test_dispatcher.py'
 const WAIT_FOR_FILE = 'sdk/python/tests/unit/test_wait_for.py'
 const LIFECYCLE_FILE = 'sdk/python/tests/integration/signals/test_wait_for_lifecycle.py'
 const DISPATCH_SIGNALS_FILE = 'sdk/python/tests/unit/test_dispatch_signals.py'
 
-const DISPATCH_SIGNALS_MODULE_PATH = '../../src/dispatch_signals'
-const FLATMACHINE_MODULE_PATH = '../../src/flatmachine'
+const DISPATCH_SIGNALS_MODULE_PATH = '@memgrafter/flatmachines'
+const FLATMACHINE_MODULE_PATH = '@memgrafter/flatmachines'
 
 const loadDispatchSignalsModule = async (): Promise<any> => import(DISPATCH_SIGNALS_MODULE_PATH)
 const loadFlatMachineModule = async (): Promise<any> => import(FLATMACHINE_MODULE_PATH)

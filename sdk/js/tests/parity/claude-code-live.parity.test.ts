@@ -13,8 +13,8 @@ vi.mock('node:child_process', async () => {
   return { ...actual, spawn: spawnMock }
 })
 
-import { AgentAdapterRegistry } from '../../src/agents'
-import { ClaudeCodeAdapter, ClaudeCodeExecutor } from '../../src/adapters/claude_code_adapter'
+import { AgentAdapterRegistry } from '@memgrafter/flatagents'
+import { ClaudeCodeAdapter, ClaudeCodeExecutor } from '@memgrafter/flatmachines'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -167,7 +167,7 @@ const makeSessionResult = (overrides: Record<string, unknown> = {}) => ({
 })
 
 const importClaudeCodeSessions = async () =>
-  (await import('../../src/adapters/claude_code_sessions')) as any
+  (await import('../../packages/flatmachines/src/adapters/claude_code_sessions')) as any
 
 describe('claude code adapter parity', () => {
   it('sdk/python/tests/unit/test_claude_code_adapter.py::TestBuildArgs.test_defaults', () => {

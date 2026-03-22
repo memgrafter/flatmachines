@@ -11,8 +11,8 @@ import {
   SubprocessInvoker,
   createRegistrationBackend,
   createWorkBackend,
-} from '../../src'
-import * as flatagentsSdk from '../../src'
+} from '@memgrafter/flatmachines'
+import * as flatagentsSdk from '@memgrafter/flatmachines'
 import {
   PARITY_CASE_ASSIGNMENTS,
   PARITY_MANIFEST_CASE_KEYS,

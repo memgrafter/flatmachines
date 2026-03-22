@@ -14,7 +14,7 @@ import {
   SignalDispatcher,
   SocketTrigger,
   SQLiteCheckpointBackend,
-} from '../../src'
+} from '@memgrafter/flatmachines'
 
 const require = createRequire(import.meta.url)
 

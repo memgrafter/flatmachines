@@ -10,7 +10,7 @@ import {
   SQLiteCheckpointBackend,
   SQLiteLeaseLock,
   WebhookHooks,
-} from '../../src'
+} from '@memgrafter/flatmachines'
 
 const makeTempDir = () => mkdtempSync(join(tmpdir(), 'persistence-integration-parity-'))
 
@@ -771,7 +771,7 @@ describe('persistence integration parity', () => {
 
   // machine launching (3)
   it('test_machine_launching.py::test_launch_creates_execution', async () => {
-    const { inMemoryResultBackend } = await import('../../src/results')
+    const { inMemoryResultBackend } = await import('@memgrafter/flatmachines')
 
     const childConfig = {
       spec: 'flatmachine',
@@ -817,7 +817,7 @@ describe('persistence integration parity', () => {
   })
 
   it('test_machine_launching.py::test_launch_with_input', async () => {
-    const { inMemoryResultBackend } = await import('../../src/results')
+    const { inMemoryResultBackend } = await import('@memgrafter/flatmachines')
 
     const childConfig = {
       spec: 'flatmachine',

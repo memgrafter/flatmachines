@@ -18,16 +18,16 @@ import {
   RetryExecution,
   ParallelExecution,
   MDAPVotingExecution,
-} from '../../src';
-import { VercelAIBackend, MockLLMBackend } from '../../src/llm';
+} from '@memgrafter/flatmachines';
+import { VercelAIBackend, MockLLMBackend } from '@memgrafter/flatagents';
 import type {
   ExecutionLock,
   PersistenceBackend,
   ResultBackend,
   ExecutionType,
   MachineSnapshot,
-} from '../../src/types';
-import type { LLMBackend } from '../../src/llm/types';
+} from '@memgrafter/flatagents';
+import type { LLMBackend } from '@memgrafter/flatagents';
 
 describe('Runtime Spec Compliance', () => {
   describe('ExecutionLock Interface', () => {

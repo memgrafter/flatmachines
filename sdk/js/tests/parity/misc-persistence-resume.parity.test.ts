@@ -24,8 +24,8 @@ import {
   type MachineHooks,
   type MachineSnapshot,
   type PersistenceBackend,
-} from '../../src'
-import * as sdk from '../../src'
+} from '@memgrafter/flatmachines'
+import * as sdk from '@memgrafter/flatmachines'
 
 const require = createRequire(import.meta.url)
 

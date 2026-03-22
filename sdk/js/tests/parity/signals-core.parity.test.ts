@@ -16,8 +16,8 @@ import {
   sendAndNotify,
   type SignalBackend,
   type TriggerBackend,
-} from '../../src/signals'
-import * as flatmachines from '../../src'
+} from '@memgrafter/flatmachines'
+import * as flatmachines from '@memgrafter/flatmachines'
 import { PARITY_MANIFEST_CASE_KEYS } from '../helpers/parity/test-matrix'
 
 const SIGNALS_FILE = 'sdk/python/tests/unit/test_signals.py'

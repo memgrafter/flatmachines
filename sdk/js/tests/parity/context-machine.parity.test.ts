@@ -7,7 +7,7 @@ import {
   MemorySignalBackend,
   type MachineConfig,
   type MachineHooks,
-} from '../../src'
+} from '@memgrafter/flatmachines'
 
 const PY_FILE = 'sdk/python/tests/unit/test_context_machine.py'
 

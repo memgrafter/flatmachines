@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { FlatAgent } from '../../src/flatagent'
+import { FlatAgent } from '@memgrafter/flatagents'
 import { 
   createMinimalAgentConfig, 
   mockNetworkFailure, 

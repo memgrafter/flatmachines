@@ -2,7 +2,7 @@
 // Integration tests for FlatAgent functionality
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { FlatAgent } from '../../src/flatagent';
+import { FlatAgent } from '@memgrafter/flatagents';
 import { existsSync } from 'fs';
 import * as yaml from 'yaml';
 import { join } from 'path';

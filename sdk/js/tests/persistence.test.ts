@@ -2,8 +2,8 @@
 // Comprehensive unit tests for persistence functionality
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { MemoryBackend, LocalFileBackend, CheckpointManager } from '../src/persistence';
-import { MachineSnapshot } from '../src/types';
+import { MemoryBackend, LocalFileBackend, CheckpointManager } from '@memgrafter/flatmachines';
+import { MachineSnapshot } from '@memgrafter/flatagents';
 
 describe('MemoryBackend', () => {
   let backend: MemoryBackend;

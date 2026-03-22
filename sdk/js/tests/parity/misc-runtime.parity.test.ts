@@ -3,17 +3,17 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
-import { FlatMachine } from '../../src/flatmachine'
-import { StructuredExtractor } from '../../src/extractors'
-import { CheckpointManager, MemoryBackend } from '../../src/persistence'
+import { FlatMachine } from '@memgrafter/flatmachines'
+import { StructuredExtractor } from '@memgrafter/flatagents'
+import { CheckpointManager, MemoryBackend } from '@memgrafter/flatmachines'
 import {
   MemoryWorkBackend,
   SQLiteWorkBackend,
   createWorkBackend,
-} from '../../src/work'
-import * as distributedModule from '../../src/distributed'
-import * as sdkIndex from '../../src/index'
-import { ClaudeCodeExecutor } from '../../src/adapters/claude_code_adapter'
+} from '@memgrafter/flatmachines'
+import * as distributedModule from '@memgrafter/flatmachines'
+import * as sdkIndex from '@memgrafter/flatmachines'
+import { ClaudeCodeExecutor } from '@memgrafter/flatmachines'
 
 const minimalMachineConfig = {
   spec: 'flatmachine' as const,

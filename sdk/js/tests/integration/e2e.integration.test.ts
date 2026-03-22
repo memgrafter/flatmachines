@@ -2,7 +2,7 @@
 // End-to-end integration tests for complete FlatAgents workflows
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { MemoryBackend } from '../../src/persistence';
+import { MemoryBackend } from '@memgrafter/flatmachines';
 import { mkdirSync } from 'fs';
 import * as yaml from 'yaml';
 
@@ -207,25 +207,25 @@ data:
       };
 
       // Mock the FlatAgent and FlatMachine constructors and execute methods
-      vi.mock('../src/flatagent', () => ({
+      vi.mock('@memgrafter/flatagents', () => ({
         FlatAgent: vi.fn().mockImplementation(() => ({
           call: vi.fn().mockResolvedValue(mockExtractAgent)
         }))
       }));
 
-      vi.mock('../src/flatmachine', () => ({
+      vi.mock('@memgrafter/flatmachines', () => ({
         FlatMachine: vi.fn().mockImplementation(() => ({
           execute: vi.fn().mockResolvedValue(mockTransformMachine)
         }))
       }));
 
       // Load agent for the final step
-      const LoadAgentClass = (await import('../src/flatagent')).FlatAgent;
+      const LoadAgentClass = (await import('@memgrafter/flatagents')).FlatAgent;
       const loadAgentInstance = new LoadAgentClass(parseAgentConfig(loadAgent));
       vi.spyOn(loadAgentInstance, 'call').mockResolvedValue(mockLoadAgent);
 
       // Execute the complete ETL pipeline
-      const extractAgentInstance = new (await import('../src/flatagent')).FlatAgent(parseAgentConfig(extractAgent));
+      const extractAgentInstance = new (await import('@memgrafter/flatagents')).FlatAgent(parseAgentConfig(extractAgent));
       const extractResult = await extractAgentInstance.call({
         source_type: 'csv_file',
         source_config: { path: '/data/customers.csv', format: 'csv' }
@@ -234,7 +234,7 @@ data:
       expect(extractResult.output.validation_status).toBe('valid');
       expect(extractResult.output.extracted_data.records).toHaveLength(100);
 
-      const transformMachineInstance = new (await import('../src/flatmachine')).FlatMachine({ config: parseMachineConfig(transformMachine) });
+      const transformMachineInstance = new (await import('@memgrafter/flatmachines')).FlatMachine({ config: parseMachineConfig(transformMachine) });
       const transformResult = await transformMachineInstance.execute({
         extracted_data: extractResult.output.extracted_data,
         rules: { normalize_names: true, validate_emails: true },
@@ -458,20 +458,20 @@ data:
       };
 
       // Mock all the constructors and execution
-      vi.mock('../src/flatagent', () => ({
+      vi.mock('@memgrafter/flatagents', () => ({
         FlatAgent: vi.fn().mockImplementation(() => ({
           call: vi.fn().mockResolvedValue(mockTicketResult)
         }))
       }));
 
-      vi.mock('../src/flatmachine', () => ({
+      vi.mock('@memgrafter/flatmachines', () => ({
         FlatMachine: vi.fn().mockImplementation(() => ({
           execute: vi.fn().mockResolvedValue(mockProcessingResult)
         }))
       }));
 
       // Execute the complete customer service workflow
-      const ticketAgentInstance = new (await import('../src/flatagent')).FlatAgent(parseAgentConfig(ticketAgent));
+      const ticketAgentInstance = new (await import('@memgrafter/flatagents')).FlatAgent(parseAgentConfig(ticketAgent));
       const ticketResult = await ticketAgentInstance.call({
         customer_request: 'I was charged twice for my monthly subscription. Can you help me resolve this?'
       });
@@ -479,7 +479,7 @@ data:
       expect(ticketResult.output.ticket.id).toBe('TKT-2023-001');
       expect(ticketResult.output.category).toBe('billing');
 
-      const processingMachineInstance = new (await import('../src/flatmachine')).FlatMachine({ config: parseMachineConfig(processingMachine) });
+      const processingMachineInstance = new (await import('@memgrafter/flatmachines')).FlatMachine({ config: parseMachineConfig(processingMachine) });
       const processingResult = await processingMachineInstance.execute({
         ticket: ticketResult.output.ticket,
         category: ticketResult.output.category,
@@ -491,7 +491,7 @@ data:
       expect(processingResult.output.processing_history).toContain('auto_responded');
 
       // Mock followup agent separately
-      const FollowupAgentClass = (await import('../src/flatagent')).FlatAgent;
+      const FollowupAgentClass = (await import('@memgrafter/flatagents')).FlatAgent;
       const followupAgentInstance = new FollowupAgentClass(parseAgentConfig(followupAgent));
       vi.spyOn(followupAgentInstance, 'call').mockResolvedValue(mockFollowupResult);
 
@@ -731,20 +731,20 @@ data:
       };
 
       // Mock constructors and executions
-      vi.mock('../src/flatagent', () => ({
+      vi.mock('@memgrafter/flatagents', () => ({
         FlatAgent: vi.fn().mockImplementation(() => ({
           call: vi.fn().mockResolvedValue(mockMonitoringResult)
         }))
       }));
 
-      vi.mock('../src/flatmachine', () => ({
+      vi.mock('@memgrafter/flatmachines', () => ({
         FlatMachine: vi.fn().mockImplementation(() => ({
           execute: vi.fn().mockResolvedValue(mockAlertResponse)
         }))
       }));
 
       // Execute the complete monitoring workflow
-      const monitoringAgentInstance = new (await import('../src/flatagent')).FlatAgent(parseAgentConfig(monitoringAgent));
+      const monitoringAgentInstance = new (await import('@memgrafter/flatagents')).FlatAgent(parseAgentConfig(monitoringAgent));
       const monitoringResult = await monitoringAgentInstance.call({
         system_metrics: {
           servers: [
@@ -759,7 +759,7 @@ data:
       expect(monitoringResult.output.health_status).toBe('degraded');
       expect(monitoringResult.output.metrics_summary.cpu_usage).toBe(95);
 
-      const alertResponseMachineInstance = new (await import('../src/flatmachine')).FlatMachine({
+      const alertResponseMachineInstance = new (await import('@memgrafter/flatmachines')).FlatMachine({
         config: parseMachineConfig(alertResponseMachine),
         persistence: memoryBackend
       });
@@ -778,7 +778,7 @@ data:
       expect(alertResult.output.response_history).toHaveLength(4);
 
       // Mock resolution agent
-      const ResolutionAgentClass = (await import('../src/flatagent')).FlatAgent;
+      const ResolutionAgentClass = (await import('@memgrafter/flatagents')).FlatAgent;
       const resolutionAgentInstance = new ResolutionAgentClass(parseAgentConfig(resolutionAgent));
       vi.spyOn(resolutionAgentInstance, 'call').mockResolvedValue(mockResolutionResult);
 
@@ -950,14 +950,14 @@ data:
       };
 
       // Mock FlatMachine constructor and execution
-      vi.mock('../src/flatmachine', () => ({
+      vi.mock('@memgrafter/flatmachines', () => ({
         FlatMachine: vi.fn().mockImplementation(() => ({
           execute: vi.fn().mockResolvedValue(mockOrchestrationResult)
         }))
       }));
 
       // Execute the complex orchestration
-      const orchestrationMachineInstance = new (await import('../src/flatmachine')).FlatMachine({
+      const orchestrationMachineInstance = new (await import('@memgrafter/flatmachines')).FlatMachine({
         config: parseMachineConfig(orchestrationMachine),
         persistence: memoryBackend
       });
@@ -1115,13 +1115,13 @@ data:
       // Mock with performance tracking
       const startTime = Date.now();
       
-      vi.mock('../src/flatmachine', () => ({
+      vi.mock('@memgrafter/flatmachines', () => ({
         FlatMachine: vi.fn().mockImplementation(() => ({
           execute: vi.fn().mockResolvedValue(mockPerformanceResult)
         }))
       }));
 
-      const concurrentMachineInstance = new (await import('../src/flatmachine')).FlatMachine({
+      const concurrentMachineInstance = new (await import('@memgrafter/flatmachines')).FlatMachine({
         config: parseMachineConfig(concurrentProcessingMachine),
         persistence: memoryBackend
       });

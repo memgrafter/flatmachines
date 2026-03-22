@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { DefaultExecution, RetryExecution, getExecutionType } from '../src/execution';
+import { DefaultExecution, RetryExecution, getExecutionType } from '@memgrafter/flatmachines';
 
 describe('DefaultExecution', () => {
   describe('Basic Execution', () => {

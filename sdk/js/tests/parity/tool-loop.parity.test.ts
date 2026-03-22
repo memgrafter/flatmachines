@@ -23,7 +23,7 @@ import {
   ToolLoopAgent,
   ToolProvider,
   ToolResult,
-} from '../../src';
+} from '@memgrafter/flatmachines';
 
 type ToolCallSpec = { id: string; name: string; arguments?: Record<string, any> };
 

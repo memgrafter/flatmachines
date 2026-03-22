@@ -9,9 +9,9 @@ import {
   type MachineConfig,
   type ToolProvider,
   type ToolResult,
-} from '../../src';
-import { FlatAgentExecutor } from '../../src/adapters/flatagent_adapter';
-import * as SDK from '../../src';
+} from '@memgrafter/flatmachines';
+import { FlatAgentExecutor } from '@memgrafter/flatmachines';
+import * as SDK from '@memgrafter/flatmachines';
 
 type ToolCall = {
   id: string;

@@ -14,8 +14,8 @@ import {
   isExpired,
   loadCodexCredential,
   refreshCodexCredential,
-} from '../../src/providers';
-import { refreshOpenaiCodexToken } from '../../src/providers/codex_auth';
+} from '@memgrafter/flatagents';
+import { refreshOpenaiCodexToken } from '../../packages/flatagents/src/providers/codex_auth';
 
 const ORIGINAL_FETCH = globalThis.fetch;
 const tempDirs: string[] = [];
@@ -583,7 +583,7 @@ describe('python parity: openai codex auth/client/login', () => {
   // test_openai_codex_login.py (5)
 
   it('test_parse_authorization_input_variants', async () => {
-    const { parseAuthorizationInput } = await import('../../src/providers/codex_login');
+    const { parseAuthorizationInput } = await import('../../packages/flatagents/src/providers/codex_login');
 
     expect(parseAuthorizationInput('https://localhost/callback?code=abc&state=xyz')).toEqual(['abc', 'xyz']);
     expect(parseAuthorizationInput('abc#xyz')).toEqual(['abc', 'xyz']);
@@ -592,7 +592,7 @@ describe('python parity: openai codex auth/client/login', () => {
   });
 
   it('test_create_authorization_flow_contains_expected_openai_params', async () => {
-    const { createAuthorizationFlow } = await import('../../src/providers/codex_login');
+    const { createAuthorizationFlow } = await import('../../packages/flatagents/src/providers/codex_login');
 
     const flow = createAuthorizationFlow('pi');
     const parsed = new URL(flow.url);
@@ -608,7 +608,7 @@ describe('python parity: openai codex auth/client/login', () => {
   });
 
   it('test_exchange_authorization_code_success', async () => {
-    const { exchangeAuthorizationCode } = await import('../../src/providers/codex_login');
+    const { exchangeAuthorizationCode } = await import('../../packages/flatagents/src/providers/codex_login');
 
     const token = tokenForAccount('acc_login');
     globalThis.fetch = vi
@@ -629,7 +629,7 @@ describe('python parity: openai codex auth/client/login', () => {
   });
 
   it('test_exchange_authorization_code_failure', async () => {
-    const { CodexLoginError, exchangeAuthorizationCode } = await import('../../src/providers/codex_login');
+    const { CodexLoginError, exchangeAuthorizationCode } = await import('../../packages/flatagents/src/providers/codex_login');
 
     globalThis.fetch = vi
       .fn(async () => new Response('{}', { status: 400 })) as unknown as typeof fetch;
@@ -640,7 +640,7 @@ describe('python parity: openai codex auth/client/login', () => {
   });
 
   it('test_login_openai_codex_saves_auth_file_without_email_prompt', async () => {
-    const mod = await import('../../src/providers/codex_login');
+    const mod = await import('../../packages/flatagents/src/providers/codex_login');
 
     const dir = makeTempDir();
     const authFile = join(dir, 'auth.json');

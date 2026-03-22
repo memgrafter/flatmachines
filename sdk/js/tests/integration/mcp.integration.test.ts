@@ -2,8 +2,8 @@
 // Integration tests for Model Context Protocol (MCP) functionality
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { FlatAgent } from '../../src/flatagent';
-import { MCPToolProvider } from '../../src/mcp';
+import { FlatAgent } from '@memgrafter/flatagents';
+import { MCPToolProvider } from '@memgrafter/flatagents';
 import * as yaml from 'yaml';
 
 const parseAgentConfig = (config: string) => yaml.parse(config);
