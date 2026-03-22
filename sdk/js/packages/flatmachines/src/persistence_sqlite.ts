@@ -5,6 +5,7 @@
  * Ports Python SDK's SQLiteCheckpointBackend from persistence.py.
  */
 
+import { createHash } from 'node:crypto';
 import { PersistenceBackend, MachineSnapshot } from './types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -240,7 +241,6 @@ export class SQLiteCheckpointBackend implements PersistenceBackend {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function configHash(raw: string): string {
-  const { createHash } = require('crypto');
   return createHash('sha256').update(raw, 'utf-8').digest('hex');
 }
 
