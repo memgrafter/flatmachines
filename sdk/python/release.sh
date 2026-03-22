@@ -35,6 +35,13 @@ if [ "$DRY_RUN" = true ]; then
 fi
 echo ""
 
+# Setup virtualenv with build tools
+if [ ! -d ~/virtualenvs/twine ]; then
+    python3 -m venv ~/virtualenvs/twine
+    ~/virtualenvs/twine/bin/pip install --upgrade build twine
+fi
+source ~/virtualenvs/twine/bin/activate
+
 # Sync and validate __version__ with pyproject.toml for each package
 for PKG in $PACKAGES; do
 export PKG
@@ -237,13 +244,6 @@ for PKG in $PACKAGES; do
 done
 echo "All spec assets verified."
 echo ""
-
-# Setup virtualenv with build tools
-if [ ! -d ~/virtualenvs/twine ]; then
-    python -m venv ~/virtualenvs/twine
-    ~/virtualenvs/twine/bin/pip install --upgrade build twine
-fi
-source ~/virtualenvs/twine/bin/activate
 
 # Build and upload each package
 for PKG in $PACKAGES; do
