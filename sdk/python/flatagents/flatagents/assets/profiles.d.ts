@@ -110,7 +110,7 @@
  * oauth             - OAuth settings (used by codex backend)
  */
 
-export const SPEC_VERSION = "2.4.3";
+export const SPEC_VERSION = "2.4.4";
 
 export interface ProfilesWrapper {
   spec: "flatprofiles";
