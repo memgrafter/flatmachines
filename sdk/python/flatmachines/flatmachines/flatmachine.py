@@ -1748,6 +1748,37 @@ class FlatMachine:
                 for msg in steering:
                     chain.append(msg)
 
+        # --- Final response pass when loop exited due to guardrails ---
+        # If the loop stopped before the LLM gave a text response (e.g., it was
+        # still requesting tool calls when max_tool_calls/max_turns hit), make
+        # one more call WITHOUT tools so the LLM is forced to produce text.
+        stop_reason = context.get('_tool_loop_stop')
+        if stop_reason and stop_reason in ('max_tool_calls', 'max_turns', 'timeout', 'cost_limit'):
+            if not last_content or not str(last_content).strip():
+                try:
+                    chain.append({
+                        "role": "user",
+                        "content": (
+                            "[System: tool use limit reached. Provide your final response now "
+                            "using the information gathered so far.]"
+                        ),
+                    })
+                    final_result = await executor.execute_with_tools(
+                        input_data={},
+                        tools=[],  # no tools — force text response
+                        messages=chain,
+                        context=context,
+                    )
+                    self._accumulate_agent_metrics(final_result)
+                    if final_result.content and str(final_result.content).strip():
+                        assistant_msg = self._build_assistant_message(final_result)
+                        chain.append(assistant_msg)
+                        last_content = final_result.content
+                        context['_tool_loop_content'] = final_result.content
+                        context['_tool_loop_usage'] = final_result.usage
+                except Exception as e:
+                    logger.warning("Final response pass failed: %s", e)
+
         # Save chain identity for potential continuation (preserves prefix cache)
         context['_tool_loop_chain'] = chain
         context['_tool_loop_chain_state'] = state_name
