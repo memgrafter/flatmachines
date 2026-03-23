@@ -1,6 +1,6 @@
 # GEPA Self-Optimizer (JavaScript)
 
-Optimizes a GEPA judge using flatagents for all LLM calls.
+Optimizes a GEPA judge using @memgrafter/flatagents for all LLM calls.
 
 ## Prerequisites
 

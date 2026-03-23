@@ -1,5 +1,5 @@
 import { loadAgent, loadYaml, createAgentFromDict, calculateAccuracy, calculateFalsePositiveRate, calculateFalseNegativeRate, calculateCalibrationError, createLogger } from './utils.js';
-import type { AgentConfig } from 'flatagents';
+import type { AgentConfig } from '@memgrafter/flatagents';
 
 export class EvaluationResult {
   constructor(

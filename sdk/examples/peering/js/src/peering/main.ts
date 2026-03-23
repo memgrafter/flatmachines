@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { FlatMachine, MemoryBackend, inMemoryResultBackend } from 'flatagents';
+import { FlatMachine, MemoryBackend, inMemoryResultBackend } from '@memgrafter/flatmachines';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 

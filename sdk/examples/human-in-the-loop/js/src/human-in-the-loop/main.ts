@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { FlatMachine, MachineHooks } from 'flatagents';
+import { FlatMachine, MachineHooks } from '@memgrafter/flatmachines';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import * as readline from 'node:readline';

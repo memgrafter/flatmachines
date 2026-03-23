@@ -31,7 +31,7 @@ Demonstrates how to integrate human approval and feedback into FlatAgent workflo
 ## Development Options
 
 ```bash
-# Use local flatagents package (for development)
+# Use local flatmachines package (for development)
 ./run.sh --local
 ```
 

@@ -56,10 +56,15 @@ fi
 # 1. Install Dependencies
 echo "📦 Installing dependencies..."
 if [ "$LOCAL_INSTALL" = true ]; then
-    echo "  - Building flatagents from local source..."
+    echo "  - Using local flatmachines SDK..."
     cd "$JS_SDK_PATH"
     npm run build
     cd "$SCRIPT_DIR"
+    # Swap to local dependency (flatmachines re-exports flatagents)
+    npm pkg set dependencies.@memgrafter/flatmachines="file:../../../js/packages/flatmachines"
+else
+    # Ensure we're using the npm package
+    npm pkg set dependencies.@memgrafter/flatmachines="^2.5.0"
 fi
 
 echo "  - Installing human-in-the-loop demo package..."

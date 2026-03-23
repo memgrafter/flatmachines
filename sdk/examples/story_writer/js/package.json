@@ -10,7 +10,7 @@
     "start": "node dist/story_writer/main.js"
   },
   "dependencies": {
-    "flatagents": "file:../../../js"
+    "@memgrafter/flatmachines": "file:../../../js/packages/flatmachines"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

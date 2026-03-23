@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { FlatAgent } from 'flatagents';
+import { FlatAgent } from '@memgrafter/flatagents';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { MDAPOrchestrator } from './mdap.js';

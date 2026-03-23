@@ -29,7 +29,7 @@ Demonstrates machine-to-machine communication, persistence, and checkpointing in
 ## Development Options
 
 ```bash
-# Use local flatagents package (for development)
+# Use local flatmachines package (for development)
 ./run.sh --local
 ```
 

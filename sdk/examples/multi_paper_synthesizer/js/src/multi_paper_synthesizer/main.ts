@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { FlatAgent, FlatMachine } from 'flatagents';
+import { FlatAgent, FlatMachine } from '@memgrafter/flatmachines';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { dirname, join, sep } from 'path';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';

@@ -1,4 +1,4 @@
-import type { MachineHooks } from 'flatagents';
+import type { MachineHooks } from '@memgrafter/flatmachines';
 import { spawnSync } from 'child_process';
 import { existsSync, readFileSync, mkdirSync, writeFileSync, unlinkSync } from 'fs';
 import { dirname, resolve, relative } from 'path';

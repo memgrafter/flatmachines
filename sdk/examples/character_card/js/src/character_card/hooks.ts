@@ -1,4 +1,4 @@
-import { FlatAgent, type MachineHooks } from 'flatagents';
+import { FlatAgent, type MachineHooks } from '@memgrafter/flatmachines';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { createInterface } from 'readline/promises';
