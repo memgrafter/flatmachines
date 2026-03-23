@@ -10,7 +10,7 @@
     "start": "node dist/helloworld/main.js"
   },
   "dependencies": {
-    "@memgrafter/flatmachines": "^2.5.0",
+    "@memgrafter/flatmachines": "file:../../../js/packages/flatmachines",
     "yaml": "^2.3.0"
   },
   "devDependencies": {
