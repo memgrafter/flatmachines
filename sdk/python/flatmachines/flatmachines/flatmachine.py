@@ -8,6 +8,7 @@ See local/flatmachines-plan.md for the full specification.
 """
 
 import asyncio
+import hashlib
 import importlib
 import json
 import os
@@ -1287,9 +1288,38 @@ class FlatMachine:
                 variables = {"context": context, "input": context}
                 agent_input = self._render_dict(input_spec, variables)
 
+                # Conversation-aware cache key policy for non-tool states:
+                # reuse ONLY when this call is continuing the exact prior chain.
+                incoming_messages = agent_input.get("messages") if isinstance(agent_input, dict) else None
+                incoming_sig = self._messages_signature(incoming_messages)
+
+                prior_key = context.get('_agent_cache_key')
+                prior_agent = context.get('_agent_cache_agent')
+                prior_sig = context.get('_agent_cache_sig')
+
+                is_continuation = bool(
+                    prior_key
+                    and prior_agent == agent_name
+                    and incoming_sig
+                    and prior_sig == incoming_sig
+                )
+
+                cache_key = prior_key if is_continuation else str(uuid.uuid4())
+                context['_agent_cache_key'] = cache_key
+                context['_agent_cache_agent'] = agent_name
+
+                # Session identity is machine-owned; ignore user-supplied session_id.
+                safe_agent_input = dict(agent_input) if isinstance(agent_input, dict) else {}
+                safe_agent_input.pop("session_id", None)
+
                 execution_config = state.get('execution')
                 execution_type = get_execution_type(execution_config)
-                result = await execution_type.execute(executor, agent_input, context=context)
+                result = await execution_type.execute(
+                    executor,
+                    safe_agent_input,
+                    context=context,
+                    session_id=cache_key,
+                )
                 agent_result = coerce_agent_result(result)
 
                 if agent_result.error:
@@ -1297,6 +1327,13 @@ class FlatMachine:
                     raise RuntimeError(f"{err.get('type', 'AgentError')}: {err.get('message', 'unknown')}")
 
                 output = agent_result.output_payload()
+
+                post_call_messages = self._build_post_call_messages(incoming_messages, agent_result)
+                post_call_sig = self._messages_signature(post_call_messages)
+                if post_call_sig:
+                    context['_agent_cache_sig'] = post_call_sig
+                else:
+                    context.pop('_agent_cache_sig', None)
 
                 self._accumulate_agent_metrics(agent_result)
 
@@ -1427,6 +1464,39 @@ class FlatMachine:
             ]
         return msg
 
+    @staticmethod
+    def _messages_signature(messages: Any) -> Optional[str]:
+        """Build a stable signature for a messages chain."""
+        if not isinstance(messages, list):
+            return None
+        try:
+            payload = json.dumps(
+                messages,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                default=str,
+            )
+        except Exception:
+            return None
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def _build_post_call_messages(
+        self,
+        incoming_messages: Any,
+        result: AgentResult,
+    ) -> List[Dict[str, Any]]:
+        """Build expected message chain after the current non-tool agent call."""
+        post_call_messages: List[Dict[str, Any]] = (
+            list(incoming_messages) if isinstance(incoming_messages, list) else []
+        )
+
+        if result.rendered_user_prompt:
+            post_call_messages.append({"role": "user", "content": result.rendered_user_prompt})
+
+        post_call_messages.append(self._build_assistant_message(result))
+        return post_call_messages
+
     def _find_conditional_transition(
         self,
         state_name: str,
@@ -1545,12 +1615,14 @@ class FlatMachine:
         saved_chain = context.pop('_tool_loop_chain', None)
         saved_chain_state = context.pop('_tool_loop_chain_state', None)
         saved_chain_agent = context.pop('_tool_loop_chain_agent', None)
+        saved_cache_key = context.pop('_tool_loop_cache_key', None)
         has_prior_chain = bool(
             saved_chain
             and saved_chain_state == state_name
             and saved_chain_agent == agent_name
         )
         chain: List[Dict[str, Any]] = saved_chain if has_prior_chain else []
+        cache_key = saved_cache_key if has_prior_chain else str(uuid.uuid4())
         turns = 0
         tool_calls_count = 0
         loop_cost = 0.0
@@ -1577,6 +1649,7 @@ class FlatMachine:
                     tools=tool_defs,
                     messages=None,
                     context=context,
+                    session_id=cache_key,
                 )
             else:
                 # Continuation — pass chain (preserves prefix cache)
@@ -1585,6 +1658,7 @@ class FlatMachine:
                     tools=tool_defs,
                     messages=chain,
                     context=context,
+                    session_id=cache_key,
                 )
 
             turns += 1
@@ -1768,6 +1842,7 @@ class FlatMachine:
                         tools=[],  # no tools — force text response
                         messages=chain,
                         context=context,
+                        session_id=cache_key,
                     )
                     self._accumulate_agent_metrics(final_result)
                     if final_result.content and str(final_result.content).strip():
@@ -1783,6 +1858,7 @@ class FlatMachine:
         context['_tool_loop_chain'] = chain
         context['_tool_loop_chain_state'] = state_name
         context['_tool_loop_chain_agent'] = agent_name
+        context['_tool_loop_cache_key'] = cache_key
 
         # --- Build output ---
         output = {

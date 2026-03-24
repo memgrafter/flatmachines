@@ -381,6 +381,7 @@ class CodexCliExecutor(AgentExecutor):
         self,
         input_data: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> AgentResult:
         """Execute a Codex CLI invocation."""
         task = input_data.get("task") or input_data.get("prompt", "")
@@ -408,6 +409,7 @@ class CodexCliExecutor(AgentExecutor):
         tools: List[Dict[str, Any]],
         messages: Optional[List[Dict[str, Any]]] = None,
         context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> AgentResult:
         """Not supported -- Codex CLI owns its tool loop."""
         raise NotImplementedError(

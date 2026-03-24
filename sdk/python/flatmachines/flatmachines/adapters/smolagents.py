@@ -29,6 +29,7 @@ class SmolagentsExecutor(AgentExecutor):
         self,
         input_data: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> AgentResult:
         task = input_data.get("task") or input_data.get("prompt")
         if task is None:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any, Dict, Optional
 
 from ..agents import (
@@ -62,24 +61,6 @@ class FlatAgentExecutor(AgentExecutor):
     @property
     def metadata(self) -> Dict[str, Any]:
         return getattr(self._agent, "metadata", {})
-
-    @staticmethod
-    def _resolve_execution_id(context: Optional[Dict[str, Any]]) -> Optional[str]:
-        """Resolve execution_id from machine context, checking both the legacy
-        top-level key and the canonical context['machine']['execution_id'] path."""
-        if not isinstance(context, dict):
-            return None
-        # Top-level (set at machine init, may be overwritten)
-        execution_id = context.get("execution_id")
-        if execution_id:
-            return str(execution_id)
-        # Canonical path: context.machine.execution_id (injected per state entry)
-        machine = context.get("machine")
-        if isinstance(machine, Mapping):
-            mid = machine.get("execution_id")
-            if mid:
-                return str(mid)
-        return None
 
     def _map_response(self, response, delta_calls: int, delta_cost: float) -> AgentResult:
         """Map a FlatAgent AgentResponse to a FlatMachines AgentResult."""
@@ -205,11 +186,16 @@ class FlatAgentExecutor(AgentExecutor):
         self,
         input_data: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> AgentResult:
         pre_calls = self._agent.total_api_calls
         pre_cost = self._agent.total_cost
 
-        response = await self._agent.call(**input_data)
+        extra: Dict[str, Any] = {}
+        if session_id and self._agent._backend == "codex":
+            extra["session_id"] = session_id
+
+        response = await self._agent.call(**input_data, **extra)
 
         delta_calls = self._agent.total_api_calls - pre_calls
         delta_cost = self._agent.total_cost - pre_cost
@@ -222,17 +208,14 @@ class FlatAgentExecutor(AgentExecutor):
         tools: list,
         messages: Optional[list] = None,
         context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> AgentResult:
         pre_calls = self._agent.total_api_calls
         pre_cost = self._agent.total_cost
 
-        # Pass execution_id as session_id so the Codex backend can set
-        # prompt_cache_key, enabling KV-cache hits across continuation turns.
         extra: Dict[str, Any] = {}
-        if context and self._agent._backend == "codex":
-            execution_id = self._resolve_execution_id(context)
-            if execution_id and not self._agent._model_config_raw.get("codex_session_id"):
-                extra["session_id"] = execution_id
+        if session_id and self._agent._backend == "codex":
+            extra["session_id"] = session_id
 
         response = await self._agent.call(
             tools=tools,

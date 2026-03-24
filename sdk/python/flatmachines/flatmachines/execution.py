@@ -177,6 +177,7 @@ class ExecutionType(ABC):
         executor: AgentExecutor,
         input_data: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> AgentResult:
         """
         Execute the agent with this execution type.
@@ -185,6 +186,7 @@ class ExecutionType(ABC):
             executor: The AgentExecutor to call
             input_data: Input data for the agent
             context: Current machine context
+            session_id: Cache key for prompt prefix caching
 
         Returns:
             AgentResult
@@ -205,9 +207,10 @@ class DefaultExecution(ExecutionType):
         executor: AgentExecutor,
         input_data: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> AgentResult:
         """Single agent call."""
-        result = await executor.execute(input_data, context=context)
+        result = await executor.execute(input_data, context=context, session_id=session_id)
         return coerce_agent_result(result)
 
 
@@ -240,10 +243,11 @@ class ParallelExecution(ExecutionType):
         executor: AgentExecutor,
         input_data: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> AgentResult:
         """Run N agent calls in parallel, return all results."""
         async def single_call() -> AgentResult:
-            result = await executor.execute(input_data, context=context)
+            result = await executor.execute(input_data, context=context, session_id=session_id)
             return coerce_agent_result(result)
 
         # Run all samples in parallel
@@ -320,6 +324,7 @@ class RetryExecution(ExecutionType):
         executor: AgentExecutor,
         input_data: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> AgentResult:
         """Execute with retries on failure."""
         last_error = None
@@ -330,7 +335,7 @@ class RetryExecution(ExecutionType):
 
         for attempt in range(max_attempts):
             try:
-                result = await executor.execute(input_data, context=context)
+                result = await executor.execute(input_data, context=context, session_id=session_id)
                 agent_result = coerce_agent_result(result)
                 total_api_calls += _extract_api_calls(agent_result)
                 total_cost += _extract_cost(agent_result)
@@ -622,6 +627,7 @@ class MDAPVotingExecution(ExecutionType):
         executor: AgentExecutor,
         input_data: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> AgentResult:
         """
         Multi-sample with voting - replaces single agent call.
@@ -638,7 +644,7 @@ class MDAPVotingExecution(ExecutionType):
 
         for _ in range(self.max_candidates):
             try:
-                result = await executor.execute(input_data, context=context)
+                result = await executor.execute(input_data, context=context, session_id=session_id)
                 agent_result = coerce_agent_result(result)
                 num_samples += 1
                 self.metrics.total_samples += 1

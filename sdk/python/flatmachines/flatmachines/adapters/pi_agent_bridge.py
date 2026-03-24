@@ -37,6 +37,7 @@ class PiAgentBridgeExecutor(AgentExecutor):
         self,
         input_data: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> AgentResult:
         request = {
             "ref": self._ref,

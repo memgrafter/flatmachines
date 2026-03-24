@@ -1,5 +1,5 @@
 spec: flatprofiles
-spec_version: "2.2.3"
+spec_version: "2.4.4"
 
 data:
   model_profiles:
@@ -10,7 +10,7 @@ data:
       base_url: https://chatgpt.com/backend-api
       oauth:
         provider: openai-codex
-        auth_file: ../../openai_codex_oauth/python/config/auth.json
+        auth_file: ~/.pi/agent/auth.json
         originator: flatagents
         refresh: true
         timeout_seconds: 120

@@ -133,6 +133,7 @@ class AgentExecutor(Protocol):
         self,
         input_data: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> AgentResult:
         ...
 
@@ -142,6 +143,7 @@ class AgentExecutor(Protocol):
         tools: List[Dict[str, Any]],
         messages: Optional[List[Dict[str, Any]]] = None,
         context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> AgentResult:
         """
         Execute a single LLM call with tool definitions and optional
@@ -152,6 +154,9 @@ class AgentExecutor(Protocol):
             tools: Tool definitions in OpenAI function-calling format
             messages: Conversation chain for continuation (subsequent calls)
             context: Machine context (read-only, for adapter use)
+            session_id: Cache key for prompt prefix caching. The machine
+                generates this and passes it explicitly — adapters forward
+                it to the backend (e.g. as prompt_cache_key for codex).
 
         Returns:
             AgentResult with tool_calls populated if LLM requested tools,

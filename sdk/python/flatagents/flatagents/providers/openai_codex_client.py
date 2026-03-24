@@ -147,6 +147,7 @@ class CodexClient:
                 "url": request_url,
                 "headers": self._redact_request_headers(headers),
                 "retries_used": retries_used,
+                "prompt_cache_key": session_id,
             }
             return result
         except CodexHTTPError as first_error:
@@ -184,6 +185,7 @@ class CodexClient:
                 "url": request_url,
                 "headers": self._redact_request_headers(retry_headers),
                 "retries_used": retries_used,
+                "prompt_cache_key": session_id,
             }
             return result
 
@@ -365,14 +367,32 @@ class CodexClient:
                 response_obj = event.get("response") if isinstance(event.get("response"), dict) else {}
                 result.status = str(response_obj.get("status")) if response_obj.get("status") else None
                 usage_obj = response_obj.get("usage") if isinstance(response_obj.get("usage"), dict) else {}
-                input_tokens = int(usage_obj.get("input_tokens") or 0)
-                output_tokens = int(usage_obj.get("output_tokens") or 0)
-                total_tokens = int(usage_obj.get("total_tokens") or (input_tokens + output_tokens))
-                cached_tokens = int(
+                current_input_tokens = int(usage_obj.get("input_tokens") or 0)
+                current_output_tokens = int(usage_obj.get("output_tokens") or 0)
+                current_total_tokens = int(
+                    usage_obj.get("total_tokens") or (current_input_tokens + current_output_tokens)
+                )
+                current_cached_tokens = int(
                     (usage_obj.get("input_tokens_details") or {}).get("cached_tokens")
                     if isinstance(usage_obj.get("input_tokens_details"), dict)
                     else 0
                 )
+
+                # Some payloads emit both response.completed and response.done with
+                # different usage fidelity. Preserve best-known values instead of
+                # letting a later sparse event overwrite cache metrics with zeros.
+                previous_usage = result.usage
+                if previous_usage is not None:
+                    input_tokens = max(previous_usage.input_tokens, current_input_tokens)
+                    output_tokens = max(previous_usage.output_tokens, current_output_tokens)
+                    total_tokens = max(previous_usage.total_tokens, current_total_tokens)
+                    cached_tokens = max(previous_usage.cached_tokens, current_cached_tokens)
+                else:
+                    input_tokens = current_input_tokens
+                    output_tokens = current_output_tokens
+                    total_tokens = current_total_tokens
+                    cached_tokens = current_cached_tokens
+
                 result.usage = CodexUsage(
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
