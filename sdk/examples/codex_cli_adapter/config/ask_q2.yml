@@ -1,0 +1,35 @@
+spec: flatmachine
+spec_version: "2.5.0"
+data:
+  name: ask-q2
+  context:
+    thread_id: input.thread_id
+  agents:
+    coder:
+      type: codex-cli
+      config:
+        model: gpt-5.3-codex
+        reasoning_effort: high
+        sandbox: read-only
+        approval_policy: never
+        skip_git_repo_check: true
+        ephemeral: true
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: ask
+    ask:
+      agent: coder
+      input:
+        task: "From the file demo_context.md you read earlier, what is the project authorization code (format: WORD-WORD-DIGITS)? Reply with just the code."
+        resume_session: context.thread_id
+      output_to_context:
+        answer: output.result
+      transitions:
+        - to: done
+    done:
+      type: final
+      output:
+        question: "authorization code"
+        answer: context.answer

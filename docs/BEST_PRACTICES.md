@@ -63,6 +63,12 @@
 - Minimize transforms to boundary actions only (e.g., final DB write, final report save).
 - Preserve full source text (`paper_text`) through expensive stages; avoid excerpt-only chains.
 
+### Jinja portability (hard rule)
+- Jinja expressions in agent/machine configs (`input`, `output_to_context`, `transitions`, `foreach`, `wait_for`) must work across all SDK languages (Python, JavaScript, Rust, Go, etc.).
+- Avoid Python-specific filters, methods, or builtins (e.g., `.items()`, `| tojson`, `isinstance()`, `len()`, list comprehensions).
+- Stick to basic property access, comparisons, and simple conditionals that any Jinja2-compatible template engine supports.
+- If an example or config uses a language-specific Jinja feature, it will silently break on other SDK implementations.
+
 ### Rule of thumb
 - Every transformation must justify itself in one line.
 - If not necessary for control flow, remove it.

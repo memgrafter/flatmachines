@@ -1,0 +1,73 @@
+# Codex CLI Adapter — Cache demo
+#
+# Demonstrates Responses API prefix caching across session resume.
+# State 1 asks Codex to read a ~2k-token file via its tool loop,
+# state 2 resumes the same thread with a trivial follow-up.
+# The second call's cached_input_tokens should be significantly
+# higher than the first, proving the file content was cached.
+#
+# Usage:
+#   ./run.sh --local
+#
+# Expected output:
+#   seed:   tokens: ~11000→~100 (cached: ~3000)   ← system prompt cache only
+#   verify: tokens: ~11000→~10  (cached: ~9000)   ← system prompt + file content cached
+
+spec: flatmachine
+spec_version: "2.5.0"
+
+data:
+  name: codex-cli-cache-demo
+  context:
+    thread_id: ""
+
+  agents:
+    coder:
+      type: codex-cli
+      config:
+        model: gpt-5.3-codex
+        reasoning_effort: high
+        sandbox: read-only
+        approval_policy: never
+        skip_git_repo_check: true
+        ephemeral: true
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: seed
+
+    seed:
+      agent: coder
+      input:
+        task: "Read the file demo_context.md and acknowledge with exactly: RECEIVED"
+      output_to_context:
+        seed_result: output.result
+        thread_id: output.thread_id
+      transitions:
+        - to: verify
+
+    verify:
+      agent: coder
+      input:
+        task: "From the file you just read, what is the internal build identifier hash? Reply with just the hash, nothing else."
+        resume_session: context.thread_id
+      output_to_context:
+        verify_result: output.result
+      transitions:
+        - to: done
+
+    done:
+      type: final
+      output:
+        seed_result: context.seed_result
+        verify_result: context.verify_result
+        thread_id: context.thread_id
+
+metadata:
+  description: |
+    Cache demo: reads a ~2k-token file via tool loop, then resumes.
+    The second call should show much higher cached_input_tokens,
+    proving the file read content is in the prefix cache.
+  tags: ["codex-cli", "cache", "demo"]

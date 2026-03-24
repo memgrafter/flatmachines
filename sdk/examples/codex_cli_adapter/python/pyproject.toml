@@ -1,0 +1,21 @@
+[project]
+name = "codex-cli-example"
+version = "0.1.0"
+description = "Example: Codex CLI driven by FlatMachine"
+requires-python = ">=3.10"
+dependencies = [
+    "flatmachines[flatagents,metrics]",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[project.scripts]
+codex-cli-demo = "codex_cli_example.main:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

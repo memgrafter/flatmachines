@@ -741,6 +741,13 @@ class FlatAgent:
             _external_tools = None
             tools_prompt = self._render_tool_prompt(_mcp_tools)
 
+        # Session identity is transport metadata, not prompt input.
+        # Strip it from input_data so continuation calls (messages=..., no fresh
+        # user input) are not misclassified as having new user content.
+        codex_session_id = None
+        if self._backend == "codex" and "session_id" in input_data:
+            codex_session_id = input_data.pop("session_id")
+
         # Render prompts
         system_prompt = self._render_system_prompt(input_data, tools_prompt=tools_prompt, tools=_mcp_tools)
         user_prompt = self._render_user_prompt(input_data, tools_prompt=tools_prompt, tools=_mcp_tools)
@@ -815,10 +822,10 @@ class FlatAgent:
             if key not in _KNOWN_MODEL_FIELDS and key not in params and value is not None:
                 params[key] = value
 
-        # Forward session_id from input_data into params for the Codex backend so
-        # prompt_cache_key is set, enabling KV-cache hits across continuation turns.
-        if self._backend == "codex" and "session_id" in input_data and "session_id" not in params:
-            params["session_id"] = input_data["session_id"]
+        # Forward machine-provided session_id into Codex params so prompt_cache_key
+        # is set for this request.
+        if self._backend == "codex" and codex_session_id and "session_id" not in params:
+            params["session_id"] = codex_session_id
 
         # Add tools if available
         if _external_tools:
@@ -884,6 +891,22 @@ class FlatAgent:
                 finish_reason = self._extract_finish_reason(response)
                 if finish_reason:
                     monitor.metrics["finish_reason"] = finish_reason.value
+
+                # Debug session continuity for codex prompt caching.
+                if self._backend == "codex":
+                    request_meta = getattr(response, "_request_meta", {}) or {}
+                    request_headers = request_meta.get("headers") if isinstance(request_meta, dict) else {}
+                    if not isinstance(request_headers, dict):
+                        request_headers = {}
+                    session_header = request_headers.get("session_id")
+                    prompt_cache_key = request_meta.get("prompt_cache_key") if isinstance(request_meta, dict) else None
+                    logger.info(
+                        "Codex request debug: session_id=%s prompt_cache_key=%s finish_reason=%s cache_read_tokens=%s",
+                        session_header,
+                        prompt_cache_key,
+                        finish_reason.value if finish_reason else None,
+                        usage_info.cache_read_tokens if usage_info else 0,
+                    )
                 
                 # Extract rate limit headers from successful response
                 response_headers = extract_headers_from_response(response)

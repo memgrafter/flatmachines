@@ -1,0 +1,79 @@
+# Codex CLI Adapter — Fanout cache demo
+#
+# Demonstrates prefix caching across parallel session resumes.
+# State 1 seeds a thread by reading a file. State 2 launches 3
+# parallel sub-machines, each resuming the same thread with a
+# different question. All 3 should show high cached_input_tokens
+# because they share the same conversation prefix.
+#
+# Usage:
+#   ./run.sh --local --test-fanout-cache
+#
+# Expected output:
+#   seed:    tokens: ~20000→~200 (cached: ~16000)
+#   fork 1:  tokens: ~10000→~20  (cached: ~9000)   ← same prefix cached
+#   fork 2:  tokens: ~10000→~20  (cached: ~9000)   ← same prefix cached
+#   fork 3:  tokens: ~10000→~20  (cached: ~9000)   ← same prefix cached
+
+spec: flatmachine
+spec_version: "2.5.0"
+
+data:
+  name: codex-cli-fanout-cache-demo
+  context:
+    thread_id: ""
+
+  agents:
+    coder:
+      type: codex-cli
+      config:
+        model: gpt-5.3-codex
+        reasoning_effort: high
+        sandbox: read-only
+        approval_policy: never
+        skip_git_repo_check: true
+        ephemeral: true
+
+  machines:
+    ask_q1: ./ask_q1.yml
+    ask_q2: ./ask_q2.yml
+    ask_q3: ./ask_q3.yml
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: seed
+
+    seed:
+      agent: coder
+      input:
+        task: "Read the file demo_context.md carefully. Acknowledge with exactly: RECEIVED"
+      output_to_context:
+        seed_result: output.result
+        thread_id: output.thread_id
+      transitions:
+        - to: fanout
+
+    fanout:
+      machine: [ask_q1, ask_q2, ask_q3]
+      input:
+        thread_id: context.thread_id
+      output_to_context:
+        fanout_results: output
+      transitions:
+        - to: done
+
+    done:
+      type: final
+      output:
+        seed_result: context.seed_result
+        thread_id: context.thread_id
+        fanout_results: context.fanout_results
+
+metadata:
+  description: |
+    Fanout cache demo: seeds a thread by reading a file, then launches
+    3 parallel sub-machines each resuming the same thread with a
+    different question about unique values only in the file.
+  tags: ["codex-cli", "cache", "fanout", "parallel", "demo"]
