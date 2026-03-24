@@ -2,7 +2,7 @@
 
 A CLI coding agent with 4 tools — **read**, **write**, **bash**, **edit** — implemented with a **FlatMachine machine-driven tool loop** plus optional human review.
 
-This JS implementation uses `js/profiles.yml`, configured to read Codex OAuth credentials from `~/.pi/agent/auth.json`.
+It uses the shared `config/profiles.yml` model profile configuration (same source of truth as Python).
 
 ## Tools
 
@@ -44,6 +44,18 @@ cd sdk/examples/coding_machine_cli/js
 ./run.sh --local -w /tmp/project -p "create a hello world Python script"
 ```
 
+## Testing
+
+```bash
+cd sdk/examples/coding_machine_cli/js
+./test.sh
+```
+
+This runs a reproducible smoke suite for:
+- YAML tool-definition resolution/merge behavior
+- `~` path expansion in tools
+- Codex + tool-loop read-only execution
+
 ## CLI Options
 
 - `-p, --print <TASK>`: run one task and exit
@@ -67,6 +79,7 @@ coding_machine_cli/
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── run.sh
+│   ├── test.sh
 │   └── README.md
 └── python/
 ```

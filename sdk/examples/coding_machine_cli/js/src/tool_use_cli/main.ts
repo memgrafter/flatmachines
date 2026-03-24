@@ -1,11 +1,10 @@
 #!/usr/bin/env node
-import { AgentAdapterRegistry, FlatMachine } from '@memgrafter/flatmachines';
+import { FlatMachine } from '@memgrafter/flatmachines';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { createInterface } from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
 import { CLIToolHooks } from './hooks.js';
-import { CodexAwareFlatAgentAdapter } from './codex_backend.js';
 
 type Args = {
   task?: string;
@@ -79,29 +78,21 @@ function parseArgs(argv: string[]): Args {
   return args;
 }
 
-function pathsFromHere(): { configDir: string; profilesFile: string } {
+function configDirFromHere(): string {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
   const rootDir = join(__dirname, '..', '..', '..');
-  return {
-    configDir: join(rootDir, 'config'),
-    profilesFile: join(rootDir, 'js', 'profiles.yml'),
-  };
+  return join(rootDir, 'config');
 }
 
 async function runMachine(task: string, workingDir: string, humanReview = true): Promise<any> {
-  const { configDir, profilesFile } = pathsFromHere();
+  const configDir = configDirFromHere();
 
   const hooks = new CLIToolHooks(workingDir, !humanReview);
-  const agentRegistry = new AgentAdapterRegistry();
-  agentRegistry.register(new CodexAwareFlatAgentAdapter());
-
   const machine = new FlatMachine({
     config: join(configDir, 'machine.yml'),
     configDir,
-    profilesFile,
     hooks,
-    agentRegistry,
   });
 
   return await machine.execute({
@@ -140,25 +131,50 @@ async function repl(workingDir: string): Promise<void> {
   console.log(`Tool Use CLI — ${workingDir}`);
   console.log();
 
-  while (true) {
-    const task = await prompt('> ');
-    if (task === null) {
+  let interruptCount = 0;
+  let shouldExit = false;
+
+  const onSigint = () => {
+    interruptCount += 1;
+    if (interruptCount >= 2) {
+      shouldExit = true;
       console.log();
-      break;
+    } else {
+      console.log();
     }
+  };
 
-    if (!task) {
-      continue;
+  process.on('SIGINT', onSigint);
+
+  try {
+    while (!shouldExit) {
+      const task = await prompt('> ');
+      if (task === null) {
+        console.log();
+        break;
+      }
+
+      if (shouldExit) {
+        break;
+      }
+
+      if (!task) {
+        continue;
+      }
+
+      interruptCount = 0;
+
+      try {
+        await runMachine(task, workingDir, true);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.log(`Error: ${message}`);
+      }
+
+      console.log();
     }
-
-    try {
-      await runMachine(task, workingDir, true);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.log(`Error: ${message}`);
-    }
-
-    console.log();
+  } finally {
+    process.off('SIGINT', onSigint);
   }
 }
 

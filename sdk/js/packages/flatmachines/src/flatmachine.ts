@@ -449,8 +449,8 @@ export class FlatMachine {
       if (hookProvider) activeToolProvider = hookProvider;
     }
 
-    // Resolve tool definitions
-    const toolDefs = activeToolProvider?.get_tool_definitions() ?? [];
+    // Resolve tool definitions (provider + agent YAML, provider overrides by name)
+    const toolDefs = this._resolve_tool_definitions(agentName, activeToolProvider);
 
     // Build initial input
     const agentInput = this.render(def.input ?? {}, { context: this.context, input: this.input });
@@ -498,6 +498,7 @@ export class FlatMachine {
       context._tool_loop_cost = loopCost;
       context._tool_calls_count = toolCallsCount;
       context._tool_loop_content = result.content;
+      context._tool_loop_usage = result.usage;
 
       // Error
       if (result.error) {
@@ -715,18 +716,84 @@ export class FlatMachine {
 
   _resolve_tool_definitions(agentName?: string, provider?: any): any[] {
     const tp = provider ?? this?.toolProvider;
-    const defs = tp?.get_tool_definitions?.() ?? [];
-    // Check if agent has inline tools
-    if (agentName && this?.config) {
-      const agentConfig = this.config.data?.agents?.[agentName];
-      if (agentConfig && typeof agentConfig === 'object') {
-        const inlineTools = (agentConfig as any).data?.tools ?? (agentConfig as any).tools;
-        if (Array.isArray(inlineTools)) {
-          return [...defs, ...inlineTools];
+    const providerDefs = tp?.get_tool_definitions?.() ?? [];
+
+    if (!agentName) {
+      return providerDefs;
+    }
+
+    const agentConfig = this._get_agent_config(agentName);
+    const yamlDefs = agentConfig?.data?.tools ?? [];
+
+    if (!providerDefs.length) {
+      return yamlDefs;
+    }
+    if (!yamlDefs.length) {
+      return providerDefs;
+    }
+
+    // Merge: provider overrides YAML by function name
+    const providerNames = new Set<string>();
+    for (const d of providerDefs) {
+      const fn = d?.function ?? {};
+      if (fn?.name) {
+        providerNames.add(String(fn.name));
+      }
+    }
+
+    const merged = [...providerDefs];
+    for (const d of yamlDefs) {
+      const fn = d?.function ?? {};
+      if (!providerNames.has(String(fn?.name ?? ''))) {
+        merged.push(d);
+      }
+    }
+
+    return merged;
+  }
+
+  _get_agent_config(agentName: string): Record<string, any> | null {
+    const agentsMap = this.config.data?.agents ?? {};
+    const ref = (agentsMap as any)[agentName];
+    if (ref == null) return null;
+
+    // String path to flatagent config
+    if (typeof ref === 'string') {
+      try {
+        const fullPath = resolve(this.configDir, ref);
+        return yaml.parse(readFileSync(fullPath, 'utf-8')) as Record<string, any>;
+      } catch {
+        return null;
+      }
+    }
+
+    // Inline flatagent config
+    if (typeof ref === 'object' && ref) {
+      if ((ref as any).spec === 'flatagent') {
+        return ref as Record<string, any>;
+      }
+
+      // Typed adapter ref
+      if ((ref as any).type === 'flatagent') {
+        if (typeof (ref as any).config === 'object') {
+          const cfg = (ref as any).config;
+          if (cfg?.spec === 'flatagent') {
+            return cfg as Record<string, any>;
+          }
+        }
+
+        if (typeof (ref as any).ref === 'string') {
+          try {
+            const fullPath = resolve(this.configDir, String((ref as any).ref));
+            return yaml.parse(readFileSync(fullPath, 'utf-8')) as Record<string, any>;
+          } catch {
+            return null;
+          }
         }
       }
     }
-    return defs;
+
+    return null;
   }
 
   // ─────────────────────────────────────────────────────────────────────────

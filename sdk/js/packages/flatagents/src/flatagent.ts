@@ -3,7 +3,7 @@ import { readFileSync, existsSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { AgentConfig, ModelConfig } from './types';
 import { MCPToolProvider } from './mcp';
-import { LLMBackend, Message, VercelAIBackend } from './llm';
+import { LLMBackend, Message, VercelAIBackend, CodexLLMBackend } from './llm';
 import { resolveModelConfig } from './profiles';
 import { renderTemplate } from './templating';
 import {
@@ -107,11 +107,19 @@ export class FlatAgent {
    */
   private getBackend(): LLMBackend {
     if (!this.llmBackend) {
-      this.llmBackend = new VercelAIBackend({
-        provider: this.resolvedModelConfig.provider ?? 'openai',
-        name: this.resolvedModelConfig.name,
-        baseURL: this.resolvedModelConfig.base_url,
-      });
+      const model = this.resolvedModelConfig as Record<string, any>;
+      const backend = String(model.backend ?? '').toLowerCase();
+      const provider = String(model.provider ?? '').toLowerCase();
+
+      if (backend === 'codex' || provider === 'openai-codex') {
+        this.llmBackend = new CodexLLMBackend(model, { configDir: this.configDir });
+      } else {
+        this.llmBackend = new VercelAIBackend({
+          provider: this.resolvedModelConfig.provider ?? 'openai',
+          name: this.resolvedModelConfig.name,
+          baseURL: this.resolvedModelConfig.base_url,
+        });
+      }
     }
     return this.llmBackend;
   }
@@ -223,13 +231,32 @@ export class FlatAgent {
   private _extractUsage(rawResponse: any): UsageInfo | undefined {
     const usage = rawResponse?.usage;
     if (!usage) return undefined;
-    return new UsageInfo({
-      input_tokens: usage.promptTokens ?? usage.prompt_tokens ?? 0,
-      output_tokens: usage.completionTokens ?? usage.completion_tokens ?? 0,
-      total_tokens: usage.totalTokens ?? usage.total_tokens ?? 0,
-      cache_read_tokens: usage.cacheReadTokens ?? usage.cache_read_tokens ?? 0,
-      cache_write_tokens: usage.cacheWriteTokens ?? usage.cache_write_tokens ?? 0,
+
+    const inputTokens = Number(usage.promptTokens ?? usage.prompt_tokens ?? 0);
+    const outputTokens = Number(usage.completionTokens ?? usage.completion_tokens ?? 0);
+    const totalTokens = Number(usage.totalTokens ?? usage.total_tokens ?? (inputTokens + outputTokens));
+
+    const [fallbackCacheRead, fallbackCacheWrite] = this._extract_cache_tokens(usage);
+    const cacheReadTokens = Number(usage.cacheReadTokens ?? usage.cache_read_tokens ?? fallbackCacheRead ?? 0);
+    const cacheWriteTokens = Number(usage.cacheWriteTokens ?? usage.cache_write_tokens ?? fallbackCacheWrite ?? 0);
+
+    const usageInfo = new UsageInfo({
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      total_tokens: totalTokens,
+      cache_read_tokens: cacheReadTokens,
+      cache_write_tokens: cacheWriteTokens,
     });
+
+    usageInfo.cost = this._calculate_cost({
+      response: rawResponse,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      cache_read_tokens: cacheReadTokens,
+      cache_write_tokens: cacheWriteTokens,
+    });
+
+    return usageInfo;
   }
 
   private _extractToolCalls(rawResponse: any): AgentToolCall[] | undefined {
