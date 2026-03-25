@@ -105,3 +105,68 @@ Examples:
 
 ### Status
 - ✅ Wave C parity complete.
+
+---
+
+## Overall Status Snapshot (resume-friendly)
+
+Timestamp: 2026-03-25T00:23:23
+
+### 1) Wave completion
+- ✅ Wave A complete
+- ✅ Wave B complete
+- ✅ Wave C complete
+
+### 2) Commits completed
+- `4920d3d` — JS parity alignment for peering + mdap shared config-driven flows
+
+### 3) Programmatic parity audit
+- Added script: `scripts/check-example-sdk-parity.mjs`
+- Run command:
+  - `node scripts/check-example-sdk-parity.mjs`
+- Latest result:
+  - **Examples checked: 17**
+  - **PASS: 17**
+  - **FAIL: 0**
+
+### 4) Local run smoke tests executed (`--local`)
+Ran successfully (exit code 0):
+- `error_handling/js`
+- `support_triage_json/js`
+- `helloworld/js`
+- `writer_critic/js`
+- `parallelism/js`
+
+Log files used during runs:
+- `/tmp/js-local-error_handling.log`
+- `/tmp/js-local-support_triage_json.log`
+- `/tmp/js-local-helloworld.log`
+- `/tmp/js-local-writer_critic.log`
+- `/tmp/js-local-parallelism.log`
+- plus reruns under `/tmp/js-local-rerun-*.log`
+
+### 5) Temperature warning cleanup
+Goal: stop passing `temperature` to reasoning model `gpt-5-mini`.
+
+Status:
+- Removed explicit `temperature: 1.0` from example profile/agent configs across `sdk/examples/**/config/` (including JSON profiles where present).
+- Re-ran selected JS examples (`error_handling`, `support_triage_json`, `writer_critic`, `parallelism`) with `--local`.
+- Result: **temperature warning lines = 0** in those rerun logs.
+
+Note:
+- `dynamic_agent` still mentions `otf_temperature` as workflow content/spec data, but this is not the same as passing provider-level temperature params in static profiles.
+
+### 6) Known follow-up
+- `parallelism` run output looked semantically off during earlier run (input mapping behavior), despite successful exit code.
+- Treat as separate correctness investigation, not SDK parity failure.
+
+### 7) Quick restart commands
+```bash
+# parity audit
+node scripts/check-example-sdk-parity.mjs
+
+# rerun 5 simplest noninteractive JS examples
+for e in error_handling support_triage_json helloworld writer_critic parallelism; do
+  (cd sdk/examples/$e/js && ./run.sh --local)
+done
+```
