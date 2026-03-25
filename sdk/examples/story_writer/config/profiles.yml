@@ -6,13 +6,10 @@ data:
     default:
       provider: openai
       name: gpt-5-mini
-      temperature: 1.0
     creative:
       provider: openai
       name: gpt-5-mini
-      temperature: 1.0
     fast:
       provider: openai
       name: gpt-5-mini
-      temperature: 1.0
   default: default
