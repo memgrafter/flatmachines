@@ -38,15 +38,18 @@ Demonstrates machine-to-machine communication, persistence, and checkpointing in
 ```
 peering/
 ├── config/
+│   ├── peering_demo.yml      # Golden demo flow (orchestrator + worker node)
 │   ├── orchestrator.yml      # Launches worker nodes
 │   ├── worker_node.yml       # Processes tasks independently
 │   └── worker_task.yml       # Single-task worker wrapper
-├── src/
-│   └── peering/
-│       └── main.ts          # Demo application
-├── package.json             # Dependencies and scripts
-├── run.sh                   # Setup and execution script
-└── README.md                # This file
+├── js/
+│   ├── src/
+│   │   └── peering/
+│   │       └── main.ts       # Demo application (runs peering_demo.yml)
+│   ├── package.json
+│   ├── run.sh
+│   └── README.md
+└── python/
 ```
 
 ## How It Works

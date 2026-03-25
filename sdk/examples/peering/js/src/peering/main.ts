@@ -9,49 +9,29 @@ const rootDir = join(__dirname, '..', '..', '..');
 const configDir = join(rootDir, 'config');
 
 async function main() {
-  // Set up persistence and result backends for peering
+  // Keep parity with Python golden example: run peering_demo.yml
   const persistenceBackend = new MemoryBackend();
   const resultBackend = inMemoryResultBackend;
 
   console.log('=== Peering Example ===');
-  console.log('Launching orchestrator with worker nodes...\n');
+  console.log('Launching peering demo machine...\n');
 
-  const orchestrator = new FlatMachine({
-    config: join(configDir, 'orchestrator.yml'),
+  const peeringDemo = new FlatMachine({
+    config: join(configDir, 'peering_demo.yml'),
     configDir,
     persistence: persistenceBackend,
-    resultBackend: resultBackend,
+    resultBackend,
   });
 
   try {
-    // Launch orchestrator (which launches worker nodes)
-    const result = await orchestrator.execute();
-    console.log('Orchestrator result:', result);
+    const result = await peeringDemo.execute();
+    console.log('Demo result:', JSON.stringify(result, null, 2));
 
-    // Simulate worker node processing independently
-    console.log('\n=== Worker Node Processing ===');
-    const workerNode = new FlatMachine({
-      config: join(configDir, 'worker_node.yml'),
-      configDir,
-      persistence: persistenceBackend,
-      resultBackend: resultBackend,
-    });
-
-    const workerResult = await workerNode.execute({
-      tasks: [
-        { task: "summarize", data: "This is text to summarize." },
-        { task: "analyze", data: "Data elements to analyze." }
-      ]
-    });
-    console.log('Worker node result:', JSON.stringify(workerResult, null, 2));
-
-    // Demonstrate checkpoint/resume
     console.log('\n=== Checkpoint/Resume Demo ===');
-    if (workerNode.executionId) {
-      console.log(`Execution ID: ${workerNode.executionId}`);
+    if (peeringDemo.executionId) {
+      console.log(`Execution ID: ${peeringDemo.executionId}`);
       console.log('Could resume from checkpoint using this ID');
     }
-
   } catch (error) {
     console.error('Error:', error);
   }

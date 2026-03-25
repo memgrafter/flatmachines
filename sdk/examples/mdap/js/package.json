@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@memgrafter/flatagents": "file:../../../js/packages/flatagents",
+    "@memgrafter/flatmachines": "file:../../../js/packages/flatmachines",
     "ajv": "^8.12.0"
   },
   "devDependencies": {

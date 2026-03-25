@@ -56,15 +56,17 @@ fi
 # 1. Install Dependencies
 echo "📦 Installing dependencies..."
 if [ "$LOCAL_INSTALL" = true ]; then
-    echo "  - Using local flatagents SDK..."
+    echo "  - Using local flatagents/flatmachines SDKs..."
     cd "$JS_SDK_PATH"
     npm run build
     cd "$SCRIPT_DIR"
-    # Swap to local dependency
+    # Swap to local dependencies
     npm pkg set dependencies.@memgrafter/flatagents="file:../../../js/packages/flatagents"
+    npm pkg set dependencies.@memgrafter/flatmachines="file:../../../js/packages/flatmachines"
 else
-    # Ensure we're using the npm package
+    # Ensure we're using npm packages
     npm pkg set dependencies.@memgrafter/flatagents="^2.5.0"
+    npm pkg set dependencies.@memgrafter/flatmachines="^2.5.0"
 fi
 
 echo "  - Installing mdap demo package..."
