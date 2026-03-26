@@ -34,6 +34,17 @@ export function renderValue(template: any, vars: Record<string, any>): any {
     // Bare path (no {{ }}) — resolve directly, preserving native type
     const bareResult = resolveBarePath(template, vars);
     if (bareResult !== undefined) return bareResult;
+    // Simple expression template ({{ path.to.var }}) — preserve native type for numbers only.
+    // Matches templates that are ONLY a single {{ dotted.path }} with optional whitespace.
+    // Booleans, strings, objects, and arrays go through nunjucks for Python Jinja2 parity
+    // (e.g., true → "True", lists → JSON string).
+    const simpleExprMatch = template.match(/^\{\{\s*([A-Za-z_][A-Za-z0-9_.]*)\s*\}\}$/);
+    if (simpleExprMatch) {
+      const resolved = resolvePath(vars, simpleExprMatch[1]!);
+      if (resolved === undefined) return null;
+      // Only preserve native type for numbers (integers and floats)
+      if (typeof resolved === 'number') return resolved;
+    }
     // Jinja/Nunjucks template — render to string (like Python Jinja2)
     return renderTemplate(template, vars, 'flatmachine');
   }

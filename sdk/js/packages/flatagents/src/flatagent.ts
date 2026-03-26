@@ -343,9 +343,26 @@ export class FlatAgent {
   }): CostInfo {
     const { input_tokens, output_tokens, cache_read_tokens, cache_write_tokens } = args;
     
-    // No real pricing data available — return zero-cost rather than inaccurate estimates.
-    // Consumers should use provider-specific pricing APIs for accurate cost tracking.
-    return new CostInfo();
+    // Fallback estimation using rough per-token costs.
+    // These are approximate and will drift from actual provider pricing.
+    // For accurate cost tracking, use provider-specific pricing APIs.
+    const INPUT_COST_PER_TOKEN = 0.000001;
+    const OUTPUT_COST_PER_TOKEN = 0.000003;
+    const CACHE_READ_COST_PER_TOKEN = 0.0000001;
+    const CACHE_WRITE_COST_PER_TOKEN = 0.0000015;
+
+    const inputCost = input_tokens * INPUT_COST_PER_TOKEN;
+    const outputCost = output_tokens * OUTPUT_COST_PER_TOKEN;
+    const cacheReadCost = cache_read_tokens * CACHE_READ_COST_PER_TOKEN;
+    const cacheWriteCost = cache_write_tokens * CACHE_WRITE_COST_PER_TOKEN;
+
+    return new CostInfo({
+      input: inputCost,
+      output: outputCost,
+      cache_read: cacheReadCost,
+      cache_write: cacheWriteCost,
+      total: inputCost + outputCost + cacheReadCost + cacheWriteCost,
+    });
   }
 
   /**

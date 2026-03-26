@@ -13,7 +13,7 @@ import {
 } from '@memgrafter/flatmachines'
 import * as distributedModule from '@memgrafter/flatmachines'
 import * as sdkIndex from '@memgrafter/flatmachines'
-import { ClaudeCodeExecutor } from '@memgrafter/flatmachines'
+import { ClaudeCodeExecutor, throttle_from_config } from '@memgrafter/flatmachines'
 
 const minimalMachineConfig = {
   spec: 'flatmachine' as const,
@@ -37,9 +37,8 @@ const extractStructured = (content: any) => {
   return extractor.extract(content)
 }
 
-const createThrottle = (config: Record<string, any> = {}, settings: Record<string, any> = {}) => {
-  const executor = new ClaudeCodeExecutor(config, process.cwd(), settings) as any
-  return executor.throttle as any
+const createThrottle = (config: Record<string, any> = {}) => {
+  return throttle_from_config(config) as any
 }
 
 describe('type preservation parity', () => {

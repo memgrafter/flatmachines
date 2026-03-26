@@ -360,15 +360,20 @@ export function extractRateLimitInfo(headers: Record<string, string>): RateLimit
   );
   const retry_after = parseIntHeader(headers, 'retry-after');
 
-  return new RateLimitInfo({
-    remaining_requests: remaining_requests ?? null,
-    remaining_tokens: remaining_tokens ?? null,
-    limit_requests: limit_requests ?? null,
-    limit_tokens: limit_tokens ?? null,
-    reset_at: reset_at ?? null,
-    retry_after: retry_after ?? null,
-    raw_headers: headers,
+  // For extraction, missing fields are set to undefined (not null) to indicate
+  // "not present in headers". This matches the Python SDK's behavior.
+  // We construct with raw_headers, then use Object.assign to set parsed fields —
+  // undefined values override the constructor's null defaults intentionally.
+  const result = new RateLimitInfo({ raw_headers: headers });
+  Object.assign(result, {
+    remaining_requests,
+    remaining_tokens,
+    limit_requests,
+    limit_tokens,
+    reset_at,
+    retry_after,
   });
+  return result;
 }
 
 export function isRateLimited(info: RateLimitInfo): boolean {

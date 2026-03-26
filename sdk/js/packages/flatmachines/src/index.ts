@@ -15,7 +15,7 @@ export { FlatMachine, ExtendedMachineOptions, WaitingForSignal } from './flatmac
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { FlatAgentAdapter, FlatAgentExecutor } from './adapters/flatagent_adapter';
-export { ClaudeCodeAdapter, ClaudeCodeExecutor } from './adapters/claude_code_adapter';
+export { ClaudeCodeAdapter, ClaudeCodeExecutor, throttle_from_config } from './adapters/claude_code_adapter';
 export { CodexCliAdapter, CodexCliExecutor } from './adapters/codex_cli_adapter';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -37,6 +37,7 @@ export {
 export {
   WebhookHooks,
   CompositeHooks,
+  LoggingHooks,
   HooksRegistry
 } from './hooks';
 
@@ -126,7 +127,7 @@ export type { Signal, SignalBackend, TriggerBackend } from './signals';
 export { SignalDispatcher } from './dispatcher';
 export type { MachineResumer } from './dispatcher';
 
-export { run_once, run_listen } from './dispatch_signals';
+export { run_once, run_listen, _build_parser, _async_main } from './dispatch_signals';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Resume

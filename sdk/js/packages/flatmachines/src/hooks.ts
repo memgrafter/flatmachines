@@ -224,6 +224,59 @@ export class CompositeHooks implements MachineHooks {
 }
 
 /**
+ * Logging hooks — logs hook events for debugging.
+ *
+ * Tool-loop hooks (`on_tool_calls`, `on_tool_result`) pass through the context
+ * unchanged, matching the Python SDK's LoggingHooks behavior.
+ */
+export class LoggingHooks implements MachineHooks {
+  async onMachineStart(context: Record<string, any>): Promise<Record<string, any>> {
+    logger.info('machine_start');
+    return context;
+  }
+
+  async onMachineEnd(context: Record<string, any>, output: any): Promise<any> {
+    logger.info('machine_end');
+    return output;
+  }
+
+  async onStateEnter(state: string, context: Record<string, any>): Promise<Record<string, any>> {
+    logger.info(`state_enter: ${state}`);
+    return context;
+  }
+
+  async onStateExit(state: string, context: Record<string, any>, output: any): Promise<any> {
+    logger.info(`state_exit: ${state}`);
+    return output;
+  }
+
+  async onTransition(from: string, to: string, context: Record<string, any>): Promise<string> {
+    logger.info(`transition: ${from} → ${to}`);
+    return to;
+  }
+
+  async onError(state: string, error: Error, _context: Record<string, any>): Promise<string | null> {
+    logger.error(`error in ${state}: ${error.message}`);
+    return null;
+  }
+
+  async onAction(action: string, context: Record<string, any>): Promise<Record<string, any>> {
+    logger.info(`action: ${action}`);
+    return context;
+  }
+
+  on_tool_calls(_state: string, _toolCalls: any[], context: Record<string, any>): Record<string, any> {
+    logger.info('on_tool_calls');
+    return context;
+  }
+
+  on_tool_result(_state: string, _toolResult: any, context: Record<string, any>): Record<string, any> {
+    logger.info('on_tool_result');
+    return context;
+  }
+}
+
+/**
  * Name-based registry for resolving hooks from machine config.
  *
  * Machine configs reference hooks by name (e.g., hooks: "my-hooks").

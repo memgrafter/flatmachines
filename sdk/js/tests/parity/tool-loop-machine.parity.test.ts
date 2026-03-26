@@ -34,8 +34,8 @@ function makeAgentResult(options: {
     finish_reason: options.finish_reason ?? 'stop',
     tool_calls: options.tool_calls ?? null,
     error: options.error ?? null,
-    cost: options.cost ?? { total: 0.001 },
-    usage: options.usage ?? { api_calls: 1, input_tokens: 10, output_tokens: 5 },
+    cost: 'cost' in options ? options.cost : { total: 0.001 },
+    usage: 'usage' in options ? options.usage : { api_calls: 1, input_tokens: 10, output_tokens: 5 },
     rendered_user_prompt: options.rendered_user_prompt ?? 'rendered prompt',
   };
 }
@@ -954,7 +954,7 @@ describe('tool-loop-machine parity (python test_tool_loop_machine.py manifest-ow
         { type: 'function', function: { name: 'read', parameters: {} } },
       ]);
 
-      const fn = (machine as any)._resolve_tool_definitions;
+      const fn = (machine as any)._resolve_tool_definitions.bind(machine);
       expect(fn).toBeTypeOf('function');
       const defs = fn('coder', provider);
       expect(defs).toHaveLength(1);
@@ -975,7 +975,7 @@ describe('tool-loop-machine parity (python test_tool_loop_machine.py manifest-ow
       };
       const machine = new FlatMachine({ config: makeMachineConfig({ agent_inline: agentInline }) } as any);
 
-      const fn = (machine as any)._resolve_tool_definitions;
+      const fn = (machine as any)._resolve_tool_definitions.bind(machine);
       expect(fn).toBeTypeOf('function');
       const defs = fn('coder', null);
       expect(defs).toHaveLength(1);
@@ -1003,7 +1003,7 @@ describe('tool-loop-machine parity (python test_tool_loop_machine.py manifest-ow
         { type: 'function', function: { name: 'provider_only', parameters: {} } },
       ]);
 
-      const fn = (machine as any)._resolve_tool_definitions;
+      const fn = (machine as any)._resolve_tool_definitions.bind(machine);
       expect(fn).toBeTypeOf('function');
       const defs = fn('coder', provider);
       const names = defs.map((d: any) => d.function.name);
@@ -1047,7 +1047,7 @@ describe('tool-loop-machine parity (python test_tool_loop_machine.py manifest-ow
   });
 
   describe('TestHookSubclasses', () => {
-    test(`manifest-trace: ${pyFile}::TestHookSubclasses.test_composite_hooks_chains_tool_hooks`, () => {
+    test(`manifest-trace: ${pyFile}::TestHookSubclasses.test_composite_hooks_chains_tool_hooks`, async () => {
       const callsA: string[] = [];
       const callsB: string[] = [];
 
@@ -1079,14 +1079,14 @@ describe('tool-loop-machine parity (python test_tool_loop_machine.py manifest-ow
       const onToolCalls = (composite as any).on_tool_calls;
       expect(onToolCalls).toBeTypeOf('function');
 
-      const ctx = onToolCalls('work', [{ id: 'c1' }], {});
+      const ctx = await onToolCalls('work', [{ id: 'c1' }], {});
       expect(ctx.a_saw_calls).toBe(true);
       expect(callsA).toEqual(['tool_calls']);
       expect(callsB).toEqual(['tool_calls']);
 
       const onToolResult = (composite as any).on_tool_result;
       expect(onToolResult).toBeTypeOf('function');
-      onToolResult('work', { name: 'test' }, ctx);
+      await onToolResult('work', { name: 'test' }, ctx);
       expect(callsA).toEqual(['tool_calls', 'tool_result']);
       expect(callsB).toEqual(['tool_calls', 'tool_result']);
     });

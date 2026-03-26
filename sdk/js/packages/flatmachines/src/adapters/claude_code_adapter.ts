@@ -120,7 +120,7 @@ class StreamCollector {
 class CallThrottle {
   public _delay: number;
   public _jitter: number;
-  private lastCall = 0;
+  public _last_call = 0;
   private lock = Promise.resolve();
 
   constructor(delay: number, jitter: number) {
@@ -133,7 +133,7 @@ class CallThrottle {
   }
 
   reset(): void {
-    this.lastCall = 0;
+    this._last_call = 0;
     this.lock = Promise.resolve();
   }
 
@@ -142,18 +142,18 @@ class CallThrottle {
     return new Promise<number>((resolve) => {
       this.lock = this.lock.then(async () => {
         const now = Date.now();
-        if (this.lastCall === 0) {
+        if (this._last_call === 0) {
           // First call — no wait
-          this.lastCall = now;
+          this._last_call = now;
           resolve(0);
           return;
         }
-        const delayMs = this._delay * 1000;
-        const jitterMs = Math.random() * 2 * this._jitter * 1000;
-        const next = this.lastCall + delayMs + jitterMs;
+        const delayMs = this._delay;
+        const jitterMs = Math.random() * 2 * this._jitter;
+        const next = this._last_call + delayMs + jitterMs;
         const waitMs = Math.max(0, next - now);
         if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
-        this.lastCall = Date.now();
+        this._last_call = Date.now();
         resolve(waitMs / 1000); // Return seconds
       });
     });

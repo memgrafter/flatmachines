@@ -21,7 +21,12 @@ export async function run_once(
   if (typeof resumeFnOrOpts === 'function') {
     opts = { resumeFn: resumeFnOrOpts };
   } else if (resumeFnOrOpts) {
-    opts = resumeFnOrOpts;
+    // Support both camelCase and snake_case for Python parity
+    const raw = resumeFnOrOpts as Record<string, any>;
+    opts = {
+      resumer: raw.resumer,
+      resumeFn: raw.resumeFn ?? raw.resume_fn,
+    };
   }
   const dispatcher = new SignalDispatcher(signalBackend, persistenceBackend, opts);
   return dispatcher.dispatchAll();

@@ -167,8 +167,9 @@ export class FlatMachine {
     // Store resolved config as raw string
     this._config_raw = yaml.stringify(this.config);
 
-    // Compute config hash synchronously (hash is needed for checkpoints)
-    if (this._config_raw) {
+    // Compute config hash only when a config store is available (matches Python behavior:
+    // no config_store → no config_hash in checkpoints)
+    if (this._config_raw && this._config_store) {
       this._config_hash = configHash(this._config_raw);
     }
 
@@ -503,7 +504,13 @@ export class FlatMachine {
     // Build initial input
     const agentInput = this.render(def.input ?? {}, { context: this.context, input: this.input });
 
-    let chain: Array<Record<string, any>> = [];
+    // Check for chain continuation (same state + same agent → reuse prior chain)
+    const priorChain = this.context._tool_loop_chain as Array<Record<string, any>> | undefined;
+    const priorState = this.context._tool_loop_chain_state as string | undefined;
+    const priorAgent = this.context._tool_loop_chain_agent as string | undefined;
+    const isContinuation = !!(priorChain?.length && priorState === stateName && priorAgent === agentName);
+
+    let chain: Array<Record<string, any>> = isContinuation ? [...priorChain!] : [];
     let turns = 0;
     let toolCallsCount = 0;
     let loopCost = 0;
@@ -520,8 +527,11 @@ export class FlatMachine {
       // Call agent via executor
       let result: AgentResult;
       if (executor.execute_with_tools) {
-        if (turns === 0) {
+        if (turns === 0 && !isContinuation) {
           result = await executor.execute_with_tools(agentInput, toolDefs, undefined, context);
+        } else if (turns === 0 && isContinuation) {
+          // Continuation: pass empty input and reuse prior chain
+          result = await executor.execute_with_tools({}, toolDefs, chain, context);
         } else {
           result = await executor.execute_with_tools({}, toolDefs, chain, context);
         }
@@ -552,8 +562,8 @@ export class FlatMachine {
         throw new Error(`${result.error.type ?? 'AgentError'}: ${result.error.message ?? 'unknown'}`);
       }
 
-      // Seed chain on first turn
-      if (turns === 1 && result.rendered_user_prompt) {
+      // Seed chain on first turn (skip for continuations — chain already has user prompt)
+      if (turns === 1 && !isContinuation && result.rendered_user_prompt) {
         chain.push({ role: 'user', content: result.rendered_user_prompt });
       }
 
@@ -650,8 +660,10 @@ export class FlatMachine {
       }
     }
 
-    // Save chain to context for preservation/inspection
+    // Save chain to context for preservation/inspection and continuation
     context._tool_loop_chain = [...chain];
+    context._tool_loop_chain_state = stateName;
+    context._tool_loop_chain_agent = agentName;
 
     // Build output
     const output: Record<string, any> = {
@@ -708,7 +720,7 @@ export class FlatMachine {
         chain: [...chain],
         turns,
         tool_calls_count: toolCallsCount,
-        cost: loopCost,
+        loop_cost: loopCost,
       },
     });
   }
