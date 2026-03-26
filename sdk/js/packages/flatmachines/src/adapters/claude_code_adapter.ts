@@ -183,12 +183,12 @@ export class ClaudeCodeExecutor implements AgentExecutor {
   private throttle: CallThrottle;
   private proc: ChildProcess | null = null;
 
-  constructor(config: Record<string, any>, configDir: string, settings: Record<string, any>) {
+  constructor(config: Record<string, any>, configDir: string, settings: Record<string, any>, injectedThrottle?: CallThrottle) {
     this.config = config;
     this.configDir = configDir;
     this.settings = settings;
     this.merged = { ...settings, ...config };
-    this.throttle = new CallThrottle(
+    this.throttle = injectedThrottle ?? new CallThrottle(
       Number(this.merged.rate_limit_delay ?? DEFAULT_RATE_LIMIT_DELAY),
       Number(this.merged.rate_limit_jitter ?? DEFAULT_RATE_LIMIT_JITTER),
     );
@@ -256,6 +256,10 @@ export class ClaudeCodeExecutor implements AgentExecutor {
       return { error: { code: 'server_error', type: 'ClaudeCodeError', message: 'No result', retryable: false }, finish_reason: 'error' };
     }
 
+    if (attempt > 1) {
+      console.info(`continuation complete — ${attempt} attempts, ${totalInput + totalOutput} tokens`);
+    }
+
     return {
       output: lastResult.output,
       content: lastResult.content,
@@ -276,8 +280,14 @@ export class ClaudeCodeExecutor implements AgentExecutor {
 
   async cancel(): Promise<boolean> {
     if (!this.proc) return false;
-    this.proc.kill('SIGTERM');
     const proc = this.proc;
+    try {
+      proc.kill('SIGTERM');
+    } catch {
+      // Process already dead (ProcessLookupError / ESRCH)
+      this.proc = null;
+      return false;
+    }
     return new Promise((resolve) => {
       const timer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, SIGTERM_GRACE_MS);
       proc.once('exit', () => { clearTimeout(timer); resolve(true); });
@@ -339,7 +349,7 @@ export class ClaudeCodeExecutor implements AgentExecutor {
     const timeout = Number(cfg.timeout ?? 0) * 1000;
     const collector = new StreamCollector();
 
-    return new Promise<AgentResult>((resolveResult) => {
+    return new Promise<AgentResult>((resolveResult, rejectResult) => {
       const bin = args[0]!;
       const proc = spawn(bin, args.slice(1), {
         cwd: workingDir,
@@ -386,11 +396,9 @@ export class ClaudeCodeExecutor implements AgentExecutor {
         const stderrText = Buffer.concat(stderrChunks).toString('utf-8');
 
         if (timedOut) {
-          resolveResult({
-            error: { code: 'timeout', type: 'TimeoutError', message: `Claude Code timed out after ${timeout / 1000}s`, retryable: true },
-            finish_reason: 'error',
-            metadata: { session_id: collector.sessionId ?? sessionId, stream_events: collector.events, stderr: stderrText },
-          });
+          const err = new Error(`Claude Code timed out after ${timeout / 1000}s`);
+          err.name = 'TimeoutError';
+          rejectResult(err);
           return;
         }
 
@@ -540,6 +548,9 @@ export class ClaudeCodeExecutor implements AgentExecutor {
         stream_events: collector.events,
         stderr: stderrText,
         tool_results: collector.orderedToolResults.length ? collector.orderedToolResults : null,
+        monitor: {
+          agent_id: `claude-code/${this.merged.model ?? 'default'}`,
+        },
       },
       provider_data: event.modelUsage ?? null,
     };

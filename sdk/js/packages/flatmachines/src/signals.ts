@@ -174,21 +174,15 @@ export class SocketTrigger implements TriggerBackend {
 
   async notify(channel: string): Promise<void> {
     try {
-      // Dynamic require for optional built-in (not all environments use socket triggers)
-      const net = require('node:net');
-      await new Promise<void>((resolve, reject) => {
-        const socket = net.createConnection({ path: this.socketPath }, () => {
-          socket.write(channel, 'utf-8', () => {
-            socket.end();
-            resolve();
-          });
-        });
-        socket.on('error', () => {
-          // No dispatcher listening — signal is still in the backend
+      // Use UDP datagram socket for one-shot fire-and-forget notification.
+      // The OS socket queue buffers the message until the dispatcher reads it.
+      const dgram = require('node:dgram');
+      const socket = dgram.createSocket('unix_dgram');
+      await new Promise<void>((resolve) => {
+        socket.send(Buffer.from(channel, 'utf-8'), this.socketPath, () => {
+          socket.close();
           resolve();
         });
-        // Prevent hanging if server never responds
-        socket.setTimeout(2000, () => { socket.destroy(); resolve(); });
       });
     } catch {
       // No dispatcher listening — signal is still in the backend

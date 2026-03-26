@@ -962,7 +962,7 @@ export class FlatMachine {
 
   private async checkpoint(state: string, step: number, event?: string, output?: any): Promise<void> {
     if (!this.checkpointManager) return;
-    await this.checkpointManager.checkpoint({
+    const snapshot = {
       execution_id: this.executionId,
       machine_name: this.config.data.name ?? "unnamed",
       spec_version: this.config.spec_version ?? "0.4.0",
@@ -977,7 +977,11 @@ export class FlatMachine {
       parent_execution_id: this.parentExecutionId,
       pending_launches: this.pendingLaunches.length ? this.pendingLaunches : undefined,
       config_hash: this._config_hash,
-    });
+    };
+    await this.checkpointManager.checkpoint(snapshot);
+    if (this.hooks?.onCheckpoint) {
+      await this.hooks.onCheckpoint(snapshot as any);
+    }
   }
 
   private render(template: any, vars: Record<string, any>): any {

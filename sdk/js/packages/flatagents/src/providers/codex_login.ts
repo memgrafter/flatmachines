@@ -135,6 +135,8 @@ export async function loginOpenaiCodex(opts: {
   allowLocalServer?: boolean;
   openBrowser?: boolean;
   manualInputProvider?: () => string;
+  /** @internal Override exchange function for testing */
+  _exchangeFn?: typeof exchangeAuthorizationCode;
 }): Promise<void> {
   const flow = createAuthorizationFlow('pi');
 
@@ -147,7 +149,8 @@ export async function loginOpenaiCodex(opts: {
     throw new CodexLoginError('Manual input provider required when allowLocalServer is false');
   }
 
-  const creds = await exchangeAuthorizationCode({ code, verifier: flow.verifier });
+  const exchange = opts._exchangeFn ?? exchangeAuthorizationCode;
+  const creds = await exchange({ code, verifier: flow.verifier });
 
   // Save to auth file
   let existing: Record<string, any> = {};

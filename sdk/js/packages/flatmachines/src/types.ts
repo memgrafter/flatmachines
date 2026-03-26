@@ -108,6 +108,7 @@ export interface MachineHooks {
   onTransition?(from: string, to: string, context: Record<string, any>): string | Promise<string>;
   onError?(state: string, error: Error, context: Record<string, any>): string | null | Promise<string | null>;
   onAction?(action: string, context: Record<string, any>): Record<string, any> | Promise<Record<string, any>>;
+  onCheckpoint?(snapshot: MachineSnapshot): void | Promise<void>;
   // Tool loop hooks
   on_tool_calls?(state: string, toolCalls: any[], context: Record<string, any>): Record<string, any> | Promise<Record<string, any>>;
   on_tool_result?(state: string, toolResult: any, context: Record<string, any>): Record<string, any> | Promise<Record<string, any>>;

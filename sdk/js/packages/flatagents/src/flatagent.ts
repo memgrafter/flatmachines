@@ -44,6 +44,10 @@ export class FlatAgent {
   private configDir: string;
   private profilesFile?: string;
   private resolvedModelConfig: ModelConfig;
+  /** Resolved backend type ('codex' | 'vercel' | 'litellm'). Exposed for testing. */
+  public _backend?: string;
+  /** Codex client instance (set when backend=codex). Exposed for testing. */
+  public _codex_client?: any;
 
   /**
    * Create a FlatAgent.
@@ -98,12 +102,27 @@ export class FlatAgent {
       // Fallback for malformed/incomplete configs
       this.resolvedModelConfig = { name: '' };
     }
+
+    // Track resolved backend type
+    const modelBackend = String((this.resolvedModelConfig as Record<string, any>).backend ?? '').toLowerCase();
+    const modelProvider = String(this.resolvedModelConfig.provider ?? '').toLowerCase();
+    if (modelBackend === 'codex' || modelProvider === 'openai-codex') {
+      this._backend = 'codex';
+    }
   }
 
   /**
    * Get or create the LLM backend.
    */
   private getBackend(): LLMBackend {
+    // Codex backend takes priority even if an explicit llmBackend was provided,
+    // since the codex path uses a specialized client (OAuth, SSE, etc.)
+    if (this._backend === 'codex' && !(this.llmBackend instanceof CodexLLMBackend)) {
+      const model = this.resolvedModelConfig as Record<string, any>;
+      this.llmBackend = new CodexLLMBackend(model, { configDir: this.configDir });
+      return this.llmBackend;
+    }
+
     if (!this.llmBackend) {
       const model = this.resolvedModelConfig as Record<string, any>;
       const backend = String(model.backend ?? '').toLowerCase();
@@ -343,6 +362,30 @@ export class FlatAgent {
   }): CostInfo {
     const { input_tokens, output_tokens, cache_read_tokens, cache_write_tokens } = args;
     
+    // Try litellm cost calculation if available (Python parity)
+    const self = this as Record<string, any>;
+    if (self.litellm?.completion_cost) {
+      try {
+        const litellmCost = self.litellm.completion_cost(args.response);
+        if (litellmCost && litellmCost > 0) {
+          const total = input_tokens + output_tokens * 3 + cache_read_tokens * 0.1 + cache_write_tokens * 1.5;
+          const inputFrac = total > 0 ? input_tokens / total : 0.5;
+          const outputFrac = total > 0 ? (output_tokens * 3) / total : 0.5;
+          const cacheReadFrac = total > 0 ? (cache_read_tokens * 0.1) / total : 0;
+          const cacheWriteFrac = total > 0 ? (cache_write_tokens * 1.5) / total : 0;
+          return new CostInfo({
+            input: litellmCost * inputFrac,
+            output: litellmCost * outputFrac,
+            cache_read: litellmCost * cacheReadFrac,
+            cache_write: litellmCost * cacheWriteFrac,
+            total: litellmCost,
+          });
+        }
+      } catch {
+        // Fall through to fallback
+      }
+    }
+
     // Fallback estimation using rough per-token costs.
     // These are approximate and will drift from actual provider pricing.
     // For accurate cost tracking, use provider-specific pricing APIs.
@@ -386,6 +429,18 @@ export class FlatAgent {
         monitor.metrics[targetKey] = value;
       }
     }
+  }
+
+  /**
+   * Low-level LLM call routing. Routes to codex client or standard backend.
+   * Exposed as `_call_llm` for testing parity with Python SDK.
+   */
+  async _call_llm(params: Record<string, any>): Promise<any> {
+    if (this._backend === 'codex' && this._codex_client) {
+      return this._codex_client.call(params);
+    }
+    const backend = this.getBackend();
+    return backend.callRaw(params.messages ?? [], params);
   }
 
   private extractOutput(text: string): any {

@@ -143,6 +143,21 @@ export type { ConfigStoreResumerOptions, ReferenceResolver } from './resume';
 export { HookAction, InlineInvoker, SubprocessInvoker, QueueInvoker } from './actions';
 export type { Action, MachineInvoker } from './actions';
 
+/**
+ * Launch a machine as a fire-and-forget subprocess.
+ * Convenience wrapper around SubprocessInvoker.
+ */
+export async function launch_machine(
+  config: Record<string, any>,
+  input: Record<string, any>,
+  opts?: { workingDir?: string; executionId?: string },
+): Promise<void> {
+  const { SubprocessInvoker: Invoker } = await import('./actions');
+  const invoker = new Invoker({ workingDir: opts?.workingDir });
+  const { randomUUID } = await import('node:crypto');
+  await invoker.launch({}, config, input, opts?.executionId ?? randomUUID());
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Validation
 // ─────────────────────────────────────────────────────────────────────────────

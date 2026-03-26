@@ -5,6 +5,7 @@ export {
   resolveAuthFile,
   loadCodexCredential,
   refreshCodexCredential,
+  refreshOpenaiCodexToken,
   isExpired,
   decodeJwtPayload,
   extractAccountIdFromAccessToken,

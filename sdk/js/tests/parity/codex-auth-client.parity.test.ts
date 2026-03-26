@@ -14,8 +14,8 @@ import {
   isExpired,
   loadCodexCredential,
   refreshCodexCredential,
+  refreshOpenaiCodexToken,
 } from '@memgrafter/flatagents';
-import { refreshOpenaiCodexToken } from '../../packages/flatagents/src/providers/codex_auth';
 
 const ORIGINAL_FETCH = globalThis.fetch;
 const tempDirs: string[] = [];
@@ -645,7 +645,7 @@ describe('python parity: openai codex auth/client/login', () => {
     const dir = makeTempDir();
     const authFile = join(dir, 'auth.json');
 
-    vi.spyOn(mod, 'exchangeAuthorizationCode').mockResolvedValue({
+    const mockExchange = async () => ({
       access: tokenForAccount('acc_saved'),
       refresh: 'refresh-saved',
       expires: 9_999_999_999_999,
@@ -657,6 +657,7 @@ describe('python parity: openai codex auth/client/login', () => {
       allowLocalServer: false,
       openBrowser: false,
       manualInputProvider: () => 'manual-auth-code',
+      _exchangeFn: mockExchange as any,
     });
 
     const stored = JSON.parse(readFileSync(authFile, 'utf-8')) as Record<string, any>;

@@ -5,12 +5,20 @@
 import { randomUUID } from 'node:crypto';
 import { ClaudeCodeExecutor } from './claude_code_adapter';
 
-export interface ForkResult {
+export class ForkResult {
   session_id: string;
   task: string;
   result: any;
   cache_read_tokens: number;
   cache_write_tokens: number;
+
+  constructor(opts: { session_id: string; task: string; result: any; cache_read_tokens: number; cache_write_tokens: number }) {
+    this.session_id = opts.session_id;
+    this.task = opts.task;
+    this.result = opts.result;
+    this.cache_read_tokens = opts.cache_read_tokens;
+    this.cache_write_tokens = opts.cache_write_tokens;
+  }
 }
 
 export class SessionHoldback {
@@ -78,13 +86,13 @@ export class SessionHoldback {
     const usage = result?.usage ?? {};
     const forkSession = result?.metadata?.session_id ?? result?.session_id ?? '?';
 
-    return {
+    return new ForkResult({
       session_id: forkSession,
       task,
       result,
       cache_read_tokens: usage.cache_read_tokens ?? 0,
       cache_write_tokens: usage.cache_write_tokens ?? 0,
-    };
+    });
   }
 
   async fork_n(
@@ -106,7 +114,7 @@ export class SessionHoldback {
       try {
         results[index] = await this.fork(tasks[index]!, context);
       } catch (e: any) {
-        results[index] = {
+        results[index] = new ForkResult({
           session_id: '',
           task: tasks[index]!,
           result: {
@@ -120,7 +128,7 @@ export class SessionHoldback {
           },
           cache_read_tokens: 0,
           cache_write_tokens: 0,
-        };
+        });
       }
     };
 

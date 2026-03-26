@@ -55,6 +55,10 @@ export class WebhookHooks implements MachineHooks {
     await this.send("error", { state, error: { message: error.message, name: error.name }, context });
     return null;
   }
+
+  async onCheckpoint(snapshot: any) {
+    await this.send("checkpoint", { snapshot: { execution_id: snapshot.execution_id, event: snapshot.event, state: snapshot.current_state } });
+  }
 }
 
 export class CompositeHooks implements MachineHooks {
