@@ -33,11 +33,11 @@ async function run() {
   const goalPegs = (hanoiConfig.goal_pegs as number[][] | undefined) ?? [[], [3, 2, 1], []];
 
   const solveStep = machine.config?.data?.states?.solve_step ?? {};
-  const execution = solveStep.execution ?? {};
+  const execution = (solveStep as any).execution ?? {};
   console.log('Execution Config (from machine.yml):');
-  console.log(`  type: ${execution.type ?? 'default'}`);
-  console.log(`  k_margin: ${execution.k_margin ?? 'N/A'}`);
-  console.log(`  max_candidates: ${execution.max_candidates ?? 'N/A'}`);
+  console.log(`  type: ${(execution as any).type ?? 'default'}`);
+  console.log(`  k_margin: ${(execution as any).k_margin ?? 'N/A'}`);
+  console.log(`  max_candidates: ${(execution as any).max_candidates ?? 'N/A'}`);
 
   console.log(`Initial state: ${JSON.stringify(initialPegs)}`);
   console.log(`Goal: ${JSON.stringify(goalPegs)}`);

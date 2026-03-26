@@ -38,9 +38,6 @@ data:
     coder: ./agents/coder.yml
     reviewer: ./agents/reviewer.yml
 
-  machines:
-    explorer: ../.skills/codebase_explorer/machine.yml
-  
   states:
     # Entry point
     start:
@@ -48,20 +45,9 @@ data:
       transitions:
         - to: explore_codebase
     
-    # Gather context about the codebase using codebase_explorer skill
+    # Gather context about the codebase using codebase-ripper skill (with local fallback)
     explore_codebase:
-      machine: explorer
-      input:
-        task: "{{ context.task }}"
-        working_dir: "{{ context.working_dir }}"
-        token_budget: 40000
-        max_iterations: 10
-      output_to_context:
-        summary: "{{ output.summary }}"
-        frozen_signatures: "{{ output.frozen_signatures }}"
-        frozen_segments: "{{ output.frozen_segments }}"
-        file_contents: "{{ output.file_contents }}"
-        codebase_context: "{{ output.summary }}"
+      action: explore_codebase
       transitions:
         - to: plan_changes
     

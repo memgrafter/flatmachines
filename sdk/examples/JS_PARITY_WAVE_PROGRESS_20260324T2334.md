@@ -170,3 +170,58 @@ for e in error_handling support_triage_json helloworld writer_critic parallelism
   (cd sdk/examples/$e/js && ./run.sh --local)
 done
 ```
+
+### 8) Next-5 JS run batch (`--local`)
+Timestamp: 2026-03-25T00:52:16
+
+Target batch:
+- `character_card/js`
+- `custom_coding_workflow/js`
+- `coding_machine_cli/js`
+- `rlm/js`
+- `multi_paper_synthesizer/js`
+
+Run outcomes:
+- ✅ `character_card/js` succeeded (auto-user run with temp card JSON)
+- ✅ `custom_coding_workflow/js` succeeded after switching exploration to `codebase-ripper` path (no `codebase_explorer` symlink requirement)
+- ✅ `coding_machine_cli/js` succeeded (`--standalone` mode)
+- ✅ `rlm/js` succeeded (`--demo` mode)
+- ✅ `multi_paper_synthesizer/js` succeeded
+
+Logs:
+- `/tmp/js-local-next5b-character_card.log`
+- `/tmp/js-local-next5b-custom_coding_workflow.log`
+- `/tmp/js-local-next5b-coding_machine_cli.log`
+- `/tmp/js-local-next5b-rlm.log`
+- `/tmp/js-local-next5b-multi_paper_synthesizer.log`
+
+Post-run parity audit:
+- `node scripts/check-example-sdk-parity.mjs` => **PASS 17 / FAIL 0**
+
+### 9) Remaining costly runs: mdap + gepa_self_optimizer
+Timestamp: 2026-03-25T01:38:41
+
+Run outcomes (`--local`):
+- ✅ `mdap/js` succeeded after TS typing fix in `src/mdap/demo.ts`
+  - command: `bash ./run.sh --local`
+  - log: `/tmp/js-local-final-mdap.log`
+  - note: execution finished with API calls and stats; semantic quality of final state should be reviewed separately.
+- ✅ `gepa_self_optimizer/js` succeeded
+  - command: `bash ./run.sh --local`
+  - log: `/tmp/js-local-final-gepa_self_optimizer.log`
+
+Remaining run-blocked example:
+- None
+
+### 10) `custom_coding_workflow` exploration dependency update
+Timestamp: 2026-03-25T22:54:43
+
+Changes made:
+- Replaced `codebase_explorer` machine dependency with `explore_codebase` hook action in shared machine config.
+- Updated JS and Python hooks to prefer `codebase-ripper` CLI (`$HOME/.agents/skills/codebase-ripper/run.sh --json`) and fall back to local tree/README exploration.
+- Removed JS `run.sh` hard failure on missing `codebase_explorer` symlink.
+
+Validation:
+- ✅ JS run: `custom_coding_workflow/js` with `./run.sh --local ...` now executes.
+- ✅ Python run: `custom_coding_workflow/python` with `./run.sh --local ...` now executes.
+- ✅ Parity audit still passes: `node scripts/check-example-sdk-parity.mjs` => PASS 17 / FAIL 0.

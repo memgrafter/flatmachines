@@ -6,6 +6,8 @@ Preserves history on rejection so agents can learn from feedback.
 Also provides exploration tools (tree, ripgrep, read_file) for accurate diffs.
 """
 
+import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -85,17 +87,81 @@ class CodingAgentHooks(MachineHooks):
             return handler(context)
         return context
     
+    def _run_codebase_ripper(self, context: Dict[str, Any], path: Path) -> Optional[str]:
+        """Run codebase-ripper skill and return extracted context text if successful."""
+        home = os.environ.get("HOME")
+        if not home:
+            return None
+
+        ripper_script = Path(home) / ".agents" / "skills" / "codebase-ripper" / "run.sh"
+        if not ripper_script.exists():
+            return None
+
+        task = str(context.get("task", "Explore this codebase"))
+        token_budget_raw = context.get("token_budget", 12000)
+        max_iterations_raw = context.get("explorer_iterations", 2)
+
+        try:
+            token_budget = int(token_budget_raw)
+        except (TypeError, ValueError):
+            token_budget = 12000
+
+        try:
+            max_iterations = int(max_iterations_raw)
+        except (TypeError, ValueError):
+            max_iterations = 2
+
+        try:
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ripper_script),
+                    task,
+                    "-d", str(path),
+                    "--token-budget", str(token_budget),
+                    "--max-iterations", str(max_iterations),
+                    "--json",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+        except Exception:
+            return None
+
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()
+            if stderr:
+                print(f"⚠️  codebase-ripper failed; falling back to local exploration: {stderr}")
+            return None
+
+        try:
+            payload = json.loads(result.stdout or "{}")
+        except json.JSONDecodeError:
+            return None
+
+        extracted = payload.get("context")
+        if isinstance(extracted, str) and extracted.strip():
+            return extracted.strip()
+        return None
+
     def _explore_codebase(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """
         Gather context about the codebase.
-        
-        Uses tree for structure and reads README for overview.
-        For deeper exploration, use run_tree, run_ripgrep, read_file actions.
+
+        Preferred path: codebase-ripper skill (parallel out-of-band exploration).
+        Fallback path: local tree + README sampling.
         """
         path = self._get_base_path(context)
-        
+
+        ripper_context = self._run_codebase_ripper(context, path)
+        if ripper_context:
+            context["codebase_context"] = ripper_context
+            context["explorer_source"] = "codebase-ripper"
+            return context
+
         context_parts = []
-        
+
         # Get directory structure
         try:
             result = subprocess.run(
@@ -120,7 +186,7 @@ class CodingAgentHooks(MachineHooks):
                 context_parts.append(f"## Files\n```\n{result.stdout}\n```")
             except Exception:
                 context_parts.append(f"## Working Directory\n{path}")
-        
+
         # Look for README
         for readme_name in ["README.md", "README.txt", "README"]:
             readme_path = path / readme_name
@@ -131,8 +197,9 @@ class CodingAgentHooks(MachineHooks):
                     break
                 except Exception:
                     pass
-        
+
         context["codebase_context"] = "\n\n".join(context_parts) or f"Working directory: {path}"
+        context["explorer_source"] = "fallback-local"
         return context
     
     def _run_tree(self, context: Dict[str, Any]) -> Dict[str, Any]:
