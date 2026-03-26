@@ -1,4 +1,7 @@
 import type { MachineHooks, HooksFactory, HooksRef } from './types';
+import { getLogger } from '@memgrafter/flatagents';
+
+const logger = getLogger('flatmachines.hooks');
 
 export class WebhookHooks implements MachineHooks {
   constructor(private url: string) {}
@@ -71,8 +74,8 @@ export class CompositeHooks implements MachineHooks {
       if (hook.onMachineStart) {
         try {
           result = await hook.onMachineStart(result);
-        } catch {
-          // Continue with next hook on error
+        } catch (e) {
+          logger.warning(`Hook onMachineStart failed: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
     }
@@ -85,8 +88,8 @@ export class CompositeHooks implements MachineHooks {
       if (hook.onMachineEnd) {
         try {
           result = await hook.onMachineEnd(context, result);
-        } catch {
-          // Continue with next hook on error
+        } catch (e) {
+          logger.warning(`Hook onMachineEnd failed: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
     }
@@ -99,8 +102,8 @@ export class CompositeHooks implements MachineHooks {
       if (hook.onStateEnter) {
         try {
           result = await hook.onStateEnter(state, result);
-        } catch {
-          // Continue with next hook on error
+        } catch (e) {
+          logger.warning(`Hook onStateEnter failed in state '${state}': ${e instanceof Error ? e.message : String(e)}`);
         }
       }
     }
@@ -113,8 +116,8 @@ export class CompositeHooks implements MachineHooks {
       if (hook.onStateExit) {
         try {
           result = await hook.onStateExit(state, context, result);
-        } catch {
-          // Continue with next hook on error
+        } catch (e) {
+          logger.warning(`Hook onStateExit failed in state '${state}': ${e instanceof Error ? e.message : String(e)}`);
         }
       }
     }
@@ -127,8 +130,8 @@ export class CompositeHooks implements MachineHooks {
       if (hook.onTransition) {
         try {
           result = await hook.onTransition(from, result, context);
-        } catch {
-          // Continue with next hook on error
+        } catch (e) {
+          logger.warning(`Hook onTransition failed (${from} → ${to}): ${e instanceof Error ? e.message : String(e)}`);
         }
       }
     }
@@ -142,8 +145,8 @@ export class CompositeHooks implements MachineHooks {
         try {
           const hookResult = await hook.onError(state, error, context);
           if (hookResult !== null) result = hookResult;
-        } catch {
-          // Continue with next hook on error
+        } catch (e) {
+          logger.warning(`Hook onError failed in state '${state}': ${e instanceof Error ? e.message : String(e)}`);
         }
       }
     }
@@ -156,8 +159,8 @@ export class CompositeHooks implements MachineHooks {
       if (hook.onAction) {
         try {
           result = await hook.onAction(action, result);
-        } catch {
-          // Continue with next hook on error
+        } catch (e) {
+          logger.warning(`Hook onAction failed for '${action}': ${e instanceof Error ? e.message : String(e)}`);
         }
       }
     }
@@ -173,8 +176,8 @@ export class CompositeHooks implements MachineHooks {
           if (hookResult && typeof hookResult === 'object') {
             result = hookResult as Record<string, any>;
           }
-        } catch {
-          // Continue with next hook on error
+        } catch (e) {
+          logger.warning(`Hook on_tool_calls failed in state '${state}': ${e instanceof Error ? e.message : String(e)}`);
         }
       }
     }
@@ -190,8 +193,8 @@ export class CompositeHooks implements MachineHooks {
           if (hookResult && typeof hookResult === 'object') {
             result = hookResult as Record<string, any>;
           }
-        } catch {
-          // Continue with next hook on error
+        } catch (e) {
+          logger.warning(`Hook on_tool_result failed in state '${state}': ${e instanceof Error ? e.message : String(e)}`);
         }
       }
     }

@@ -5,6 +5,12 @@
  * SubprocessInvoker, and QueueInvoker.
  */
 
+import { randomUUID } from 'node:crypto';
+import { spawn } from 'child_process';
+import { writeFileSync, mkdtempSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Action interface
 // ─────────────────────────────────────────────────────────────────────────────
@@ -68,7 +74,7 @@ export class InlineInvoker implements MachineInvoker {
     inputData: Record<string, any>,
     executionId?: string,
   ): Promise<Record<string, any>> {
-    // Lazy import to avoid circular dependency
+    // Lazy require to avoid circular dependency (flatmachine → actions → flatmachine)
     const { FlatMachine } = require('./flatmachine');
     const target = new FlatMachine({
       config: targetConfig,
@@ -110,7 +116,6 @@ export class SubprocessInvoker implements MachineInvoker {
     inputData: Record<string, any>,
     executionId?: string,
   ): Promise<Record<string, any>> {
-    const { randomUUID } = require('node:crypto');
     const eid = executionId ?? randomUUID();
     await this.launch(callerMachine, targetConfig, inputData, eid);
     // Block until result available
@@ -126,11 +131,6 @@ export class SubprocessInvoker implements MachineInvoker {
     inputData: Record<string, any>,
     executionId: string,
   ): Promise<void> {
-    const { spawn } = require('child_process');
-    const { writeFileSync, mkdtempSync } = require('fs');
-    const { join } = require('path');
-    const { tmpdir } = require('os');
-
     // Write config and input to temp files (avoids shell injection)
     const tmpDir = mkdtempSync(join(tmpdir(), 'flatmachines-'));
     const configPath = join(tmpDir, 'config.json');
@@ -140,7 +140,9 @@ export class SubprocessInvoker implements MachineInvoker {
     writeFileSync(inputPath, JSON.stringify(inputData));
     writeFileSync(metaPath, JSON.stringify({ executionId }));
 
-    // Write a launcher script that reads data from files (no interpolation)
+    // Write a launcher script that reads data from files (no interpolation).
+    // NOTE: The generated script intentionally uses require() — it runs as a
+    // standalone .cjs file in a detached subprocess, not as part of this bundle.
     const launcherPath = join(tmpDir, 'launcher.cjs');
     // Resolve from the package name so bundled builds find it correctly
     const sdkPath = require.resolve('@memgrafter/flatmachines').replace(/\\/g, '/');
@@ -165,7 +167,7 @@ export class SubprocessInvoker implements MachineInvoker {
         stdio: 'ignore',
         cwd: this.workingDir ?? process.cwd(),
       },
-    ) as any;
+    );
     child.unref();
   }
 }
@@ -181,7 +183,6 @@ export abstract class QueueInvoker implements MachineInvoker {
     inputData: Record<string, any>,
     executionId?: string,
   ): Promise<Record<string, any>> {
-    const { randomUUID } = require('node:crypto');
     const eid = executionId ?? randomUUID();
     await this.launch(callerMachine, targetConfig, inputData, eid);
     if (callerMachine.resultBackend) {

@@ -14,7 +14,7 @@
 import { readFileSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import yaml from "yaml";
-import type { ModelConfig, ModelProfileConfig, ProfilesConfig } from "./types";
+import type { ModelConfig, ModelProfileConfig, ProfiledModelConfig, ProfilesConfig } from "./types";
 
 // Cache loaded profile managers by directory
 const profileManagerCache: Map<string, ProfileManager> = new Map();
@@ -138,7 +138,7 @@ export class ProfileManager {
    * @throws Error if a referenced profile is not found
    */
   resolveModelConfig(
-    agentModelConfig: string | ModelConfig | undefined
+    agentModelConfig: string | ModelConfig | ProfiledModelConfig | undefined
   ): ModelConfig {
     const result: Partial<ModelConfig> = {};
 
@@ -163,7 +163,7 @@ export class ProfileManager {
       }
     } else if (typeof agentModelConfig === "object" && agentModelConfig) {
       // Check for profile reference in object
-      const profileName = (agentModelConfig as any).profile;
+      const profileName = 'profile' in agentModelConfig ? agentModelConfig.profile : undefined;
       if (profileName) {
         const profileCfg = this.getProfile(profileName);
         if (profileCfg) {
@@ -174,10 +174,9 @@ export class ProfileManager {
       }
 
       // Merge inline overrides (excluding 'profile' key)
-      const { profile, ...inlineOverrides } = agentModelConfig as any;
-      for (const [key, value] of Object.entries(inlineOverrides)) {
-        if (value !== undefined && value !== null) {
-          (result as any)[key] = value;
+      for (const [key, value] of Object.entries(agentModelConfig)) {
+        if (key !== 'profile' && value !== undefined && value !== null) {
+          (result as Record<string, any>)[key] = value;
         }
       }
     }
@@ -212,7 +211,7 @@ export class ProfileManager {
  * ```
  */
 export function resolveModelConfig(
-  agentModelConfig: string | ModelConfig | undefined,
+  agentModelConfig: string | ModelConfig | ProfiledModelConfig | undefined,
   configDir: string,
   profilesFile?: string
 ): ModelConfig {

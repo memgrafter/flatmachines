@@ -74,6 +74,27 @@ export { inMemoryResultBackend } from './results';
 export { evaluate } from './expression';
 export { evaluateCel } from './expression_cel';
 
+// Decomposed machine helpers (extracted from FlatMachine for testability)
+export {
+  evaluateExpr,
+  renderValue,
+  resolveBarePath,
+  resolvePath,
+  renderGuardrail,
+} from './machine_context';
+
+export {
+  makeResultUri,
+  buildCheckpointSnapshot,
+  injectMachineMetadata,
+  buildAssistantMessage,
+  extractCost,
+  normalizeMachineResult,
+  firstCompleted,
+  withTimeout,
+  awaitWithMode,
+} from './machine_lifecycle';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Locking
 // ─────────────────────────────────────────────────────────────────────────────

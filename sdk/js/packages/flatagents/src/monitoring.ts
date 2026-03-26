@@ -46,7 +46,7 @@ export function setupLogging(opts?: {
 
   const levelStr = opts?.level ?? process.env.FLATAGENTS_LOG_LEVEL ?? 'INFO';
   _globalLevel = LOG_LEVEL_NAMES[levelStr.toUpperCase()] ?? LogLevel.INFO;
-  _globalFormat = opts?.format ?? (process.env.FLATAGENTS_LOG_FORMAT as any) ?? 'standard';
+  _globalFormat = opts?.format ?? (process.env.FLATAGENTS_LOG_FORMAT as 'standard' | 'json' | 'simple' | undefined) ?? 'standard';
   _configured = true;
 }
 

@@ -16,23 +16,39 @@ import {
   HooksRef
 } from './types';
 import {
-  AgentResponse, FinishReason, renderTemplate,
+  AgentResponse, FinishReason,
   AgentExecutor, AgentResult, AgentRef,
   AgentAdapterRegistry, AgentAdapterContext,
   normalizeAgentRef, coerceAgentResult, agentResultOutputPayload,
 } from '@memgrafter/flatagents';
 import type { ToolProvider, ToolResult } from '@memgrafter/flatagents';
 import { getExecutionType } from './execution';
-import { evaluate } from './expression';
 import { CheckpointManager, LocalFileBackend, MemoryBackend } from './persistence';
+import {
+  evaluateExpr as _evaluateExpr,
+  renderValue,
+  renderGuardrail,
+  ExpressionEngine,
+} from './machine_context';
+import {
+  makeResultUri,
+  injectMachineMetadata,
+  buildAssistantMessage,
+  extractCost,
+  normalizeMachineResult,
+  firstCompleted,
+  withTimeout,
+  awaitWithMode,
+} from './machine_lifecycle';
 import { SQLiteCheckpointBackend, SQLiteConfigStore, configHash } from './persistence_sqlite';
+import type { ConfigStore } from './persistence_sqlite';
 import { inMemoryResultBackend } from './results';
 import { LocalFileLock, NoOpLock } from './locking';
 import { SQLiteLeaseLock } from './locking_sqlite';
 import { HooksRegistry } from './hooks';
 import { FlatAgentAdapter, FlatAgentExecutor } from './adapters/flatagent_adapter';
 import { SignalBackend, TriggerBackend, NoOpTrigger } from './signals';
-import { evaluateCel } from './expression_cel';
+// Expression evaluation is delegated to machine_context.ts
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WaitingForSignal exception
@@ -56,7 +72,9 @@ export interface ExtendedMachineOptions extends MachineOptions {
   triggerBackend?: TriggerBackend;
   agentRegistry?: AgentAdapterRegistry;
   toolProvider?: ToolProvider;
-  configStore?: any;
+  configStore?: ConfigStore;
+  /** @deprecated Use configStore */
+  config_store?: ConfigStore;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -85,7 +103,7 @@ export class FlatMachine {
   private totalCost = 0;
 
   // Config store for SQLite auto-wiring
-  public _config_store?: any;
+  public _config_store?: ConfigStore;
   // Resolved config as raw string
   public _config_raw?: string;
   // Config hash for resume support
@@ -112,7 +130,7 @@ export class FlatMachine {
     if (options.profilesFile) {
       this.profilesFile = options.profilesFile;
     } else {
-      const configProfiles = (this.config as any)?.data?.profiles;
+      const configProfiles = this.config.data.profiles;
       if (typeof configProfiles === "string" && configProfiles.trim().length > 0) {
         this.profilesFile = resolve(this.configDir, configProfiles);
       }
@@ -129,7 +147,7 @@ export class FlatMachine {
     this.signalBackend = extOpts.signalBackend;
     this.triggerBackend = extOpts.triggerBackend ?? new NoOpTrigger();
     this.toolProvider = extOpts.toolProvider;
-    const explicitConfigStore = extOpts.configStore ?? (extOpts as any).config_store;
+    const explicitConfigStore = extOpts.configStore ?? extOpts.config_store;
     if (explicitConfigStore && !this._config_store) {
       this._config_store = explicitConfigStore;
     }
@@ -141,7 +159,7 @@ export class FlatMachine {
     }
 
     // Expression engine
-    this.expressionEngine = (this.config.data.expression_engine as any) ?? 'simple';
+    this.expressionEngine = this.config.data.expression_engine ?? 'simple';
 
     // Resolve agent references at construction time
     this.resolveAgentRefs();
@@ -192,9 +210,39 @@ export class FlatMachine {
     return this._hooksRegistry;
   }
 
+  /**
+   * Release all resources owned by this machine instance.
+   *
+   * Closes persistence backends, signal backends, and config stores that
+   * expose a `close()` method. Safe to call multiple times. Should be called
+   * when the machine is no longer needed to prevent DB handle leaks.
+   *
+   * Supports `Symbol.dispose` for use with `using` declarations (TS 5.2+).
+   */
+  close(): void {
+    const closeable = [
+      this.checkpointManager?.persistenceBackend,
+      this.signalBackend,
+      this._config_store,
+    ];
+    for (const backend of closeable) {
+      if (backend && typeof (backend as any).close === 'function') {
+        try {
+          (backend as any).close();
+        } catch {
+          // Best-effort cleanup
+        }
+      }
+    }
+  }
+
+  [Symbol.dispose](): void {
+    this.close();
+  }
+
   private resolveHooks(explicit?: MachineHooks): MachineHooks | undefined {
     if (explicit) return explicit;
-    const hooksConfig = (this.config.data as any).hooks as HooksRef | undefined;
+    const hooksConfig = this.config.data.hooks;
     if (!hooksConfig) return undefined;
     return this._hooksRegistry.resolve(hooksConfig);
   }
@@ -362,15 +410,15 @@ export class FlatMachine {
   // ─────────────────────────────────────────────────────────────────────────
 
   private injectMachineMetadata(state: string, step: number): void {
-    this.context.machine = Object.freeze({
-      execution_id: this.executionId,
-      machine_name: this.config.data.name ?? 'unnamed',
-      spec_version: this.config.spec_version ?? '0.1.0',
+    injectMachineMetadata(this.context, {
+      executionId: this.executionId,
+      machineName: this.config.data.name ?? 'unnamed',
+      specVersion: this.config.spec_version ?? '0.1.0',
       step,
-      current_state: state,
-      parent_execution_id: this.parentExecutionId ?? null,
-      total_api_calls: this.totalApiCalls,
-      total_cost: this.totalCost,
+      state,
+      parentExecutionId: this.parentExecutionId,
+      totalApiCalls: this.totalApiCalls,
+      totalCost: this.totalCost,
     });
   }
 
@@ -424,12 +472,12 @@ export class FlatMachine {
     def: State,
   ): Promise<[Record<string, any>, any]> {
     const loopConfig = typeof def.tool_loop === 'object' ? def.tool_loop : {};
-    const renderGuardrail = (v: any) => this._render_guardrail(v, { context: this.context, input: this.input }, Number);
-    const maxTurns = renderGuardrail(loopConfig.max_turns) ?? 20;
-    const maxToolCalls = renderGuardrail(loopConfig.max_tool_calls) ?? 50;
-    const toolTimeout = (renderGuardrail(loopConfig.tool_timeout) ?? 30) * 1000;
-    const totalTimeout = (renderGuardrail(loopConfig.total_timeout) ?? 600) * 1000;
-    const maxCost = loopConfig.max_cost != null ? renderGuardrail(loopConfig.max_cost) : undefined;
+    const guardVars = { context: this.context, input: this.input };
+    const maxTurns = this._render_guardrail(loopConfig.max_turns, guardVars, Number) ?? 20;
+    const maxToolCalls = this._render_guardrail(loopConfig.max_tool_calls, guardVars, Number) ?? 50;
+    const toolTimeout = (this._render_guardrail(loopConfig.tool_timeout, guardVars, Number) ?? 30) * 1000;
+    const totalTimeout = (this._render_guardrail(loopConfig.total_timeout, guardVars, Number) ?? 600) * 1000;
+    const maxCost = loopConfig.max_cost != null ? this._render_guardrail(loopConfig.max_cost, guardVars, Number) : undefined;
     const allowedTools = new Set<string>(loopConfig.allowed_tools ?? []);
     const deniedTools = new Set<string>(loopConfig.denied_tools ?? []);
 
@@ -438,7 +486,7 @@ export class FlatMachine {
     const executor = this.getExecutor(agentName);
 
     // Check if executor supports tool calls
-    if (!('execute_with_tools' in executor) || typeof (executor as any).execute_with_tools !== 'function') {
+    if (!executor.execute_with_tools) {
       throw new Error(`Agent '${agentName}' does not support tool calls (execute_with_tools). Use a tool-capable adapter.`);
     }
 
@@ -471,11 +519,11 @@ export class FlatMachine {
 
       // Call agent via executor
       let result: AgentResult;
-      if ('execute_with_tools' in executor && typeof (executor as any).execute_with_tools === 'function') {
+      if (executor.execute_with_tools) {
         if (turns === 0) {
-          result = await (executor as any).execute_with_tools(agentInput, toolDefs, undefined, context);
+          result = await executor.execute_with_tools(agentInput, toolDefs, undefined, context);
         } else {
-          result = await (executor as any).execute_with_tools({}, toolDefs, chain, context);
+          result = await executor.execute_with_tools({}, toolDefs, chain, context);
         }
       } else {
         // Fallback for executors without execute_with_tools
@@ -489,8 +537,7 @@ export class FlatMachine {
 
       turns += 1;
       // Extract cost
-      const turnCost = typeof result.cost === 'number' ? result.cost
-        : (result.cost && typeof result.cost === 'object') ? ((result.cost as any).total ?? 0) : 0;
+      const turnCost = this._extract_cost(result);
       loopCost += turnCost;
       this.totalCost += turnCost;
 
@@ -511,14 +558,7 @@ export class FlatMachine {
       }
 
       // Build assistant message
-      const assistantMsg: Record<string, any> = { role: 'assistant', content: result.content ?? '' };
-      if (result.tool_calls?.length) {
-        assistantMsg.tool_calls = result.tool_calls.map(tc => ({
-          id: tc.id, type: 'function',
-          function: { name: tc.name ?? tc.tool, arguments: typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.arguments) },
-        }));
-      }
-      chain.push(assistantMsg);
+      chain.push(buildAssistantMessage(result));
       lastContent = result.content ?? undefined;
 
       // No tool calls = loop complete
@@ -632,10 +672,7 @@ export class FlatMachine {
   }
 
   private evaluateExpr(expr: string, ctx: { context: any; input: any; output: any }): any {
-    if (this.expressionEngine === 'cel') {
-      return evaluateCel(expr, ctx);
-    }
-    return evaluate(expr, ctx);
+    return _evaluateExpr(expr, ctx, this.expressionEngine);
   }
 
   private findConditionalTransition(stateName: string): string | null {
@@ -681,37 +718,15 @@ export class FlatMachine {
   // ─────────────────────────────────────────────────────────────────────────
 
   _render_guardrail(value: any, vars: Record<string, any>, type: new (v: any) => any): any {
-    if (value === null || value === undefined) return null;
-    if (typeof value === 'string' && value.includes('{{')) {
-      const rendered = renderTemplate(value, vars, "flatmachine");
-      if (type === Number) return Number(rendered);
-      return rendered;
-    }
-    return type === Number ? Number(value) : value;
+    return renderGuardrail(value, vars, type);
   }
 
   _build_assistant_message(result: any): Record<string, any> {
-    const msg: Record<string, any> = { role: 'assistant', content: result.content ?? '' };
-    const toolCalls = result.tool_calls;
-    if (toolCalls?.length) {
-      msg.tool_calls = toolCalls.map((tc: any) => ({
-        id: tc.id,
-        type: 'function',
-        function: {
-          name: tc.name ?? tc.tool,
-          arguments: typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.arguments ?? {}),
-        },
-      }));
-    }
-    return msg;
+    return buildAssistantMessage(result);
   }
 
   _extract_cost(result: any): number {
-    const cost = result?.cost;
-    if (cost == null) return 0;
-    if (typeof cost === 'number') return cost;
-    if (typeof cost === 'object' && 'total' in cost) return Number(cost.total);
-    return 0;
+    return extractCost(result);
   }
 
   _resolve_tool_definitions(agentName?: string, provider?: any): any[] {
@@ -754,7 +769,7 @@ export class FlatMachine {
 
   _get_agent_config(agentName: string): Record<string, any> | null {
     const agentsMap = this.config.data?.agents ?? {};
-    const ref = (agentsMap as any)[agentName];
+    const ref = agentsMap[agentName];
     if (ref == null) return null;
 
     // String path to flatagent config
@@ -767,28 +782,25 @@ export class FlatMachine {
       }
     }
 
-    // Inline flatagent config
-    if (typeof ref === 'object' && ref) {
-      if ((ref as any).spec === 'flatagent') {
-        return ref as Record<string, any>;
+    // Inline flatagent config (object ref)
+    if (ref.spec === 'flatagent') {
+      return ref;
+    }
+
+    // Typed adapter ref
+    if (ref.type === 'flatagent') {
+      if (typeof ref.config === 'object' && ref.config) {
+        if (ref.config.spec === 'flatagent') {
+          return ref.config;
+        }
       }
 
-      // Typed adapter ref
-      if ((ref as any).type === 'flatagent') {
-        if (typeof (ref as any).config === 'object') {
-          const cfg = (ref as any).config;
-          if (cfg?.spec === 'flatagent') {
-            return cfg as Record<string, any>;
-          }
-        }
-
-        if (typeof (ref as any).ref === 'string') {
-          try {
-            const fullPath = resolve(this.configDir, String((ref as any).ref));
-            return yaml.parse(readFileSync(fullPath, 'utf-8')) as Record<string, any>;
-          } catch {
-            return null;
-          }
+      if (typeof ref.ref === 'string') {
+        try {
+          const fullPath = resolve(this.configDir, ref.ref);
+          return yaml.parse(readFileSync(fullPath, 'utf-8')) as Record<string, any>;
+        } catch {
+          return null;
         }
       }
     }
@@ -836,15 +848,11 @@ export class FlatMachine {
 
     // Accumulate metrics
     if (agentResult.usage) {
-      this.totalApiCalls += (agentResult.usage as any).api_calls ?? 1;
+      this.totalApiCalls += agentResult.usage.api_calls ?? 1;
     } else {
       this.totalApiCalls += 1;
     }
-    if (agentResult.cost != null) {
-      const costVal = typeof agentResult.cost === 'number' ? agentResult.cost
-        : typeof agentResult.cost === 'object' ? (agentResult.cost as any).total ?? 0 : 0;
-      this.totalCost += costVal;
-    }
+    this.totalCost += this._extract_cost(agentResult);
 
     if (agentResult.error) {
       const err = agentResult.error;
@@ -866,7 +874,7 @@ export class FlatMachine {
       if (typeof rawItems === 'string') {
         try { rawItems = JSON.parse(rawItems); } catch { /* leave as string */ }
       }
-      const items = rawItems as any[];
+      const items = Array.isArray(rawItems) ? rawItems : [rawItems];
       const varName = def.as ?? "item";
       const tasks = items.map(async (item, index) => {
         const input = this.render(def.input ?? {}, { context: this.context, input: this.input, [varName]: item });
@@ -961,42 +969,7 @@ export class FlatMachine {
   }
 
   private render(template: any, vars: Record<string, any>): any {
-    if (typeof template === "string") {
-      // Bare path (no {{ }}) — resolve directly, preserving native type
-      const bareResult = this.resolveBarePath(template, vars);
-      if (bareResult !== undefined) return bareResult;
-      // Jinja/Nunjucks template — render to string (like Python Jinja2)
-      return renderTemplate(template, vars, "flatmachine");
-    }
-    if (Array.isArray(template)) return template.map(t => this.render(t, vars));
-    if (typeof template === "object" && template !== null) {
-      return Object.fromEntries(Object.entries(template).map(([k, v]) => [k, this.render(v, vars)]));
-    }
-    return template;
-  }
-
-  /**
-   * Resolve bare path references (no {{ }}) to preserve native types.
-   * Only matches dotted paths like `context.value` or `output.items` that start
-   * with a known variable root. Single-segment strings are treated as literal values.
-   * Returns null for missing paths (Python's None), undefined if not a bare path.
-   */
-  private resolveBarePath(template: string, vars: Record<string, any>): any | undefined {
-    const stripped = template.trim();
-    // Must NOT contain template syntax
-    if (stripped.includes('{{') || stripped.includes('{%')) return undefined;
-    // Must be a valid dotted path with at least 2 segments (root.property)
-    if (!/^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.]+$/.test(stripped)) return undefined;
-    // Root segment must be a known variable
-    const root = stripped.split('.')[0]!;
-    if (!(root in vars)) return undefined;
-    const resolved = this.resolvePath(vars, stripped);
-    // Return null for missing paths (not undefined) to match Python's None
-    return resolved === undefined ? null : resolved;
-  }
-
-  private resolvePath(vars: Record<string, any>, expr: string): any {
-    return expr.split(".").reduce((obj, part) => (obj ? obj[part] : undefined), vars);
+    return renderValue(template, vars);
   }
 
   private shouldCheckpoint(event: string): boolean {
@@ -1039,22 +1012,21 @@ export class FlatMachine {
     const agents = this.config.data.agents;
     if (!agents || typeof agents !== 'object') return;
 
-    for (const [name, ref] of Object.entries(agents as Record<string, any>)) {
+    for (const [name, ref] of Object.entries(agents)) {
       if (typeof ref === 'string') {
         // String path reference
         const resolved = this.resolveAgentRefPath(ref);
         if (resolved) {
-          (agents as any)[name] = resolved;
+          agents[name] = resolved;
         }
-      } else if (typeof ref === 'object' && ref !== null && ref.ref) {
+      } else if (typeof ref === 'object' && ref !== null && 'ref' in ref && typeof ref.ref === 'string') {
         // Typed ref: { type: "...", ref: "./path.yml", config?: {...} }
         const resolved = this.resolveAgentRefPath(ref.ref);
         if (resolved) {
           // Merge inline config overrides on top of file config
-          const mergedConfig = ref.config ? { ...resolved, ...ref.config } : resolved;
-          const result: any = { ...ref, config: mergedConfig };
-          delete result.ref;
-          (agents as any)[name] = result;
+          const mergedConfig = ref.config ? { ...resolved, ...(ref.config as Record<string, any>) } : resolved;
+          const { ref: _ref, ...rest } = ref;
+          agents[name] = { ...rest, config: mergedConfig };
         }
       }
     }
@@ -1145,7 +1117,7 @@ export class FlatMachine {
     // 1. Explicit non-empty path takes precedence
     if (explicitPath && explicitPath.trim().length > 0) return explicitPath;
     // 2. Config-level profiles setting
-    const configProfiles = (this.config as any)?.data?.profiles;
+    const configProfiles = this.config.data.profiles;
     if (typeof configProfiles === "string" && configProfiles.trim().length > 0) {
       return resolve(this.configDir, configProfiles);
     }
@@ -1165,7 +1137,7 @@ export class FlatMachine {
   }
 
   private makeResultUri(executionId: string): string {
-    return `flatagents://${executionId}/result`;
+    return makeResultUri(executionId);
   }
 
   private async addPendingLaunch(executionId: string, machine: string, input: Record<string, any>): Promise<void> {
@@ -1227,12 +1199,7 @@ export class FlatMachine {
   }
 
   private normalizeMachineResult(result: any): any {
-    if (result && typeof result === "object" && "_error" in result) {
-      const error = new Error(String(result._error ?? "Machine execution failed"));
-      error.name = String((result as Record<string, any>)._error_type ?? "Error");
-      throw error;
-    }
-    return result;
+    return normalizeMachineResult(result);
   }
 
   private async invokeMachineSingle(machineRef: any, input: Record<string, any>, timeoutMs?: number): Promise<any> {
@@ -1280,45 +1247,6 @@ export class FlatMachine {
   }
 
   private async awaitWithMode<T>(tasks: Promise<T>[], mode: string, timeoutMs?: number): Promise<T | T[]> {
-    if (tasks.length === 0) {
-      return mode === "any" ? (undefined as T) : ([] as T[]);
-    }
-    const runner: Promise<T | T[]> = mode === "any" ? this.firstCompleted(tasks) : Promise.all(tasks);
-    if (!timeoutMs) return runner;
-    return this.withTimeout(runner, timeoutMs);
-  }
-
-  private async firstCompleted<T>(tasks: Promise<T>[]): Promise<T> {
-    return new Promise((resolve, reject) => {
-      let pending = tasks.length;
-      let settled = false;
-      const errors: any[] = [];
-      for (const task of tasks) {
-        task.then((value) => {
-          if (settled) return;
-          settled = true;
-          resolve(value);
-        }).catch((err) => {
-          errors.push(err);
-          pending -= 1;
-          if (pending === 0 && !settled) {
-            reject(errors[0]);
-          }
-        });
-      }
-    });
-  }
-
-  private withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("Operation timed out")), timeoutMs);
-      promise.then((value) => {
-        clearTimeout(timer);
-        resolve(value);
-      }).catch((err) => {
-        clearTimeout(timer);
-        reject(err);
-      });
-    });
+    return awaitWithMode(tasks, mode, timeoutMs);
   }
 }

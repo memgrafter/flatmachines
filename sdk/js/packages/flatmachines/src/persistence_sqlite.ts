@@ -6,6 +6,9 @@
  */
 
 import { createHash } from 'node:crypto';
+import { mkdirSync, writeFileSync, readFileSync, unlinkSync, existsSync, renameSync } from 'fs';
+import { join } from 'path';
+import * as yaml from 'yaml';
 import { PersistenceBackend, MachineSnapshot } from './types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -17,7 +20,9 @@ let _DatabaseSync: any = null;
 function getDatabaseSync(): any {
   if (_DatabaseSync) return _DatabaseSync;
   try {
-    // Dynamic import of built-in module
+    // Dynamic require for optional built-in module — node:sqlite is not available
+    // in all Node.js versions and cannot be statically imported without breaking
+    // compatibility with Node < 22.5.
     const mod = require('node:sqlite');
     _DatabaseSync = mod.DatabaseSync;
     return _DatabaseSync;
@@ -272,35 +277,30 @@ export class LocalFileConfigStore implements ConfigStore {
   private dir: string;
 
   constructor(baseDir = '.checkpoints') {
-    const { mkdirSync, existsSync: ex } = require('fs');
-    this.dir = require('path').join(baseDir, '_configs');
-    if (!ex(this.dir)) mkdirSync(this.dir, { recursive: true });
+    this.dir = join(baseDir, '_configs');
+    if (!existsSync(this.dir)) mkdirSync(this.dir, { recursive: true });
   }
 
   async put(raw: string): Promise<string> {
-    const { writeFileSync, existsSync: ex, renameSync } = require('fs');
-    const { join } = require('path');
     const h = configHash(raw);
-    const path = join(this.dir, `${h}.yml`);
-    if (!ex(path)) {
-      const tmp = `${path}.tmp`;
+    const filePath = join(this.dir, `${h}.yml`);
+    if (!existsSync(filePath)) {
+      const tmp = `${filePath}.tmp`;
       writeFileSync(tmp, raw, 'utf-8');
-      renameSync(tmp, path);
+      renameSync(tmp, filePath);
     }
     return h;
   }
 
   async get(hashKey: string): Promise<string | null> {
-    const { readFileSync, existsSync: ex } = require('fs');
-    const path = require('path').join(this.dir, `${hashKey}.yml`);
-    if (!ex(path)) return null;
-    return readFileSync(path, 'utf-8');
+    const filePath = join(this.dir, `${hashKey}.yml`);
+    if (!existsSync(filePath)) return null;
+    return readFileSync(filePath, 'utf-8');
   }
 
   async delete(hashKey: string): Promise<void> {
-    const { unlinkSync, existsSync: ex } = require('fs');
-    const path = require('path').join(this.dir, `${hashKey}.yml`);
-    if (ex(path)) unlinkSync(path);
+    const filePath = join(this.dir, `${hashKey}.yml`);
+    if (existsSync(filePath)) unlinkSync(filePath);
   }
 }
 
@@ -330,7 +330,6 @@ export class SQLiteConfigStore implements ConfigStore {
     let machineName: string | null = null;
     let specVersion: string | null = null;
     try {
-      const yaml = require('yaml');
       const parsed = yaml.parse(raw);
       if (parsed && typeof parsed === 'object') {
         machineName = parsed.data?.name ?? null;

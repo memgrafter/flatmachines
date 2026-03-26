@@ -6,6 +6,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'fs';
+import { join } from 'path';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -78,6 +80,7 @@ export class SQLiteSignalBackend implements SignalBackend {
   private db: any;
 
   constructor(dbPath: string = 'flatmachines.sqlite') {
+    // Dynamic require for optional built-in module (node:sqlite requires Node ≥22.5)
     let DatabaseSync: any;
     try {
       DatabaseSync = require('node:sqlite').DatabaseSync;
@@ -156,8 +159,6 @@ export class FileTrigger implements TriggerBackend {
   }
 
   async notify(_channel: string): Promise<void> {
-    const { mkdirSync, writeFileSync } = require('fs');
-    const { join } = require('path');
     mkdirSync(this.basePath, { recursive: true });
     const triggerFile = join(this.basePath, 'trigger');
     writeFileSync(triggerFile, '');
@@ -173,6 +174,7 @@ export class SocketTrigger implements TriggerBackend {
 
   async notify(channel: string): Promise<void> {
     try {
+      // Dynamic require for optional built-in (not all environments use socket triggers)
       const net = require('node:net');
       await new Promise<void>((resolve, reject) => {
         const socket = net.createConnection({ path: this.socketPath }, () => {

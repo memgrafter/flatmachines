@@ -360,16 +360,15 @@ export function extractRateLimitInfo(headers: Record<string, string>): RateLimit
   );
   const retry_after = parseIntHeader(headers, 'retry-after');
 
-  // For extraction, use undefined for missing fields (not null) to match Python's None
-  // vs the class constructor which defaults to null for direct construction
-  const result = new RateLimitInfo({ raw_headers: headers });
-  (result as any).remaining_requests = remaining_requests;
-  (result as any).remaining_tokens = remaining_tokens;
-  (result as any).limit_requests = limit_requests;
-  (result as any).limit_tokens = limit_tokens;
-  (result as any).reset_at = reset_at;
-  (result as any).retry_after = retry_after;
-  return result;
+  return new RateLimitInfo({
+    remaining_requests: remaining_requests ?? null,
+    remaining_tokens: remaining_tokens ?? null,
+    limit_requests: limit_requests ?? null,
+    limit_tokens: limit_tokens ?? null,
+    reset_at: reset_at ?? null,
+    retry_after: retry_after ?? null,
+    raw_headers: headers,
+  });
 }
 
 export function isRateLimited(info: RateLimitInfo): boolean {

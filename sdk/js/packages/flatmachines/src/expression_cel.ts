@@ -10,7 +10,8 @@ let _celEvaluate: ((expr: string, ctx: Record<string, any>) => any) | null = nul
 function getCelEvaluate(): (expr: string, ctx: Record<string, any>) => any {
   if (_celEvaluate) return _celEvaluate;
   try {
-    // Dynamic require so it's truly optional
+    // Dynamic require — cel-js is an optional peer dependency that should not
+    // be imported at module load time to avoid errors when not installed.
     const celJs = require('cel-js');
     _celEvaluate = celJs.evaluate;
     return _celEvaluate!;

@@ -1,4 +1,36 @@
-/** Simple expression evaluator. */
+/**
+ * Simple expression evaluator (default engine).
+ *
+ * ## Supported Operations
+ *
+ * - **Dot-access**: `context.score`, `output.items.length`
+ * - **Bracket indexing**: `context.items[0]`, `context.items[0].name`
+ * - **Comparisons**: `==`, `!=`, `<`, `<=`, `>`, `>=`
+ * - **Boolean logic**: `and`, `or`, `not`
+ * - **Parenthesized grouping**: `(context.a or context.b) and context.c`
+ * - **Literals**: strings (`"hello"`, `'hello'`), numbers, `true`, `false`, `null`
+ *
+ * ## NOT Supported (use CEL engine instead)
+ *
+ * - `x in list` — membership testing
+ * - `len(items)` — function calls of any kind
+ * - Arithmetic: `+`, `-`, `*`, `/`, `%`
+ * - String concatenation
+ * - Ternary/conditional expressions
+ * - List/map construction
+ *
+ * To use the CEL engine (which supports all of the above), set
+ * `expression_engine: cel` in your machine config and install `cel-js`:
+ *
+ * ```yaml
+ * data:
+ *   expression_engine: cel
+ * ```
+ *
+ * ```bash
+ * npm install cel-js
+ * ```
+ */
 export function evaluate(expr: string, ctx: { context: any; input: any; output: any }): any {
   const trimmed = expr.trim();
   if (!trimmed) {

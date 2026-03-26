@@ -84,9 +84,7 @@ export class FlatAgent {
       }
     }
 
-    const configData = this.config && typeof this.config === "object"
-      ? (this.config as any).data
-      : undefined;
+    const configData = this.config?.data;
     // CEL expression engine is now supported via cel-js (optional dependency)
 
     // Resolve model config through profiles (only if we have valid config data)
@@ -345,49 +343,9 @@ export class FlatAgent {
   }): CostInfo {
     const { input_tokens, output_tokens, cache_read_tokens, cache_write_tokens } = args;
     
-    // Try litellm cost calculation if available
-    const self = this as any;
-    if (self.litellm?.completion_cost) {
-      try {
-        const litellmCost = self.litellm.completion_cost(args.response);
-        if (litellmCost && litellmCost > 0) {
-          // Apportion cost breakdown proportionally
-          const total = input_tokens + output_tokens * 3 + cache_read_tokens * 0.1 + cache_write_tokens * 1.5;
-          const inputFrac = total > 0 ? input_tokens / total : 0.5;
-          const outputFrac = total > 0 ? (output_tokens * 3) / total : 0.5;
-          const cacheReadFrac = total > 0 ? (cache_read_tokens * 0.1) / total : 0;
-          const cacheWriteFrac = total > 0 ? (cache_write_tokens * 1.5) / total : 0;
-          return new CostInfo({
-            input: litellmCost * inputFrac,
-            output: litellmCost * outputFrac,
-            cache_read: litellmCost * cacheReadFrac,
-            cache_write: litellmCost * cacheWriteFrac,
-            total: litellmCost,
-          });
-        }
-      } catch {
-        // Fall through to fallback
-      }
-    }
-    
-    // Fallback estimation using rough per-token costs
-    const INPUT_COST_PER_TOKEN = 0.000001;
-    const OUTPUT_COST_PER_TOKEN = 0.000003;
-    const CACHE_READ_COST_PER_TOKEN = 0.0000001;
-    const CACHE_WRITE_COST_PER_TOKEN = 0.0000015;
-    
-    const inputCost = input_tokens * INPUT_COST_PER_TOKEN;
-    const outputCost = output_tokens * OUTPUT_COST_PER_TOKEN;
-    const cacheReadCost = cache_read_tokens * CACHE_READ_COST_PER_TOKEN;
-    const cacheWriteCost = cache_write_tokens * CACHE_WRITE_COST_PER_TOKEN;
-    
-    return new CostInfo({
-      input: inputCost,
-      output: outputCost,
-      cache_read: cacheReadCost,
-      cache_write: cacheWriteCost,
-      total: inputCost + outputCost + cacheReadCost + cacheWriteCost,
-    });
+    // No real pricing data available — return zero-cost rather than inaccurate estimates.
+    // Consumers should use provider-specific pricing APIs for accurate cost tracking.
+    return new CostInfo();
   }
 
   /**

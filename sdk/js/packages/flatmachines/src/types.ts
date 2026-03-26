@@ -23,11 +23,13 @@ export interface MachineConfig {
     name?: string;
     expression_engine?: "simple" | "cel";
     context?: Record<string, any>;
-    agents?: Record<string, string>;
+    profiles?: string;
+    hooks?: HooksRef;
+    agents?: Record<string, string | Record<string, any>>;
     machines?: Record<string, string | MachineConfig | MachineWrapper | MachineReference>;
     states: Record<string, State>;
     settings?: { max_steps?: number; backends?: BackendConfig; [key: string]: any };
-    persistence?: { enabled: boolean; backend: "local" | "memory" | "redis" | string; checkpoint_on?: string[]; [key: string]: any };
+    persistence?: { enabled: boolean; backend: "local" | "memory" | "redis" | string; checkpoint_on?: string[]; db_path?: string; [key: string]: any };
   };
 }
 

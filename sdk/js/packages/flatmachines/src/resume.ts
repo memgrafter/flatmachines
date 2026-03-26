@@ -158,13 +158,9 @@ export class ConfigStoreResumer implements MachineResumer {
     snapshot: MachineSnapshot,
     configDict: Record<string, any>,
   ): Promise<any> {
-    // Dynamic import to handle both CJS and ESM contexts
-    let FlatMachine: any;
-    try {
-      FlatMachine = (await import('./flatmachine')).FlatMachine;
-    } catch {
-      FlatMachine = require('./flatmachine').FlatMachine;
-    }
+    // Lazy require to avoid circular dependency (flatmachine → resume → flatmachine).
+    // Using require() for consistent CJS behavior in bundled output.
+    const { FlatMachine } = require('./flatmachine');
     return new FlatMachine({
       config: configDict,
       persistence: this._persistence,
