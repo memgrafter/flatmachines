@@ -381,8 +381,14 @@ class CodexCliExecutor(AgentExecutor):
         self,
         input_data: Dict[str, Any],
         context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> AgentResult:
-        """Execute a Codex CLI invocation."""
+        """Execute a Codex CLI invocation.
+
+        `session_id` is accepted for AgentExecutor protocol compatibility.
+        The Codex CLI adapter uses explicit `input.resume_session` to resume
+        existing Codex threads; `session_id` is intentionally ignored.
+        """
         task = input_data.get("task") or input_data.get("prompt", "")
         if not task:
             return AgentResult(
@@ -408,8 +414,12 @@ class CodexCliExecutor(AgentExecutor):
         tools: List[Dict[str, Any]],
         messages: Optional[List[Dict[str, Any]]] = None,
         context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> AgentResult:
-        """Not supported -- Codex CLI owns its tool loop."""
+        """Not supported -- Codex CLI owns its tool loop.
+
+        `session_id` is accepted for AgentExecutor protocol compatibility.
+        """
         raise NotImplementedError(
             "Codex CLI adapter does not support machine-driven tool loops. "
             "Remove tool_loop from the state config."

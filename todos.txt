@@ -65,3 +65,7 @@
        ```
   3. Tests: add tests confirming (a) default setup_logging() adds no handlers and sets propagate=True, (b) FLATAGENTS_LOG_HANDLER=stdout adds the handler and sets propagate=False, (c) default _init_metrics() with otel installed does not create a console exporter, (d) OTEL_METRICS_EXPORTER=console creates the exporter.
   Motivation: sterling-swarm prototype needed 15 lines of workaround code to suppress flatagents console output. Any headful app (CLI, TUI, REPL) embedding flatagents hits the same problem. The fix is backward-compatible: headless/daemon users who already see logs on stdout can set FLATAGENTS_LOG_HANDLER=stdout to preserve current behavior.
+
+- JS Codex CLI adapter mocked test suite (unit + integration-style): add tests that mock `child_process.spawn` and feed NDJSON event streams to validate success/error/timeout/resume parsing without live Codex auth.
+- Python codex_cli adapter regression: fix `CodexCliExecutor.execute()` compatibility with execution layer `session_id` kwarg (`TypeError: unexpected keyword argument 'session_id'`) so `sdk/examples/codex_cli_adapter/python` runs again.
+- Parity checker strict mode: harden `scripts/check-example-sdk-parity.mjs` to fail on capability mismatch (not only target resolution), with optional flag to keep current permissive behavior for transitional runs.

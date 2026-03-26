@@ -5,6 +5,37 @@ import { join, basename } from 'path';
 const repoRoot = process.cwd();
 const examplesRoot = join(repoRoot, 'sdk', 'examples');
 
+function printUsage() {
+  console.log('Usage: node scripts/check-example-sdk-parity.mjs [--strict-caps] [--permissive-caps] [--help]');
+  console.log('');
+  console.log('  --strict-caps      Fail when JS/Python SDK capabilities differ in either direction.');
+  console.log('  --permissive-caps  Keep legacy one-way capability checks (Python needs must be satisfied by JS).');
+  console.log('  --help             Show this message.');
+}
+
+function parseArgs(argv) {
+  let strictCaps = false;
+  let permissiveCaps = false;
+
+  for (const arg of argv) {
+    if (arg === '--strict-caps') strictCaps = true;
+    else if (arg === '--permissive-caps') permissiveCaps = true;
+    else if (arg === '--help' || arg === '-h') {
+      printUsage();
+      process.exit(0);
+    } else {
+      console.error(`Unknown argument: ${arg}`);
+      printUsage();
+      process.exit(2);
+    }
+  }
+
+  const strictCapabilityParity = strictCaps && !permissiveCaps;
+  return { strictCapabilityParity };
+}
+
+const cli = parseArgs(process.argv.slice(2));
+
 function listDirs(path) {
   return readdirSync(path, { withFileTypes: true })
     .filter((d) => d.isDirectory())
@@ -208,15 +239,32 @@ for (const name of examples) {
 
   const capMismatch = [];
 
-  // Python flatmachines usage must map to JS flatmachines package usage.
-  if (pyCap.usesFlatmachines && !jsCap.importsFlatmachinesPkg) {
-    capMismatch.push('flatmachines');
-  }
+  const pyNeedsFlatmachines = pyCap.usesFlatmachines;
+  const pyNeedsFlatagents = pyCap.usesFlatagents;
 
-  // Python flatagents usage can map to either JS flatagents package OR flatmachines
-  // (JS SDK allows FlatAgent usage through @memgrafter/flatmachines).
-  if (pyCap.usesFlatagents && !(jsCap.importsFlatagentsPkg || jsCap.importsFlatmachinesPkg)) {
-    capMismatch.push('flatagents');
+  // Strict mode compares observed usage capabilities directly.
+  const jsUsesFlatmachines = jsCap.usesFlatmachines;
+  const jsUsesFlatagents = jsCap.usesFlatagents;
+
+  // Permissive mode keeps legacy compatibility behavior:
+  // Python needs map to JS package imports (flatagents need can be satisfied via flatmachines).
+  const jsHasFlatmachines = jsCap.importsFlatmachinesPkg;
+  const jsHasFlatagents = jsCap.importsFlatagentsPkg || jsCap.importsFlatmachinesPkg;
+
+  if (cli.strictCapabilityParity) {
+    if (pyNeedsFlatmachines !== jsUsesFlatmachines) {
+      capMismatch.push('flatmachines');
+    }
+    if (pyNeedsFlatagents !== jsUsesFlatagents) {
+      capMismatch.push('flatagents');
+    }
+  } else {
+    if (pyNeedsFlatmachines && !jsHasFlatmachines) {
+      capMismatch.push('flatmachines');
+    }
+    if (pyNeedsFlatagents && !jsHasFlatagents) {
+      capMismatch.push('flatagents');
+    }
   }
 
   let pyCfg = new Set();
@@ -254,6 +302,7 @@ const pass = rows.filter((r) => r.status === 'PASS').length;
 const fail = rows.length - pass;
 
 console.log('JS/Python SDK parity audit');
+console.log(`Capability mode: ${cli.strictCapabilityParity ? 'strict' : 'permissive'}`);
 console.log(`Examples checked: ${rows.length} | PASS: ${pass} | FAIL: ${fail}`);
 console.log('');
 
