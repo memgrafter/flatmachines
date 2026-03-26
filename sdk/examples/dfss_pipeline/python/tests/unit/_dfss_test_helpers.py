@@ -1,26 +1,25 @@
 from __future__ import annotations
 
-import importlib.util
+import importlib
 import sys
 from pathlib import Path
 
 
-def dfss_examples_dir() -> Path:
-    # .../sdk/examples/dfss_pipeline/python/tests/unit -> .../sdk/examples/dfss_pipeline
-    return Path(__file__).resolve().parents[3]
+def package_src_root() -> Path:
+    # .../sdk/examples/dfss_pipeline/python/tests/unit -> .../sdk/examples/dfss_pipeline/python/src
+    return Path(__file__).resolve().parents[2] / "src"
 
 
 def load_dfss_module(filename: str, module_name: str):
-    path = dfss_examples_dir() / filename
-    if not path.exists():
-        raise AssertionError(f"Expected DFSS example file missing: {path}")
+    if not filename.endswith(".py"):
+        raise AssertionError(f"Expected python filename, got: {filename}")
 
-    spec = importlib.util.spec_from_file_location(module_name, str(path))
-    if spec is None or spec.loader is None:
-        raise AssertionError(f"Could not load module spec: {path}")
+    mod = filename[:-3]
+    module_path = f"flatagent_dfss_pipeline.{mod}"
 
-    module = importlib.util.module_from_spec(spec)
-    # Ensure module is discoverable during execution (e.g. dataclass annotation resolution).
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
+    src_root = package_src_root()
+    if str(src_root) not in sys.path:
+        sys.path.insert(0, str(src_root))
+
+    module = importlib.import_module(module_path)
+    return importlib.reload(module)

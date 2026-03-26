@@ -6,6 +6,7 @@ VENV_PATH="$SCRIPT_DIR/.venv"
 PYTHON_BIN="$VENV_PATH/bin/python"
 
 cd "$SCRIPT_DIR"
+export PYTHONDONTWRITEBYTECODE=1
 
 echo "=== DFSS Pipeline Test Suite ==="
 

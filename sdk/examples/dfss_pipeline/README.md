@@ -3,7 +3,6 @@
 This example has been normalized to the standard SDK example layout:
 
 - `python/` — runnable Python package, tests, and scripts
-- top-level wrappers (`main.py`, `scheduler.py`, etc.) are kept for backward compatibility
 
 ## Quick start
 

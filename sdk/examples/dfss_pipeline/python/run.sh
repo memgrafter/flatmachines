@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 VENV_PATH=".venv"
 
@@ -40,6 +40,7 @@ FLATAGENTS_SDK_PATH="$PROJECT_ROOT/sdk/python/flatagents"
 FLATMACHINES_SDK_PATH="$PROJECT_ROOT/sdk/python/flatmachines"
 
 cd "$SCRIPT_DIR"
+export PYTHONDONTWRITEBYTECODE=1
 
 if [ ! -d "$VENV_PATH" ]; then
   uv venv "$VENV_PATH"
