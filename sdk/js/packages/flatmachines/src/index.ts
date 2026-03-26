@@ -16,6 +16,7 @@ export { FlatMachine, ExtendedMachineOptions, WaitingForSignal } from './flatmac
 
 export { FlatAgentAdapter, FlatAgentExecutor } from './adapters/flatagent_adapter';
 export { ClaudeCodeAdapter, ClaudeCodeExecutor } from './adapters/claude_code_adapter';
+export { CodexCliAdapter, CodexCliExecutor } from './adapters/codex_cli_adapter';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Execution
