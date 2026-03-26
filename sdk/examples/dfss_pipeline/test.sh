@@ -2,32 +2,4 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_PATH="$SCRIPT_DIR/.venv"
-PYTHON_BIN="$VENV_PATH/bin/python"
-
-cd "$SCRIPT_DIR"
-
-echo "=== DFSS Example Test Suite ==="
-
-if ! command -v uv >/dev/null 2>&1; then
-  echo "uv is required but not found on PATH"
-  exit 1
-fi
-
-echo "Ensuring uv virtualenv at $VENV_PATH"
-if [ ! -d "$VENV_PATH" ]; then
-  uv venv "$VENV_PATH"
-fi
-
-echo "Installing local editable packages + test deps"
-uv pip install --python "$PYTHON_BIN" -e "$SCRIPT_DIR/../../python/flatagents[litellm]"
-uv pip install --python "$PYTHON_BIN" -e "$SCRIPT_DIR/../../python/flatmachines[flatagents]"
-uv pip install --python "$PYTHON_BIN" pytest pytest-asyncio
-
-echo "Running DFSS unit + integration tests"
-"$PYTHON_BIN" -m pytest \
-  tests/unit/test_dfss_*.py \
-  tests/integration/test_dfss_pipeline.py \
-  -q
-
-echo "=== DFSS suite complete ==="
+exec "$SCRIPT_DIR/python/test.sh"
