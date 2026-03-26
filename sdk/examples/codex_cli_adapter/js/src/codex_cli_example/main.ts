@@ -80,9 +80,18 @@ async function run(configName: string): Promise<number> {
     if (!ok) failures += 1;
   }
 
-  const fanout = (result as any).fanout_results;
-  if (fanout) {
+  const fanoutRaw = (result as any).fanout_results;
+  if (fanoutRaw) {
     const answers: Record<string, string> = {};
+
+    let fanout: any = fanoutRaw;
+    if (typeof fanoutRaw === 'string') {
+      try {
+        fanout = JSON.parse(fanoutRaw);
+      } catch {
+        fanout = fanoutRaw;
+      }
+    }
 
     if (Array.isArray(fanout)) {
       for (const item of fanout) {

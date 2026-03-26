@@ -60,7 +60,7 @@ data:
       input:
         thread_id: context.thread_id
       output_to_context:
-        fanout_results: output
+        fanout_results: "{{ output }}"
       transitions:
         - to: done
 
