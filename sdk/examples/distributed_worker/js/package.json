@@ -1,0 +1,20 @@
+{
+  "name": "flatagents-distributed-worker",
+  "version": "0.1.0",
+  "description": "Distributed worker demo for FlatMachines (JavaScript)",
+  "type": "module",
+  "main": "dist/distributed_worker/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/distributed_worker/main.ts",
+    "start": "node dist/distributed_worker/main.js"
+  },
+  "dependencies": {
+    "@memgrafter/flatmachines": "file:../../../js/packages/flatmachines"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0"
+  }
+}

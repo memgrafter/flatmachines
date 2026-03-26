@@ -29,6 +29,7 @@ function read(path) {
 }
 
 function extractPythonRunTarget(pyRunSh) {
+  if (!existsSync(pyRunSh)) return { type: 'missing', target: null, raw: null };
   const text = read(pyRunSh);
   const moduleMatch = text.match(/-m\s+([A-Za-z0-9_.]+)/);
   if (moduleMatch) {
@@ -43,6 +44,7 @@ function extractPythonRunTarget(pyRunSh) {
 }
 
 function extractJsRunTarget(jsRunSh) {
+  if (!existsSync(jsRunSh)) return { type: 'missing', target: null, raw: null };
   const text = read(jsRunSh);
   const m = text.match(/node\s+dist\/([A-Za-z0-9_\-/]+)\.js/);
   if (!m) return { type: 'unknown', target: null, raw: null };

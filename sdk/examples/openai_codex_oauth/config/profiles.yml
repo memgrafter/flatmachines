@@ -1,0 +1,11 @@
+spec: flatprofiles
+spec_version: "2.5.0"
+
+data:
+  model_profiles:
+    codex:
+      provider: openai-codex
+      backend: codex
+      name: gpt-5.3-codex
+
+  default: codex

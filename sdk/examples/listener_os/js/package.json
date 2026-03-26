@@ -1,0 +1,20 @@
+{
+  "name": "flatagents-listener-os",
+  "version": "0.1.0",
+  "description": "Listener OS signal demo for FlatMachines (JavaScript)",
+  "type": "module",
+  "main": "dist/listener_os/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/listener_os/main.ts",
+    "start": "node dist/listener_os/main.js"
+  },
+  "dependencies": {
+    "@memgrafter/flatmachines": "file:../../../js/packages/flatmachines"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0"
+  }
+}

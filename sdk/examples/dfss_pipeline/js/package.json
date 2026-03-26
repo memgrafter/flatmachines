@@ -1,0 +1,20 @@
+{
+  "name": "flatagents-dfss-pipeline",
+  "version": "0.1.0",
+  "description": "DFSS pipeline demo for FlatMachines (JavaScript)",
+  "type": "module",
+  "main": "dist/flatagent_dfss_pipeline/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/flatagent_dfss_pipeline/main.ts",
+    "start": "node dist/flatagent_dfss_pipeline/main.js"
+  },
+  "dependencies": {
+    "@memgrafter/flatmachines": "file:../../../js/packages/flatmachines"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0"
+  }
+}
