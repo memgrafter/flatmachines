@@ -98,11 +98,12 @@ FAILED=0
 for SPEC_NAME in FLATAGENT FLATMACHINE PROFILES RUNTIME; do
     SPEC_VAR="${SPEC_NAME}_VERSION"
     SPEC_VAL="${!SPEC_VAR}"
+    SPEC_NAME_LOWER=$(printf '%s' "$SPEC_NAME" | tr '[:upper:]' '[:lower:]')
     if [[ "$PACKAGE_VERSION" != "$SPEC_VAL" ]]; then
-        echo "  ✗ SDK version ($PACKAGE_VERSION) != ${SPEC_NAME,,}.d.ts ($SPEC_VAL)"
+        echo "  ✗ SDK version ($PACKAGE_VERSION) != ${SPEC_NAME_LOWER}.d.ts ($SPEC_VAL)"
         FAILED=1
     else
-        echo "  ✓ SDK version matches ${SPEC_NAME,,}.d.ts ($SPEC_VAL)"
+        echo "  ✓ SDK version matches ${SPEC_NAME_LOWER}.d.ts ($SPEC_VAL)"
     fi
 done
 
