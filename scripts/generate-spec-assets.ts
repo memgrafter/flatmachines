@@ -183,7 +183,6 @@ const targetDirs = args.length > 0 ? args : [
   path.join(REPO_ROOT, "assets"),
   path.join(REPO_ROOT, "sdk", "python", "flatagents", "flatagents", "assets"),
   path.join(REPO_ROOT, "sdk", "python", "flatmachines", "flatmachines", "assets"),
-  path.join(REPO_ROOT, "sdk", "js", "schemas"),
   path.join(REPO_ROOT, "sdk", "js", "packages", "flatagents", "schemas"),
   path.join(REPO_ROOT, "sdk", "js", "packages", "flatmachines", "schemas"),
 ];
