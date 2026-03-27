@@ -44,23 +44,6 @@ echo "📁 JS SDK: $JS_SDK_PATH"
 
 cd "$SCRIPT_DIR"
 
-# Ensure skills are available for codebase explorer
-SKILLS_LINK="$SCRIPT_DIR/../.skills"
-if [[ ! -e "$SKILLS_LINK" ]]; then
-    if [[ -n "$CODEX_HOME" && -d "$CODEX_HOME/skills" ]]; then
-        ln -s "$CODEX_HOME/skills" "$SKILLS_LINK"
-        echo "🔗 Linked skills from: $CODEX_HOME/skills"
-    elif [[ -d "$HOME/.codex/skills" ]]; then
-        ln -s "$HOME/.codex/skills" "$SKILLS_LINK"
-        echo "🔗 Linked skills from: $HOME/.codex/skills"
-    fi
-fi
-
-if [[ ! -f "$SKILLS_LINK/codebase_explorer/machine.yml" ]]; then
-    echo "❌ Missing codebase_explorer skill."
-    echo "   Create a symlink: ln -s /path/to/skills \"$SKILLS_LINK\""
-    exit 1
-fi
 
 # 0. Ensure Node.js and npm are installed
 if ! command -v node &> /dev/null; then
@@ -76,10 +59,15 @@ fi
 # 1. Install Dependencies
 echo "📦 Installing dependencies..."
 if [ "$LOCAL_INSTALL" = true ]; then
-    echo "  - Building flatagents from local source..."
+    echo "  - Using local flatmachines SDK..."
     cd "$JS_SDK_PATH"
     npm run build
     cd "$SCRIPT_DIR"
+    # Swap to local dependency (flatmachines re-exports flatagents)
+    npm pkg set dependencies.@memgrafter/flatmachines="file:../../../js/packages/flatmachines"
+else
+    # Ensure we're using the npm package
+    npm pkg set dependencies.@memgrafter/flatmachines="^2.5.0"
 fi
 
 echo "  - Installing coding_agent demo package..."

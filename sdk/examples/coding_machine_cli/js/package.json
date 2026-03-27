@@ -1,0 +1,29 @@
+{
+  "name": "flatagents-coding-machine-cli",
+  "version": "0.1.0",
+  "description": "CLI coding agent with FlatMachine tool loop (read, write, bash, edit).",
+  "type": "module",
+  "main": "src/tool_use_cli/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/tool_use_cli/main.ts",
+    "start": "node dist/tool_use_cli/main.js"
+  },
+  "dependencies": {
+    "@memgrafter/flatmachines": "file:../../../js/packages/flatmachines"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "keywords": [
+    "flatagents",
+    "flatmachines",
+    "demo",
+    "tool-use",
+    "cli"
+  ],
+  "author": "",
+  "license": "MIT"
+}

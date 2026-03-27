@@ -1,6 +1,6 @@
 import { join } from 'path';
 import { loadAgent, updateAgentPrompts, createLogger } from './utils.js';
-import type { AgentConfig } from 'flatagents';
+import type { AgentConfig } from '@memgrafter/flatagents';
 
 export type PromptCandidate = {
   system_prompt: string;

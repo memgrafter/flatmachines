@@ -10,7 +10,7 @@
     "start": "node dist/error_handling/main.js"
   },
   "dependencies": {
-    "flatagents": "file:../../../js"
+    "@memgrafter/flatmachines": "file:../../../js/packages/flatmachines"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

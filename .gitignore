@@ -15,4 +15,5 @@ data
 logs
 
 .aider.tags.cache.v4/
+.speed-kills/
 auth.json

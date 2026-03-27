@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { inMemoryResultBackend } from '../../src/results'
+import { inMemoryResultBackend } from '@memgrafter/flatmachines'
 
 describe('InMemoryResultBackend', () => {
   beforeEach(() => {

@@ -3,7 +3,7 @@ import { DataGenerator } from './data_generator.js';
 import { JudgeEvaluator, EvaluationResult } from './evaluator.js';
 import { PromptEvolver } from './prompt_evolver.js';
 import { loadYaml, saveYaml, loadJson, saveJson, loadAgent, createLogger } from './utils.js';
-import type { AgentConfig } from 'flatagents';
+import type { AgentConfig } from '@memgrafter/flatagents';
 import { RUN_LENGTH_DEFAULTS } from './run_length.js';
 
 export type OptimizationConfig = {

@@ -24,7 +24,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo "=== JavaScript SDK Release ==="
+echo "=== JavaScript SDK Release (dual-package) ==="
 if [ "$DRY_RUN" = true ]; then
     echo ""
     echo "════════════════════════════════════════════════════════════"
@@ -34,26 +34,53 @@ if [ "$DRY_RUN" = true ]; then
 fi
 echo ""
 
-# Copy MACHINES.md and create symlinks for AGENTS.md/CLAUDE.md
-cp "$REPO_ROOT/MACHINES.md" "$SDK_DIR/MACHINES.md"
-ln -sf MACHINES.md "$SDK_DIR/AGENTS.md"
-ln -sf MACHINES.md "$SDK_DIR/CLAUDE.md"
-echo "✓ MACHINES.md synced from root (with AGENTS.md, CLAUDE.md symlinks)"
+# ─────────────────────────────────────────────────────────────────────────────
+# Version validation
+# ─────────────────────────────────────────────────────────────────────────────
 
-# Extract version from package.json
-PACKAGE_VERSION=$(node -p "require('./package.json').version")
+AGENTS_VERSION=$(node -p "require('./packages/flatagents/package.json').version")
+MACHINES_VERSION=$(node -p "require('./packages/flatmachines/package.json').version")
+WORKSPACE_VERSION=$(node -p "require('./package.json').version")
 
-if [[ -z "$PACKAGE_VERSION" ]]; then
-    echo "RELEASE ABORTED: Could not read version from package.json."
+echo "Package versions:"
+echo "  @memgrafter/flatagents:    $AGENTS_VERSION"
+echo "  @memgrafter/flatmachines:  $MACHINES_VERSION"
+echo "  workspace:                $WORKSPACE_VERSION"
+
+if [[ "$AGENTS_VERSION" != "$MACHINES_VERSION" ]]; then
+    echo ""
+    echo "RELEASE ABORTED: flatagents ($AGENTS_VERSION) != flatmachines ($MACHINES_VERSION)"
     exit 1
 fi
 
-# Extract versions from root TypeScript specs
-echo "Extracting spec versions from TypeScript files..."
+if [[ "$AGENTS_VERSION" != "$WORKSPACE_VERSION" ]]; then
+    echo ""
+    echo "RELEASE ABORTED: package version ($AGENTS_VERSION) != workspace version ($WORKSPACE_VERSION)"
+    exit 1
+fi
+
+PACKAGE_VERSION="$AGENTS_VERSION"
+
+# Validate flatmachines depends on the same version of flatagents
+MACHINES_AGENT_DEP=$(node -p "require('./packages/flatmachines/package.json').dependencies['@memgrafter/flatagents']")
+if [[ "$MACHINES_AGENT_DEP" != "$PACKAGE_VERSION" ]]; then
+    echo ""
+    echo "RELEASE ABORTED: flatmachines depends on flatagents@$MACHINES_AGENT_DEP, expected $PACKAGE_VERSION"
+    exit 1
+fi
+echo "  ✓ flatmachines → flatagents dependency version matches"
+echo ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Spec version validation
+# ─────────────────────────────────────────────────────────────────────────────
+
 if [ ! -d "$REPO_ROOT/scripts/node_modules" ]; then
     echo "Installing script dependencies..."
     (cd "$REPO_ROOT/scripts" && npm install --silent)
 fi
+
+echo "Extracting spec versions from TypeScript files..."
 FLATAGENT_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$REPO_ROOT/flatagent.d.ts")
 FLATMACHINE_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$REPO_ROOT/flatmachine.d.ts")
 PROFILES_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$REPO_ROOT/profiles.d.ts")
@@ -66,39 +93,18 @@ echo "  profiles.d.ts:           $PROFILES_VERSION"
 echo "  flatagents-runtime.d.ts: $RUNTIME_VERSION"
 echo ""
 
-# Validate SDK version matches spec versions
-echo "Checking JavaScript SDK version..."
-echo "  package.json: $PACKAGE_VERSION"
-
 FAILED=0
 
-if [[ "$PACKAGE_VERSION" != "$FLATAGENT_VERSION" ]]; then
-    echo "  ✗ SDK version ($PACKAGE_VERSION) != flatagent.d.ts ($FLATAGENT_VERSION)"
-    FAILED=1
-else
-    echo "  ✓ SDK version matches flatagent.d.ts ($FLATAGENT_VERSION)"
-fi
-
-if [[ "$PACKAGE_VERSION" != "$FLATMACHINE_VERSION" ]]; then
-    echo "  ✗ SDK version ($PACKAGE_VERSION) != flatmachine.d.ts ($FLATMACHINE_VERSION)"
-    FAILED=1
-else
-    echo "  ✓ SDK version matches flatmachine.d.ts ($FLATMACHINE_VERSION)"
-fi
-
-if [[ "$PACKAGE_VERSION" != "$PROFILES_VERSION" ]]; then
-    echo "  ✗ SDK version ($PACKAGE_VERSION) != profiles.d.ts ($PROFILES_VERSION)"
-    FAILED=1
-else
-    echo "  ✓ SDK version matches profiles.d.ts ($PROFILES_VERSION)"
-fi
-
-if [[ "$PACKAGE_VERSION" != "$RUNTIME_VERSION" ]]; then
-    echo "  ✗ SDK version ($PACKAGE_VERSION) != flatagents-runtime.d.ts ($RUNTIME_VERSION)"
-    FAILED=1
-else
-    echo "  ✓ SDK version matches flatagents-runtime.d.ts ($RUNTIME_VERSION)"
-fi
+for SPEC_NAME in FLATAGENT FLATMACHINE PROFILES RUNTIME; do
+    SPEC_VAR="${SPEC_NAME}_VERSION"
+    SPEC_VAL="${!SPEC_VAR}"
+    if [[ "$PACKAGE_VERSION" != "$SPEC_VAL" ]]; then
+        echo "  ✗ SDK version ($PACKAGE_VERSION) != ${SPEC_NAME,,}.d.ts ($SPEC_VAL)"
+        FAILED=1
+    else
+        echo "  ✓ SDK version matches ${SPEC_NAME,,}.d.ts ($SPEC_VAL)"
+    fi
+done
 
 if [[ "$FAILED" -eq 1 ]]; then
     echo ""
@@ -106,67 +112,88 @@ if [[ "$FAILED" -eq 1 ]]; then
     echo "Run: scripts/update-spec-versions.sh <version> --js --apply"
     exit 1
 fi
-
 echo ""
 
-# Validate schemas/ folder versions match package version
-echo "Checking schemas/ folder versions..."
+# ─────────────────────────────────────────────────────────────────────────────
+# Schema validation (per-package)
+# ─────────────────────────────────────────────────────────────────────────────
+
+echo "Checking schemas/ versions..."
 SCHEMA_SPECS=("flatagent" "flatmachine" "profiles" "flatagents-runtime")
 SCHEMA_FAILED=0
 
-for spec in "${SCHEMA_SPECS[@]}"; do
-    SCHEMA_FILE="schemas/${spec}.d.ts"
-    if [[ ! -f "$SCHEMA_FILE" ]]; then
-        echo "  ✗ $SCHEMA_FILE not found"
-        SCHEMA_FAILED=1
-        continue
-    fi
-    
-    SCHEMA_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$SDK_DIR/$SCHEMA_FILE")
-    if [[ "$SCHEMA_VERSION" != "$PACKAGE_VERSION" ]]; then
-        echo "  ✗ $SCHEMA_FILE version ($SCHEMA_VERSION) != package.json ($PACKAGE_VERSION)"
-        SCHEMA_FAILED=1
-    else
-        echo "  ✓ $SCHEMA_FILE ($SCHEMA_VERSION)"
-    fi
+for PKG in flatagents flatmachines; do
+    for spec in "${SCHEMA_SPECS[@]}"; do
+        SCHEMA_FILE="packages/$PKG/schemas/${spec}.d.ts"
+        if [[ ! -f "$SCHEMA_FILE" ]]; then
+            echo "  ⚠ $SCHEMA_FILE not found (run: scripts/generate-spec-assets.sh)"
+            SCHEMA_FAILED=1
+            continue
+        fi
+        SCHEMA_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$SDK_DIR/$SCHEMA_FILE")
+        if [[ "$SCHEMA_VERSION" != "$PACKAGE_VERSION" ]]; then
+            echo "  ✗ $SCHEMA_FILE version ($SCHEMA_VERSION) != package.json ($PACKAGE_VERSION)"
+            SCHEMA_FAILED=1
+        else
+            echo "  ✓ $PKG/${spec}.d.ts ($SCHEMA_VERSION)"
+        fi
+    done
 done
 
 if [[ "$SCHEMA_FAILED" -eq 1 ]]; then
     echo ""
     echo "RELEASE ABORTED: schemas/ folder out of sync."
-    echo "Run: npx tsx scripts/generate-spec-assets.ts"
+    echo "Run: scripts/generate-spec-assets.sh"
     exit 1
 fi
-
 echo ""
 
-# Install dependencies
+# ─────────────────────────────────────────────────────────────────────────────
+# Install & Build
+# ─────────────────────────────────────────────────────────────────────────────
+
 echo "Installing dependencies..."
 npm install --silent
 echo ""
 
-# Build
-echo "Building..."
-npm run build
-
-# Verify build output exists
-if [ ! -f "dist/index.js" ] || [ ! -f "dist/index.d.ts" ]; then
-    echo "RELEASE ABORTED: Build failed - dist/index.js or dist/index.d.ts not found."
-    exit 1
-fi
-echo "  Build output verified."
+echo "Building @memgrafter/flatagents..."
+npm run build:agents
 echo ""
 
-# Run tests
-echo "Running tests..."
-npm test
+echo "Building @memgrafter/flatmachines..."
+npm run build:machines
 echo ""
 
-# Publish to npm
+# Verify build output
+for PKG in flatagents flatmachines; do
+    if [ ! -f "packages/$PKG/dist/index.js" ] || [ ! -f "packages/$PKG/dist/index.d.ts" ]; then
+        echo "RELEASE ABORTED: packages/$PKG/dist missing build artifacts."
+        exit 1
+    fi
+done
+echo "  ✓ Build output verified for both packages."
+echo ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Publish
+# ─────────────────────────────────────────────────────────────────────────────
+
 if [ "$DRY_RUN" = true ]; then
-    echo "DRY RUN: Running npm publish --dry-run..."
-    npm publish --dry-run
+    echo "DRY RUN: Running npm publish --dry-run for all packages..."
     echo ""
+
+    echo "── @memgrafter/flatagents ──"
+    (cd packages/flatagents && npm publish --dry-run)
+    echo ""
+
+    echo "── @memgrafter/flatmachines ──"
+    (cd packages/flatmachines && npm publish --dry-run)
+    echo ""
+
+    echo "── flatmachines (unscoped, one-time) ──"
+    (cd packages/flatmachines && npm publish --dry-run)
+    echo ""
+
     echo "DRY RUN complete. Run with --apply to publish to npm."
 else
     if [ -z "$NPMJS_TOKEN_MEMGRAFTER" ]; then
@@ -175,11 +202,30 @@ else
         exit 1
     fi
 
-    echo "Publishing to npm..."
     NPMRC_TMP="$(mktemp)"
     trap 'rm -f "$NPMRC_TMP"' EXIT
     echo "//registry.npmjs.org/:_authToken=${NPMJS_TOKEN_MEMGRAFTER}" > "$NPMRC_TMP"
-    NPM_CONFIG_USERCONFIG="$NPMRC_TMP" npm publish
+
+    # Publish flatagents first (flatmachines depends on it)
+    echo "Publishing @memgrafter/flatagents@$PACKAGE_VERSION..."
+    (cd packages/flatagents && NPM_CONFIG_USERCONFIG="$NPMRC_TMP" npm publish)
     echo ""
-    echo "Released flatagents@$PACKAGE_VERSION to npm"
+
+    echo "Publishing @memgrafter/flatmachines@$PACKAGE_VERSION..."
+    (cd packages/flatmachines && NPM_CONFIG_USERCONFIG="$NPMRC_TMP" npm publish)
+    echo ""
+
+    # One-time publish to unscoped 'flatmachines' for discoverability (then deprecate)
+    echo "Publishing flatmachines@$PACKAGE_VERSION (unscoped, one-time)..."
+    ORIG_NAME=$(node -p "require('./packages/flatmachines/package.json').name")
+    TEMP_PKG="packages/flatmachines/package.json"
+    node -e "const p=require('./$TEMP_PKG'); p.name='flatmachines'; require('fs').writeFileSync('$TEMP_PKG', JSON.stringify(p, null, 2)+'\n')"
+    (cd packages/flatmachines && NPM_CONFIG_USERCONFIG="$NPMRC_TMP" npm publish)
+    node -e "const p=require('./$TEMP_PKG'); p.name='$ORIG_NAME'; require('fs').writeFileSync('$TEMP_PKG', JSON.stringify(p, null, 2)+'\n')"
+    echo ""
+
+    echo "Released:"
+    echo "  @memgrafter/flatagents@$PACKAGE_VERSION"
+    echo "  @memgrafter/flatmachines@$PACKAGE_VERSION"
+    echo "  flatmachines@$PACKAGE_VERSION (unscoped — remember to deprecate)"
 fi

@@ -2,11 +2,11 @@
 // Integration tests for FlatMachine functionality
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { FlatMachine } from '../src/flatmachine';
+import { FlatMachine } from '@memgrafter/flatmachines';
 import { existsSync } from 'fs';
 import * as yaml from 'yaml';
 import { join, dirname } from 'path';
-import { MemoryBackend } from '../src/persistence';
+import { MemoryBackend } from '@memgrafter/flatmachines';
 
 const parseMachineConfig = (config: string) => yaml.parse(config);
 
@@ -89,7 +89,7 @@ data:
       });
 
       // Replace the actual agent execution
-      vi.mock('../src/flatmachine', () => ({
+      vi.mock('@memgrafter/flatmachines', () => ({
         FlatMachine: vi.fn().mockImplementation(() => ({
           execute: vi.fn().mockResolvedValue({
             output: { category: 'high', value: 100 },
@@ -202,7 +202,7 @@ data:
         states: ['initialize', 'validate', 'process', 'finalize']
       };
 
-      vi.mock('../src/flatmachine', () => ({
+      vi.mock('@memgrafter/flatmachines', () => ({
         FlatMachine: vi.fn().mockImplementation(() => ({
           execute: vi.fn().mockResolvedValue(mockResult)
         }))
@@ -279,7 +279,7 @@ data:
         states: ['start', 'synthesize', 'complete']
       };
 
-      vi.mock('../src/flatmachine', () => ({
+      vi.mock('@memgrafter/flatmachines', () => ({
         FlatMachine: vi.fn().mockImplementation(() => ({
           execute: vi.fn().mockResolvedValue(mockParallelResult)
         }))
@@ -335,7 +335,7 @@ data:
         states: ['start', 'timeout_handler']
       };
 
-      vi.mock('../src/flatmachine', () => ({
+      vi.mock('@memgrafter/flatmachines', () => ({
         FlatMachine: vi.fn().mockImplementation(() => ({
           execute: vi.fn().mockResolvedValue(mockTimeoutResult)
         }))
@@ -421,7 +421,7 @@ data:
         states: ['start', 'aggregate', 'complete']
       };
 
-      vi.mock('../src/flatmachine', () => ({
+      vi.mock('@memgrafter/flatmachines', () => ({
         FlatMachine: vi.fn().mockImplementation(() => ({
           execute: vi.fn().mockResolvedValue(mockForeachResult)
         }))
@@ -470,7 +470,7 @@ data:
         states: ['start', 'complete']
       };
 
-      vi.mock('../src/flatmachine', () => ({
+      vi.mock('@memgrafter/flatmachines', () => ({
         FlatMachine: vi.fn().mockImplementation(() => ({
           execute: vi.fn().mockResolvedValue(mockEmptyResult)
         }))
@@ -527,7 +527,7 @@ data:
         states: ['start', 'complete']
       };
 
-      vi.mock('../src/flatmachine', () => ({
+      vi.mock('@memgrafter/flatmachines', () => ({
         FlatMachine: vi.fn().mockImplementation(() => ({
           execute: vi.fn().mockResolvedValue(mockLaunchResult)
         }))
@@ -604,7 +604,7 @@ data:
         states: ['start', 'error_handler', 'final_error']
       };
 
-      vi.mock('../src/flatmachine', () => ({
+      vi.mock('@memgrafter/flatmachines', () => ({
         FlatMachine: vi.fn().mockImplementation(() => ({
           execute: vi.fn().mockResolvedValue(mockErrorResult)
         }))
@@ -674,7 +674,7 @@ data:
         states: ['start', 'success']
       };
 
-      vi.mock('../src/flatmachine', () => ({
+      vi.mock('@memgrafter/flatmachines', () => ({
         FlatMachine: vi.fn().mockImplementation(() => ({
           execute: vi.fn().mockResolvedValue(mockRetryResult)
         }))
@@ -771,7 +771,7 @@ data:
         states: ['start', 'validate', 'complete']
       };
 
-      vi.mock('../src/flatmachine', () => ({
+      vi.mock('@memgrafter/flatmachines', () => ({
         FlatMachine: vi.fn().mockImplementation(() => ({
           execute: vi.fn().mockResolvedValue(mockHooksResult)
         }))
@@ -829,7 +829,7 @@ data:
         states: Array.from({ length: 101 }, (_, i) => i === 0 ? 'start' : `checkpoint_${i}`)
       };
 
-      vi.mock('../src/flatmachine', () => ({
+      vi.mock('@memgrafter/flatmachines', () => ({
         FlatMachine: vi.fn().mockImplementation(() => ({
           execute: vi.fn().mockResolvedValue(mockPersistenceResult)
         }))
@@ -890,7 +890,7 @@ data:
         states: ['start', 'continue_processing', 'complete']
       };
 
-      vi.mock('../src/flatmachine', () => ({
+      vi.mock('@memgrafter/flatmachines', () => ({
         FlatMachine: vi.fn().mockImplementation(() => ({
           execute: vi.fn().mockResolvedValue(mockResumeResult)
         }))
@@ -1038,7 +1038,7 @@ data:
         states: ['ingest', 'validate', 'transform', 'enrich', 'quality_check', 'store', 'complete']
       };
 
-      vi.mock('../src/flatmachine', () => ({
+      vi.mock('@memgrafter/flatmachines', () => ({
         FlatMachine: vi.fn().mockImplementation(() => ({
           execute: vi.fn().mockResolvedValue(mockPipelineResult)
         }))

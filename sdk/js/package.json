@@ -1,55 +1,24 @@
 {
-  "name": "@memgrafter/flatagents",
-  "version": "2.4.4",
-  "description": "TypeScript SDK for FlatAgents - Declarative LLM orchestration with YAML",
-  "main": "dist/index.js",
-  "module": "dist/index.mjs",
-  "types": "dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": {
-        "import": "./dist/index.d.mts",
-        "require": "./dist/index.d.ts"
-      },
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
-    }
-  },
-  "files": [
-    "dist",
-    "schemas",
-    "MACHINES.md",
-    "AGENTS.md",
-    "CLAUDE.md"
+  "name": "flatagents-js-workspace",
+  "version": "2.5.0",
+  "private": true,
+  "description": "JavaScript SDK workspace for FlatAgents and FlatMachines",
+  "workspaces": [
+    "packages/flatagents",
+    "packages/flatmachines"
   ],
   "scripts": {
-    "build": "tsup",
-    "dev": "tsup --watch",
+    "build": "npm run build --workspaces",
+    "build:agents": "npm run build -w packages/flatagents",
+    "build:machines": "npm run build -w packages/flatmachines",
+    "typecheck": "npm run typecheck --workspaces",
+    "typecheck:agents": "npm run typecheck -w packages/flatagents",
+    "typecheck:machines": "npm run typecheck -w packages/flatmachines",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "dev": "npm run build --workspaces -- --watch"
   },
-  "keywords": [
-    "llm",
-    "orchestration",
-    "yaml",
-    "agents",
-    "state-machine"
-  ],
   "author": "memgrafter@gmail.com",
   "license": "MIT",
-  "publishConfig": {
-    "access": "public"
-  },
-  "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.14",
-    "@ai-sdk/cerebras": "^2.0.13",
-    "@ai-sdk/openai": "^3.0.11",
-    "@ai-sdk/openai-compatible": "^2.0.12",
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "ai": "^6.0.37",
-    "nunjucks": "^3.2.4",
-    "yaml": "^2.4.0"
-  },
   "devDependencies": {
     "@types/node": "^25.0.8",
     "@types/nunjucks": "^3.2.6",

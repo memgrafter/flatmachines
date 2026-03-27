@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { WebhookHooks, CompositeHooks } from '../../src/hooks'
+import { WebhookHooks, CompositeHooks } from '@memgrafter/flatmachines'
 import { createMockHooks, createMockServer } from '../fixtures/helpers'
 
 describe('WebhookHooks', () => {

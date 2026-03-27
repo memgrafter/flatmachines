@@ -2,7 +2,7 @@
 // Comprehensive unit tests for expression evaluation functionality
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { evaluate } from '../src/expression';
+import { evaluate } from '@memgrafter/flatmachines';
 
 describe('Expression Evaluation', () => {
   const baseContext = {

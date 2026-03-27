@@ -1,4 +1,4 @@
-import type { MachineHooks } from 'flatagents';
+import type { MachineHooks } from '@memgrafter/flatmachines';
 import { REPLExecutor } from './repl.js';
 
 type Context = Record<string, any>;

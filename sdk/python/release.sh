@@ -35,6 +35,20 @@ if [ "$DRY_RUN" = true ]; then
 fi
 echo ""
 
+# Setup virtualenv with build tools
+VENV_PATH="$SDK_DIR/.venv"
+if ! command -v uv &> /dev/null; then
+    echo "📥 Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
+fi
+if [ ! -d "$VENV_PATH" ]; then
+    echo "🔧 Creating virtual environment..."
+    uv venv "$VENV_PATH"
+fi
+uv pip install --python "$VENV_PATH/bin/python" --upgrade build twine
+source "$VENV_PATH/bin/activate"
+
 # Sync and validate __version__ with pyproject.toml for each package
 for PKG in $PACKAGES; do
 export PKG
@@ -238,19 +252,12 @@ done
 echo "All spec assets verified."
 echo ""
 
-# Setup virtualenv with build tools
-if [ ! -d ~/virtualenvs/twine ]; then
-    python -m venv ~/virtualenvs/twine
-    ~/virtualenvs/twine/bin/pip install --upgrade build twine
-fi
-source ~/virtualenvs/twine/bin/activate
-
 # Build and upload each package
 for PKG in $PACKAGES; do
     cd "$SDK_DIR/$PKG"
     echo "Building $PKG..."
     rm -rf dist/ build/ *.egg-info
-    python -m build
+    uv build
 
     if [ "$DRY_RUN" = true ]; then
         echo "DRY RUN: Skipping PyPI upload for $PKG."

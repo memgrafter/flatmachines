@@ -1,4 +1,4 @@
-export const SPEC_VERSION = "2.4.4";
+export const SPEC_VERSION = "2.5.0";
 export interface ProfilesWrapper {
     spec: "flatprofiles";
     spec_version: string;

@@ -1,4 +1,4 @@
-import { FlatAgent, type MachineHooks, type AgentConfig } from 'flatagents';
+import { FlatAgent, type MachineHooks, type AgentConfig } from '@memgrafter/flatmachines';
 import { createInterface } from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
 import { join } from 'path';

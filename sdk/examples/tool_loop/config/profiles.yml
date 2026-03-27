@@ -1,0 +1,10 @@
+spec: flatprofiles
+spec_version: "2.0.0"
+
+data:
+  model_profiles:
+    default:
+      provider: openai
+      name: gpt-5-mini
+
+  default: default

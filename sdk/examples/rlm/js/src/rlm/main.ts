@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { FlatMachine, HooksRegistry } from 'flatagents';
+import { FlatMachine, HooksRegistry } from '@memgrafter/flatmachines';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { readFileSync, existsSync } from 'fs';

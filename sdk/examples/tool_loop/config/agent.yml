@@ -1,0 +1,19 @@
+spec: flatagent
+spec_version: "2.0.0"
+
+data:
+  name: tool-loop-agent
+  model: default
+
+  system: |
+    You are a helpful assistant.
+    You can call tools to answer questions about weather and time.
+    Prefer using tools when the question asks for current conditions or current time.
+    After using tools, provide a concise direct answer.
+
+  user: |
+    Question: {{ input.question }}
+
+metadata:
+  description: "Tool-loop standalone agent"
+  tags: ["tool-loop", "tools", "demo"]

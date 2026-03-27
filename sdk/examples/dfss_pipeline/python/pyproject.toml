@@ -1,0 +1,16 @@
+[project]
+name = "flatagent_dfss_pipeline"
+version = "0.1.0"
+description = "DFSS pipeline demo using FlatMachines + SQLite backends"
+dependencies = ["flatmachines[flatagents]"]
+requires-python = ">=3.10"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[project.scripts]
+dfss-pipeline-demo = "flatagent_dfss_pipeline.main:main"

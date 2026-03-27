@@ -1,0 +1,20 @@
+{
+  "name": "flatagents-claude-code-adapter",
+  "version": "0.1.0",
+  "description": "Claude Code adapter demo for FlatMachines",
+  "type": "module",
+  "main": "src/claude_code_example/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/claude_code_example/main.ts",
+    "start": "node dist/claude_code_example/main.js"
+  },
+  "dependencies": {
+    "@memgrafter/flatmachines": "file:../../../js/packages/flatmachines"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

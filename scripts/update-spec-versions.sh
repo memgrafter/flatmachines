@@ -7,6 +7,12 @@
 
 set -e
 
+if [[ "$(uname)" == "Darwin" ]]; then
+    sed_i() { sed -i '' -E "$@"; }
+else
+    sed_i() { sed -i -E "$@"; }
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
@@ -70,7 +76,7 @@ if [[ -z "$NEW_VERSION" ]]; then
     echo "  --python:   sdk/python/flatagents/pyproject.toml, sdk/python/flatmachines/pyproject.toml"
     echo "              sdk/python/flatagents/flatagents/__init__.py"
     echo "              sdk/python/flatmachines/flatmachines/__init__.py"
-    echo "  --js:       sdk/js/package.json"
+    echo "  --js:       sdk/js/package.json, sdk/js/packages/*/package.json"
     echo "  --examples: sdk/examples/**/*.yml"
     echo ""
     echo "NOT updated (generated from sources):"
@@ -119,7 +125,7 @@ update_file() {
         echo "  Would update: $file"
         ((++WOULD_UPDATE))
     else
-        sed -i '' -E "s/$pattern/$replacement/" "$file"
+        sed_i "s|$pattern|$replacement|" "$file"
         echo "  Updated: $file"
         ((++UPDATED))
     fi
@@ -180,8 +186,15 @@ fi
 if [[ "$UPDATE_JS" == true ]]; then
     echo "JavaScript SDK:"
 
-    # package.json
+    # workspace root
     update_file "sdk/js/package.json" "(\"version\":[[:space:]]*\")[0-9]+\.[0-9]+\.[0-9]+(\")" "\1$NEW_VERSION\2"
+
+    # sub-packages
+    update_file "sdk/js/packages/flatagents/package.json" "(\"version\":[[:space:]]*\")[0-9]+\.[0-9]+\.[0-9]+(\")" "\1$NEW_VERSION\2"
+    update_file "sdk/js/packages/flatmachines/package.json" "(\"version\":[[:space:]]*\")[0-9]+\.[0-9]+\.[0-9]+(\")" "\1$NEW_VERSION\2"
+
+    # flatmachines → flatagents dependency
+    update_file "sdk/js/packages/flatmachines/package.json" "(\"@memgrafter/flatagents\":[[:space:]]*\")[0-9]+\.[0-9]+\.[0-9]+(\")" "\1$NEW_VERSION\2"
     echo ""
 fi
 

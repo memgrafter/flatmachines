@@ -30,7 +30,7 @@ Launch background notification formatting:
 ## Development Options
 
 ```bash
-# Use local flatagents package (for development)
+# Use local flatmachines package (for development)
 ./run.sh --local
 ```
 

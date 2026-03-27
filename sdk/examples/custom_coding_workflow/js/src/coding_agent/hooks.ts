@@ -1,7 +1,7 @@
-import type { MachineHooks } from 'flatagents';
+import type { MachineHooks } from '@memgrafter/flatmachines';
 import { spawnSync } from 'child_process';
 import { existsSync, readFileSync, mkdirSync, writeFileSync, unlinkSync } from 'fs';
-import { dirname, resolve, relative } from 'path';
+import { dirname, resolve, relative, join } from 'path';
 import { createInterface } from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
 
@@ -86,8 +86,62 @@ export class CodingAgentHooks implements MachineHooks {
     }
   }
 
+  private runCodebaseRipper(context: Context, workingDir: string): string | null {
+    const home = process.env.HOME;
+    if (!home) return null;
+
+    const ripperScript = join(home, '.agents', 'skills', 'codebase-ripper', 'run.sh');
+    if (!existsSync(ripperScript)) {
+      return null;
+    }
+
+    const task = String(context.task ?? 'Explore this codebase');
+    const tokenBudget = Number.parseInt(String(context.token_budget ?? '12000'), 10);
+    const maxIterations = Number.parseInt(String(context.explorer_iterations ?? '2'), 10);
+
+    const result = spawnSync('bash', [
+      ripperScript,
+      task,
+      '-d', workingDir,
+      '--token-budget', Number.isNaN(tokenBudget) ? '12000' : String(tokenBudget),
+      '--max-iterations', Number.isNaN(maxIterations) ? '2' : String(maxIterations),
+      '--json',
+    ], {
+      encoding: 'utf8',
+      timeout: 300000,
+      maxBuffer: 20 * 1024 * 1024,
+    });
+
+    if (result.status !== 0) {
+      const stderr = (result.stderr ?? '').trim();
+      if (stderr) {
+        console.warn(`Codebase-ripper failed, falling back to local exploration: ${stderr}`);
+      }
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(result.stdout || '{}');
+      const extracted = typeof parsed.context === 'string' ? parsed.context.trim() : '';
+      if (!extracted) return null;
+      return extracted;
+    } catch {
+      return null;
+    }
+  }
+
   private exploreCodebase(context: Context): Context {
     const workingDir = context.working_dir ? resolve(context.working_dir) : this.workingDir;
+
+    // Preferred path: use codebase-ripper skill for broad, parallel exploration.
+    const ripperContext = this.runCodebaseRipper(context, workingDir);
+    if (ripperContext) {
+      context.codebase_context = ripperContext;
+      context.explorer_source = 'codebase-ripper';
+      return context;
+    }
+
+    // Fallback: minimal local exploration if ripper is unavailable.
     const contextParts: string[] = [];
 
     const treeOutput = this.runCommand('tree -L 3 -I "__pycache__|node_modules|.git|.venv|*.pyc"', workingDir, 10000);
@@ -115,6 +169,7 @@ export class CodingAgentHooks implements MachineHooks {
     context.codebase_context = contextParts.length
       ? contextParts.join('\n\n')
       : `Working directory: ${workingDir}`;
+    context.explorer_source = 'fallback-local';
     return context;
   }
 

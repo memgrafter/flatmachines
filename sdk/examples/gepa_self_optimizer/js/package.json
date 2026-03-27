@@ -10,7 +10,7 @@
     "start": "node dist/gepa_self_optimizer/main.js"
   },
   "dependencies": {
-    "flatagents": "file:../../../js",
+    "@memgrafter/flatagents": "file:../../../js/packages/flatagents",
     "yaml": "^2.4.2"
   },
   "devDependencies": {

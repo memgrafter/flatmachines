@@ -1,0 +1,20 @@
+{
+  "name": "flatagents-codex-cli-adapter",
+  "version": "0.1.0",
+  "description": "Codex CLI adapter cache demos for FlatMachines",
+  "type": "module",
+  "main": "src/codex_cli_example/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/codex_cli_example/main.ts",
+    "start": "node dist/codex_cli_example/main.js"
+  },
+  "dependencies": {
+    "@memgrafter/flatmachines": "file:../../../js/packages/flatmachines"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

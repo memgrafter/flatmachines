@@ -1,0 +1,830 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/MachineWrapper",
+  "definitions": {
+    "MachineWrapper": {
+      "type": "object",
+      "properties": {
+        "spec": {
+          "type": "string",
+          "const": "flatmachine"
+        },
+        "spec_version": {
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/definitions/MachineData"
+        },
+        "metadata": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "spec",
+        "spec_version",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "MachineData": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "expression_engine": {
+          "type": "string",
+          "enum": [
+            "simple",
+            "cel"
+          ]
+        },
+        "context": {
+          "type": "object",
+          "properties": {
+            "machine": {
+              "$ref": "#/definitions/MachineRuntimeMetadata"
+            }
+          },
+          "description": "Initial user context. Runtime reserves `context.machine` and overwrites it each step/resume with MachineRuntimeMetadata."
+        },
+        "agents": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/AgentRef"
+          }
+        },
+        "machines": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/definitions/MachineWrapper"
+              }
+            ]
+          }
+        },
+        "states": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/StateDefinition"
+          }
+        },
+        "settings": {
+          "$ref": "#/definitions/MachineSettings"
+        },
+        "persistence": {
+          "$ref": "#/definitions/PersistenceConfig"
+        },
+        "hooks": {
+          "$ref": "#/definitions/HooksRef"
+        }
+      },
+      "required": [
+        "states"
+      ],
+      "additionalProperties": false
+    },
+    "MachineRuntimeMetadata": {
+      "type": "object",
+      "properties": {
+        "execution_id": {
+          "type": "string"
+        },
+        "machine_name": {
+          "type": "string"
+        },
+        "parent_execution_id": {
+          "type": "string"
+        },
+        "spec_version": {
+          "type": "string"
+        },
+        "step": {
+          "type": "number"
+        },
+        "current_state": {
+          "type": "string"
+        },
+        "total_api_calls": {
+          "type": "number"
+        },
+        "total_cost": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "execution_id",
+        "machine_name",
+        "spec_version",
+        "step",
+        "current_state",
+        "total_api_calls",
+        "total_cost"
+      ],
+      "additionalProperties": false,
+      "description": "Runtime-owned metadata injected at context.machine"
+    },
+    "AgentRef": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/definitions/AgentWrapper"
+        },
+        {
+          "$ref": "#/definitions/AgentRefConfig"
+        }
+      ]
+    },
+    "AgentWrapper": {
+      "type": "object",
+      "properties": {
+        "spec": {
+          "type": "string",
+          "const": "flatagent"
+        },
+        "spec_version": {
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/definitions/AgentData"
+        },
+        "metadata": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "spec",
+        "spec_version",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "AgentData": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/definitions/ModelConfig"
+            },
+            {
+              "$ref": "#/definitions/ProfiledModelConfig"
+            }
+          ]
+        },
+        "system": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        },
+        "instruction_suffix": {
+          "type": "string"
+        },
+        "output": {
+          "$ref": "#/definitions/OutputSchema"
+        },
+        "mcp": {
+          "$ref": "#/definitions/MCPConfig"
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ToolDefinition"
+          }
+        }
+      },
+      "required": [
+        "model",
+        "system",
+        "user"
+      ],
+      "additionalProperties": false
+    },
+    "ModelConfig": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "temperature": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "number"
+        },
+        "top_p": {
+          "type": "number"
+        },
+        "top_k": {
+          "type": "number"
+        },
+        "frequency_penalty": {
+          "type": "number"
+        },
+        "presence_penalty": {
+          "type": "number"
+        },
+        "seed": {
+          "type": "number"
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "backend": {
+          "type": "string",
+          "enum": [
+            "litellm",
+            "aisuite",
+            "codex"
+          ]
+        },
+        "api": {
+          "type": "string"
+        },
+        "oauth": {
+          "$ref": "#/definitions/OAuthConfig"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "OAuthConfig": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "auth_file": {
+          "type": "string"
+        },
+        "refresh": {
+          "type": "boolean"
+        },
+        "originator": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "type": "number"
+        },
+        "max_retries": {
+          "type": "number"
+        },
+        "token_url": {
+          "type": "string"
+        },
+        "client_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProfiledModelConfig": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "temperature": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "number"
+        },
+        "top_p": {
+          "type": "number"
+        },
+        "top_k": {
+          "type": "number"
+        },
+        "frequency_penalty": {
+          "type": "number"
+        },
+        "presence_penalty": {
+          "type": "number"
+        },
+        "seed": {
+          "type": "number"
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "backend": {
+          "type": "string",
+          "enum": [
+            "litellm",
+            "aisuite",
+            "codex"
+          ]
+        },
+        "api": {
+          "type": "string"
+        },
+        "oauth": {
+          "$ref": "#/definitions/OAuthConfig"
+        },
+        "profile": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "profile"
+      ],
+      "additionalProperties": false
+    },
+    "OutputSchema": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/OutputFieldDef"
+      }
+    },
+    "OutputFieldDef": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "str",
+            "int",
+            "float",
+            "bool",
+            "json",
+            "list",
+            "object"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "enum": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "items": {
+          "$ref": "#/definitions/OutputFieldDef"
+        },
+        "properties": {
+          "$ref": "#/definitions/OutputSchema"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "MCPConfig": {
+      "type": "object",
+      "properties": {
+        "servers": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/MCPServerDef"
+          }
+        },
+        "tool_filter": {
+          "$ref": "#/definitions/ToolFilter"
+        },
+        "tool_prompt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "servers",
+        "tool_prompt"
+      ],
+      "additionalProperties": false
+    },
+    "MCPServerDef": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "server_url": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "timeout": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ToolFilter": {
+      "type": "object",
+      "properties": {
+        "allow": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deny": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ToolDefinition": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "function"
+        },
+        "function": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "parameters": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "function"
+      ],
+      "additionalProperties": false
+    },
+    "AgentRefConfig": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "config": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "StateDefinition": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "initial",
+            "final"
+          ]
+        },
+        "agent": {
+          "type": "string"
+        },
+        "machine": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/MachineInput"
+              }
+            }
+          ]
+        },
+        "action": {
+          "type": "string"
+        },
+        "execution": {
+          "$ref": "#/definitions/ExecutionConfig"
+        },
+        "on_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "wait_for": {
+          "type": "string"
+        },
+        "input": {
+          "type": "object"
+        },
+        "output_to_context": {
+          "type": "object"
+        },
+        "output": {
+          "type": "object"
+        },
+        "transitions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Transition"
+          }
+        },
+        "tool_loop": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/ToolLoopStateConfig"
+            }
+          ]
+        },
+        "sampling": {
+          "type": "string",
+          "enum": [
+            "single",
+            "multi"
+          ]
+        },
+        "foreach": {
+          "type": "string"
+        },
+        "as": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "settled",
+            "any"
+          ]
+        },
+        "timeout": {
+          "type": "number"
+        },
+        "launch": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "launch_input": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "MachineInput": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "input": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "ExecutionConfig": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "default",
+            "retry",
+            "parallel",
+            "mdap_voting"
+          ]
+        },
+        "backoffs": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "jitter": {
+          "type": "number"
+        },
+        "n_samples": {
+          "type": "number"
+        },
+        "k_margin": {
+          "type": "number"
+        },
+        "max_candidates": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "Transition": {
+      "type": "object",
+      "properties": {
+        "condition": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "to"
+      ],
+      "additionalProperties": false
+    },
+    "ToolLoopStateConfig": {
+      "type": "object",
+      "properties": {
+        "max_tool_calls": {
+          "type": "number"
+        },
+        "max_turns": {
+          "type": "number"
+        },
+        "allowed_tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "denied_tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tool_timeout": {
+          "type": "number"
+        },
+        "total_timeout": {
+          "type": "number"
+        },
+        "max_cost": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "MachineSettings": {
+      "type": "object",
+      "properties": {
+        "max_steps": {
+          "type": "number"
+        },
+        "parallel_fallback": {
+          "type": "string",
+          "enum": [
+            "sequential",
+            "error"
+          ]
+        }
+      }
+    },
+    "PersistenceConfig": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "backend": {
+          "type": "string",
+          "enum": [
+            "local",
+            "sqlite",
+            "memory"
+          ]
+        },
+        "db_path": {
+          "type": "string",
+          "description": "Database file path for sqlite backend. Defaults to \"flatmachines.sqlite\"."
+        },
+        "checkpoint_on": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "enabled",
+        "backend"
+      ]
+    },
+    "HooksRef": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/definitions/HooksRefConfig"
+        },
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/definitions/HooksRefConfig"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "HooksRefConfig": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "args": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

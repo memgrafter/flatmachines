@@ -10,7 +10,7 @@
     "start": "node dist/research_paper_analysis/main.js"
   },
   "dependencies": {
-    "flatagents": "file:../../../js",
+    "@memgrafter/flatmachines": "file:../../../js/packages/flatmachines",
     "pdfjs-dist": "^4.0.0"
   },
   "devDependencies": {

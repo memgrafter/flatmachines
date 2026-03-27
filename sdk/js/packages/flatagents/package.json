@@ -1,0 +1,53 @@
+{
+  "name": "@memgrafter/flatagents",
+  "version": "2.5.0",
+  "description": "TypeScript SDK for FlatAgents — declarative LLM agents with YAML",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": {
+        "import": "./dist/index.d.mts",
+        "require": "./dist/index.d.ts"
+      },
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "schemas"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "llm",
+    "agents",
+    "yaml",
+    "orchestration"
+  ],
+  "author": "memgrafter@gmail.com",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.14",
+    "@ai-sdk/cerebras": "^2.0.13",
+    "@ai-sdk/openai": "^3.0.11",
+    "@ai-sdk/openai-compatible": "^2.0.12",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "ai": "^6.0.37",
+    "nunjucks": "^3.2.4",
+    "yaml": "^2.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.8",
+    "@types/nunjucks": "^3.2.6",
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0"
+  }
+}

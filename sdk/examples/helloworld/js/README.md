@@ -1,22 +1,24 @@
-# FlatAgent HelloWorld Demo
+# FlatMachine HelloWorld Demo
 
-A simple "Hello, World!" project that demonstrates how to use the FlatAgents TypeScript SDK.
+A simple "Hello, World!" project that demonstrates how to use the FlatMachines TypeScript SDK.
 
 The demo involves an agent that attempts to build the string "Hello, World!" by querying an LLM one character at a time. It showcases:
 - Using a FlatMachine from YAML configuration
+- Hooks via `HooksRegistry` (config-referenced by name)
 - Looping until a completion condition is met
+- Structured logging with `setupLogging` / `getLogger`
 - Basic execution output handling
 
 ## Prerequisites
 
-1. **Node.js & npm**: Node.js 16+ and npm installed.
-2. **LLM API Key**: This demo uses Cerebras by default, so set `CEREBRAS_API_KEY` (or update `config/agent.yml` for another provider).
+1. **Node.js & npm**: Node.js 18+ and npm installed.
+2. **LLM API Key**: This demo uses OpenAI by default, so set `OPENAI_API_KEY` (or update `config/agent.yml` and `config/profiles.yml` for another provider).
 
 ## Quick Start (with `run.sh`)
 
 ```bash
 # Set your API key
-export CEREBRAS_API_KEY="your-api-key-here"
+export OPENAI_API_KEY="your-api-key-here"
 
 # Make the script executable (if you haven't already)
 chmod +x run.sh
@@ -29,7 +31,7 @@ chmod +x run.sh
 
 1. **Navigate into this project directory**:
    ```bash
-   cd sdk/js/examples/helloworld
+   cd sdk/examples/helloworld/js
    ```
 2. **Install dependencies**:
    ```bash
@@ -37,7 +39,7 @@ chmod +x run.sh
    ```
 3. **Set your LLM API key**:
    ```bash
-   export CEREBRAS_API_KEY="your-api-key-here"
+   export OPENAI_API_KEY="your-api-key-here"
    ```
 4. **Build and run**:
    ```bash
@@ -48,7 +50,7 @@ chmod +x run.sh
 ## Development Options
 
 ```bash
-# Use local flatagents package (for development)
+# Use local flatmachines package (for development)
 ./run.sh --local
 ```
 
@@ -58,23 +60,27 @@ chmod +x run.sh
 helloworld/
 ├── config/
 │   ├── machine.yml          # State machine configuration
-│   └── agent.yml            # Agent configuration
-├── src/
-│   └── helloworld/
-│       └── main.ts          # Demo application
-├── package.json             # Dependencies and scripts
-├── tsconfig.json            # TypeScript config
-├── run.sh                   # Setup and execution script
-├── .gitignore
-└── README.md                # This file
+│   ├── agent.yml            # Agent configuration
+│   └── profiles.yml         # Model profiles
+├── js/
+│   ├── src/
+│   │   └── helloworld/
+│   │       └── main.ts      # Demo application
+│   ├── package.json         # Dependencies and scripts
+│   ├── tsconfig.json        # TypeScript config
+│   ├── run.sh               # Setup and execution script
+│   └── README.md            # This file
+└── python/                  # Python equivalent
 ```
 
 ## How It Works
 
 1. **State Machine**: `config/machine.yml` defines a loop that continues adding characters.
 2. **Agent**: `config/agent.yml` is an LLM agent that returns just the next character.
-3. **Loop Logic**: The machine checks if the target string is reached, otherwise continues.
-4. **Input/Output**: Uses Jinja2 templating to pass context between states.
+3. **Profiles**: `config/profiles.yml` defines reusable model configurations.
+4. **Hooks**: `HelloWorldHooks` is registered via `HooksRegistry` under `"hello-world-hooks"` — the same name referenced in `machine.yml`.
+5. **Loop Logic**: The machine checks if the target string is reached, otherwise continues.
+6. **Input/Output**: Uses Jinja2/Nunjucks templating to pass context between states.
 
 ## Expected Output
 
@@ -89,5 +95,6 @@ You'll see the state machine execute multiple times, once for each character, un
 
 ## Learn More
 
-- [FlatAgents Documentation](../../README.md)
+- [FlatAgents Documentation](../../../js/packages/flatagents/README.md)
+- [FlatMachines Documentation](../../../js/packages/flatmachines/README.md)
 - [Other Examples](../)

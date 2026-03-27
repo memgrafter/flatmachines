@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import yaml from 'yaml';
-import { FlatAgent, type AgentConfig } from 'flatagents';
+import { FlatAgent, type AgentConfig } from '@memgrafter/flatagents';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

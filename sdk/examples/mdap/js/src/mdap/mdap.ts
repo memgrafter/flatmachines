@@ -1,4 +1,4 @@
-import { FlatAgent } from 'flatagents';
+import { FlatAgent } from '@memgrafter/flatagents';
 import Ajv, { ValidateFunction } from 'ajv';
 
 type ParsingConfig = Record<string, { pattern: string; type?: string }>;
