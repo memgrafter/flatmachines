@@ -180,7 +180,7 @@ echo ""
 # ─────────────────────────────────────────────────────────────────────────────
 
 if [ "$DRY_RUN" = true ]; then
-    echo "DRY RUN: Running npm publish --dry-run for all packages..."
+    echo "DRY RUN: Running npm publish --dry-run for scoped packages..."
     echo ""
 
     echo "── @memgrafter/flatagents ──"
@@ -188,10 +188,6 @@ if [ "$DRY_RUN" = true ]; then
     echo ""
 
     echo "── @memgrafter/flatmachines ──"
-    (cd packages/flatmachines && npm publish --dry-run)
-    echo ""
-
-    echo "── flatmachines (unscoped, one-time) ──"
     (cd packages/flatmachines && npm publish --dry-run)
     echo ""
 
@@ -216,17 +212,7 @@ else
     (cd packages/flatmachines && NPM_CONFIG_USERCONFIG="$NPMRC_TMP" npm publish)
     echo ""
 
-    # One-time publish to unscoped 'flatmachines' for discoverability (then deprecate)
-    echo "Publishing flatmachines@$PACKAGE_VERSION (unscoped, one-time)..."
-    ORIG_NAME=$(node -p "require('./packages/flatmachines/package.json').name")
-    TEMP_PKG="packages/flatmachines/package.json"
-    node -e "const p=require('./$TEMP_PKG'); p.name='flatmachines'; require('fs').writeFileSync('$TEMP_PKG', JSON.stringify(p, null, 2)+'\n')"
-    (cd packages/flatmachines && NPM_CONFIG_USERCONFIG="$NPMRC_TMP" npm publish)
-    node -e "const p=require('./$TEMP_PKG'); p.name='$ORIG_NAME'; require('fs').writeFileSync('$TEMP_PKG', JSON.stringify(p, null, 2)+'\n')"
-    echo ""
-
     echo "Released:"
     echo "  @memgrafter/flatagents@$PACKAGE_VERSION"
     echo "  @memgrafter/flatmachines@$PACKAGE_VERSION"
-    echo "  flatmachines@$PACKAGE_VERSION (unscoped — remember to deprecate)"
 fi
