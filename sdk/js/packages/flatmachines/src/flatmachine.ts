@@ -430,7 +430,16 @@ export class FlatMachine {
   private async handleWaitFor(def: State, state: string, step: number): Promise<any> {
     const channel = this.render(def.wait_for!, { context: this.context, input: this.input });
 
-    // Try to consume a signal
+    // Check for signal data pre-injected by the dispatcher during resume.
+    // The dispatcher consumes the signal and passes data via context._signal_data
+    // so the machine doesn't need to re-consume from the signal backend.
+    if (this.context._signal_data !== undefined) {
+      const data = this.context._signal_data;
+      delete this.context._signal_data;
+      return data;
+    }
+
+    // Try to consume a signal (fresh execution, or pre-loaded signal)
     let signalData: any = null;
     if (this.signalBackend) {
       const signal = await this.signalBackend.consume(channel);

@@ -61,24 +61,27 @@ export class SignalDispatcher {
     const signal = await this.signalBackend.consume(channel);
     if (!signal) return [];
 
-    // TODO(dispatch-fanout): Fan-out copies are indistinguishable from original
-    // signals in the FIFO queue. When multiple signals exist on one channel,
-    // the peek/consume cleanup heuristic can consume the wrong signal (the next
-    // original instead of the fan-out copy). Fix options:
-    //   1. Tag fan-out signals with a _dispatcher_fanout field and filter in consume
-    //   2. Inject signal data into the snapshot context before resume so
-    //      handleWaitFor doesn't need to re-consume from the signal backend
-    //   3. Use per-execution signal channels (_resume/{eid}) for fan-out
-    // Tracked by: test_dispatch_multiple_channels parity failure.
+    // Inject signal data into each waiter's checkpoint context so the resumed
+    // machine's handleWaitFor finds it without re-consuming from the signal backend.
+    // This avoids fan-out copies polluting the FIFO queue.
+    for (const eid of executionIds) {
+      try {
+        const snapshot = await this.persistenceBackend.load(
+          (await this.persistenceBackend.list(`${eid}/`)).sort().pop()!,
+        );
+        if (snapshot) {
+          snapshot.context._signal_data = signal.data;
+          const key = `${eid}/step_${String(snapshot.step).padStart(6, '0')}_${snapshot.event ?? 'wait_for'}`;
+          await this.persistenceBackend.save(key, snapshot);
+        }
+      } catch {
+        // Best effort — resumeFn also receives signal data as second arg
+      }
+    }
 
-    // Resume all waiters. For each, re-send the signal so the resumed machine
-    // can consume it in handleWaitFor, then resume. After resume, consume the
-    // re-sent signal if the machine didn't (prevents infinite loops in dispatchAll).
+    // Resume all waiters
     const resumed: string[] = [];
     for (const eid of executionIds) {
-      const preCount = (await this.signalBackend.peek(channel)).length;
-      await this.signalBackend.send(channel, signal.data);
-
       if (this.resumeFn) {
         try {
           await this.resumeFn(eid, signal.data);
@@ -88,13 +91,6 @@ export class SignalDispatcher {
         }
       } else {
         resumed.push(eid);
-      }
-
-      // Check if the machine consumed the re-sent signal
-      const postCount = (await this.signalBackend.peek(channel)).length;
-      if (postCount > preCount) {
-        // Signal wasn't consumed by the machine — clean it up
-        await this.signalBackend.consume(channel);
       }
     }
     return resumed;
