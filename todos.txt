@@ -69,3 +69,8 @@
 - JS Codex CLI adapter mocked test suite (unit + integration-style): add tests that mock `child_process.spawn` and feed NDJSON event streams to validate success/error/timeout/resume parsing without live Codex auth.
 - Python codex_cli adapter regression: fix `CodexCliExecutor.execute()` compatibility with execution layer `session_id` kwarg (`TypeError: unexpected keyword argument 'session_id'`) so `sdk/examples/codex_cli_adapter/python` runs again.
 - Parity checker strict mode: harden `scripts/check-example-sdk-parity.mjs` to fail on capability mismatch (not only target resolution), with optional flag to keep current permissive behavior for transitional runs.
+- Distributed execution backends (Redis/Postgres) + cross-network peering
+- TypeScript SDK (vibe complete, untested)
+- `max_depth` to limit machine launch nesting
+- Checkpoint pruning (easy to implement)
+- Tool registry
