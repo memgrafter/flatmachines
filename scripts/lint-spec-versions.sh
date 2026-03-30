@@ -84,10 +84,10 @@ while IFS= read -r file; do
     fi
 done < <(rg 'spec_version' --type yaml --type json -l)
 
-# Check inline examples in core markdown docs (README.md, MACHINES.md)
+# Check inline examples in core markdown docs (README.md, AGENTS.md)
 MARKDOWN_MISMATCHES=()
 
-for mdfile in README.md MACHINES.md; do
+for mdfile in README.md AGENTS.md; do
     if [[ -f "$REPO_ROOT/$mdfile" ]]; then
         # Find all spec_version lines with actual versions (not X.X.X placeholders)
         while IFS= read -r line; do
@@ -144,7 +144,7 @@ else
     echo "  - flatagent configs use v$FLATAGENT_VERSION"
     echo "  - flatmachine configs use v$FLATMACHINE_VERSION"
     echo "  - profiles configs use v$PROFILES_VERSION"
-    echo "  - README.md/MACHINES.md inline examples match"
+    echo "  - README.md/AGENTS.md inline examples match"
     SPEC_VERSION_FAILED=false
 fi
 

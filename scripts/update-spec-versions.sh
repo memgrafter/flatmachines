@@ -72,7 +72,7 @@ if [[ -z "$NEW_VERSION" ]]; then
     echo "  --examples  Also update shared examples (sdk/examples/*/config/*.yml)"
     echo ""
     echo "What gets updated:"
-    echo "  Always:     Root .d.ts specs, README.md, MACHINES.md"
+    echo "  Always:     Root .d.ts specs, README.md, AGENTS.md"
     echo "  --python:   sdk/python/flatagents/pyproject.toml, sdk/python/flatmachines/pyproject.toml"
     echo "              sdk/python/flatagents/flatagents/__init__.py"
     echo "              sdk/python/flatmachines/flatmachines/__init__.py"
@@ -159,7 +159,7 @@ echo ""
 # 2. MARKDOWN DOCS (inline examples)
 # =============================================================================
 echo "Markdown docs:"
-for file in README.md MACHINES.md; do
+for file in README.md AGENTS.md; do
     update_file "$file" "(spec_version:[[:space:]]*[\"'])[0-9]+\.[0-9]+\.[0-9]+([\"'])" "\1$NEW_VERSION\2"
 done
 echo ""
