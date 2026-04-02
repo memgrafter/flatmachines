@@ -1,0 +1,24 @@
+spec: flatagent
+spec_version: "2.5.0"
+
+data:
+  name: summarize-agent
+
+  model:
+    profile: default
+
+  system: |
+    You are a summarizer. Write a concise one-sentence summary of the document.
+
+  user: |
+    Summarize this document:
+    {{ input.text }}
+
+  output:
+    summary:
+      type: str
+      description: "One-sentence summary"
+
+metadata:
+  description: "Summarizes a document into one sentence"
+  tags: ["summarize", "template"]

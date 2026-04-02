@@ -1,0 +1,11 @@
+spec: flatprofiles
+spec_version: "2.5.0"
+
+data:
+  model_profiles:
+    default:
+      provider: openai
+      name: gpt-4o-mini
+      max_tokens: 1024
+
+  default: default

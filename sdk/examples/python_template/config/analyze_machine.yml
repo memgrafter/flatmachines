@@ -1,0 +1,78 @@
+# Per-document analysis sub-machine
+# Runs classify + summarize + extract in parallel, then aggregates
+
+spec: flatmachine
+spec_version: "2.5.0"
+
+data:
+  name: analyze-single-doc
+
+  context:
+    text: "{{ input.text }}"
+
+  agents:
+    classify: ./classify_agent.yml
+    summarize: ./summarize_agent.yml
+    extract: ./extract_agent.yml
+    aggregate: ./aggregate_agent.yml
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: do_classify
+
+    # Run agents sequentially: classify -> summarize -> extract -> aggregate
+    # Each agent result is stored in context for the aggregate step.
+    do_classify:
+      agent: classify
+      input:
+        text: "{{ context.text }}"
+      output_to_context:
+        category: "{{ output.category or output.content }}"
+        confidence: "{{ output.confidence or 0.0 }}"
+      transitions:
+        - to: do_summarize
+
+    do_summarize:
+      agent: summarize
+      input:
+        text: "{{ context.text }}"
+      output_to_context:
+        summary: "{{ output.summary or output.content }}"
+      transitions:
+        - to: do_extract
+
+    do_extract:
+      agent: extract
+      input:
+        text: "{{ context.text }}"
+      output_to_context:
+        entities: "{{ output.entities or output.content }}"
+      transitions:
+        - to: do_aggregate
+
+    # Aggregate: combine results into a report
+    do_aggregate:
+      agent: aggregate
+      input:
+        category: "{{ context.category }}"
+        confidence: "{{ context.confidence }}"
+        summary: "{{ context.summary }}"
+        entities: "{{ context.entities }}"
+      output_to_context:
+        report: "{{ output.report or output.content }}"
+      transitions:
+        - to: done
+
+    done:
+      type: final
+      output:
+        report: "{{ context.report }}"
+        category: "{{ context.category }}"
+        summary: "{{ context.summary }}"
+        entities: "{{ context.entities }}"
+
+metadata:
+  description: "Analyzes a single document: classify + summarize + extract + aggregate"
+  tags: ["template", "sequence", "analysis"]

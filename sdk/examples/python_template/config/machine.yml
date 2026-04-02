@@ -1,0 +1,70 @@
+# Python Template Machine
+# Sequence -> Fan-out (foreach over docs) -> Aggregate
+#
+# Flow:
+#   start -> classify (sequence step) -> analyze_all (foreach fan-out) -> done
+#
+# Showcases:
+#   - Sequential state transitions
+#   - foreach dynamic parallelism (map-reduce pattern)
+#   - SQLite persistence
+
+spec: flatmachine
+spec_version: "2.5.0"
+
+data:
+  name: python-template
+
+  context:
+    documents: input.documents
+    doc_count: null
+    results: null
+
+  agents:
+    classify: ./classify_agent.yml
+
+  machines:
+    analyze: ./analyze_machine.yml
+
+  persistence:
+    enabled: true
+    backend: sqlite
+    db_path: ./python_template.sqlite
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: classify_first
+
+    # Step 1: Sequential - classify the first document as a quick check
+    classify_first:
+      agent: classify
+      input:
+        text: "{{ context.documents[0] }}"
+      output_to_context:
+        first_category: "{{ output.category or output.content }}"
+      transitions:
+        - to: analyze_all
+
+    # Step 2: Fan-out - analyze all documents in parallel (map-reduce)
+    analyze_all:
+      foreach: context.documents
+      as: doc
+      machine: analyze
+      input:
+        text: "{{ doc }}"
+      output_to_context:
+        results: "{{ output }}"
+      transitions:
+        - to: done
+
+    done:
+      type: final
+      output:
+        first_category: "{{ context.first_category }}"
+        results: "{{ context.results }}"
+
+metadata:
+  description: "Template: sequence + fan-out with aggregate"
+  tags: ["template", "sequence", "foreach", "sqlite"]

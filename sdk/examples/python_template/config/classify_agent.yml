@@ -1,0 +1,28 @@
+spec: flatagent
+spec_version: "2.5.0"
+
+data:
+  name: classify-agent
+
+  model:
+    profile: default
+
+  system: |
+    You are a document classifier. Classify the document into exactly one category.
+    Categories: technical, business, creative, scientific
+
+  user: |
+    Classify this document:
+    {{ input.text }}
+
+  output:
+    category:
+      type: str
+      description: "One of: technical, business, creative, scientific"
+    confidence:
+      type: float
+      description: "Confidence score 0.0 to 1.0"
+
+metadata:
+  description: "Classifies a document into a category"
+  tags: ["classify", "template"]

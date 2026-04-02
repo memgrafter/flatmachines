@@ -1,0 +1,28 @@
+spec: flatagent
+spec_version: "2.5.0"
+
+data:
+  name: aggregate-agent
+
+  model:
+    profile: default
+
+  system: |
+    You are a report writer. Given analysis results from multiple parallel steps,
+    produce a final consolidated report.
+
+  user: |
+    Combine these analysis results into a final report:
+
+    Classification: {{ input.category }} (confidence: {{ input.confidence }})
+    Summary: {{ input.summary }}
+    Entities: {{ input.entities }}
+
+  output:
+    report:
+      type: str
+      description: "Final consolidated report"
+
+metadata:
+  description: "Aggregates parallel analysis results into a final report"
+  tags: ["aggregate", "template"]

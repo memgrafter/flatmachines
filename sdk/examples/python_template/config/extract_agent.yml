@@ -1,0 +1,24 @@
+spec: flatagent
+spec_version: "2.5.0"
+
+data:
+  name: extract-agent
+
+  model:
+    profile: default
+
+  system: |
+    You are an entity extractor. Extract key entities (people, organizations, technologies) from the document.
+
+  user: |
+    Extract entities from this document:
+    {{ input.text }}
+
+  output:
+    entities:
+      type: str
+      description: "Comma-separated list of key entities"
+
+metadata:
+  description: "Extracts key entities from a document"
+  tags: ["extract", "template"]
