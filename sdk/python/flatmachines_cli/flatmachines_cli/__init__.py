@@ -45,6 +45,9 @@ from .hooks import CLIHooks
 from .backend import CLIBackend
 from .protocol import Frontend, ActionHandler
 from .frontend import TerminalFrontend
+from .discovery import MachineIndex, MachineInfo, discover_examples
+from .inspector import inspect_machine, validate_machine, show_context
+from .repl import FlatMachinesREPL, interactive_repl
 
 __all__ = [
     "__version__",
@@ -78,4 +81,14 @@ __all__ = [
     "ActionHandler",
     # Terminal frontend
     "TerminalFrontend",
+    # Discovery & inspection
+    "MachineIndex",
+    "MachineInfo",
+    "discover_examples",
+    "inspect_machine",
+    "validate_machine",
+    "show_context",
+    # REPL
+    "FlatMachinesREPL",
+    "interactive_repl",
 ]

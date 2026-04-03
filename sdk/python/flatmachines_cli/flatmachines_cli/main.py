@@ -4,8 +4,9 @@ FlatMachines CLI — entry point.
 Branded CLI for running flatmachines with an async backend/frontend pipeline.
 
 Usage:
+    flatmachines                               # interactive REPL
     flatmachines run machine.yml -p "task"     # single-shot
-    flatmachines run machine.yml               # REPL
+    flatmachines run machine.yml               # agent REPL on specific config
     flatmachines run machine.yml --standalone "task"
 """
 
@@ -171,6 +172,16 @@ def main():
         prog="flatmachines",
         description="FlatMachines CLI — run state machines with async data pipeline",
     )
+    parser.add_argument(
+        "--working-dir", "-w",
+        default=os.getcwd(),
+        help="Working directory for file operations (default: cwd)",
+    )
+    parser.add_argument(
+        "--examples-dir",
+        default=None,
+        help="Additional directory to scan for machine configs",
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     # --- run command ---
@@ -189,11 +200,6 @@ def main():
         help="Run a single task and exit",
     )
     run_parser.add_argument(
-        "--working-dir", "-w",
-        default=os.getcwd(),
-        help="Working directory for file operations (default: cwd)",
-    )
-    run_parser.add_argument(
         "--standalone", "-s",
         metavar="TASK",
         nargs="?",
@@ -202,14 +208,24 @@ def main():
     )
 
     args = parser.parse_args()
+    working_dir = os.path.abspath(args.working_dir)
 
     if not args.command:
-        parser.print_help()
-        sys.exit(1)
+        # No subcommand → interactive REPL
+        from .repl import interactive_repl
+        from .discovery import find_project_root
+
+        extra_paths = [args.examples_dir] if args.examples_dir else None
+        project_root = find_project_root(working_dir)
+
+        asyncio.run(interactive_repl(
+            project_root=project_root,
+            extra_paths=extra_paths,
+            working_dir=working_dir,
+        ))
+        return
 
     if args.command == "run":
-        working_dir = os.path.abspath(args.working_dir)
-
         if args.standalone:
             task = args.standalone if isinstance(args.standalone, str) and args.standalone is not True else args.task
             if not task:

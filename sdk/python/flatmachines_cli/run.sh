@@ -57,11 +57,17 @@ fi
 
 # 2. Install Dependencies
 echo "Installing dependencies..."
+TOOL_USE_CLI_PATH="$PROJECT_ROOT/sdk/examples/coding_machine_cli/python"
+
 if [ "$LOCAL_INSTALL" = true ]; then
     echo "  - Installing from local source..."
     uv pip install --python "$VENV_PATH/bin/python" -e "$FLATMACHINES_SDK_PATH[flatagents]"
     uv pip install --python "$VENV_PATH/bin/python" -e "$FLATAGENTS_SDK_PATH[litellm]"
     uv pip install --python "$VENV_PATH/bin/python" -e "$FLATMACHINES_CLI_SDK_PATH"
+    if [ -d "$TOOL_USE_CLI_PATH" ]; then
+        echo "  - Installing tool_use_cli for tool execution..."
+        uv pip install --python "$VENV_PATH/bin/python" -e "$TOOL_USE_CLI_PATH"
+    fi
 else
     echo "  - Installing from PyPI..."
     uv pip install --python "$VENV_PATH/bin/python" "flatmachines[flatagents]"

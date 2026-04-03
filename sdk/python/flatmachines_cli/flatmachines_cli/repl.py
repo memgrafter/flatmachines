@@ -1,0 +1,453 @@
+"""
+FlatMachines interactive REPL.
+
+Explore, inspect, validate, and run flatmachine configs interactively.
+No LLM in the loop — the REPL itself is pure Python. LLMs are only
+invoked when you execute a machine via `run`.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import shlex
+import sys
+import time
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
+from .discovery import MachineIndex, MachineInfo
+
+try:
+    import readline  # noqa: F401 — enables arrow keys, history in input()
+except ImportError:
+    pass
+
+
+# --- ANSI helpers ---
+
+def _dim(text: str) -> str:
+    return f"\033[2m{text}\033[0m"
+
+
+def _bold(text: str) -> str:
+    return f"\033[1m{text}\033[0m"
+
+
+def _cyan(text: str) -> str:
+    return f"\033[36m{text}\033[0m"
+
+
+def _green(text: str) -> str:
+    return f"\033[32m{text}\033[0m"
+
+
+def _yellow(text: str) -> str:
+    return f"\033[33m{text}\033[0m"
+
+
+def _red(text: str) -> str:
+    return f"\033[31m{text}\033[0m"
+
+
+# --- Execution history ---
+
+@dataclass
+class ExecutionRecord:
+    name: str
+    path: str
+    input: Dict[str, Any]
+    duration_s: float = 0.0
+    success: bool = False
+    output: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+# --- REPL ---
+
+class FlatMachinesREPL:
+    """Interactive REPL for exploring and running flatmachines."""
+
+    def __init__(
+        self,
+        project_root: Optional[str] = None,
+        extra_paths: Optional[List[str]] = None,
+        working_dir: Optional[str] = None,
+    ):
+        self._index = MachineIndex(
+            project_root=project_root,
+            extra_paths=extra_paths,
+        )
+        self._working_dir = working_dir or os.getcwd()
+        self._history: List[ExecutionRecord] = []
+        self._last_bus_snapshot: Optional[Dict[str, Any]] = None
+        self._interrupt_count = 0
+
+        # Command dispatch table
+        self._commands = {
+            "list": self._cmd_list,
+            "ls": self._cmd_list,
+            "inspect": self._cmd_inspect,
+            "info": self._cmd_inspect,
+            "validate": self._cmd_validate,
+            "context": self._cmd_context,
+            "run": self._cmd_run,
+            "history": self._cmd_history,
+            "bus": self._cmd_bus,
+            "help": self._cmd_help,
+            "?": self._cmd_help,
+        }
+
+    async def start(self) -> None:
+        """Run the REPL loop."""
+        self._print_banner()
+
+        while True:
+            try:
+                raw = input(f"{_bold('fm')}> ").strip()
+                self._interrupt_count = 0
+            except KeyboardInterrupt:
+                self._interrupt_count += 1
+                if self._interrupt_count >= 2:
+                    print()
+                    break
+                print(f"\n{_dim('(ctrl-c again to quit)')}")
+                continue
+            except EOFError:
+                print()
+                break
+
+            if not raw:
+                continue
+
+            # Parse command and args
+            try:
+                parts = shlex.split(raw)
+            except ValueError:
+                parts = raw.split()
+
+            cmd = parts[0].lower()
+            args = parts[1:]
+
+            if cmd in ("quit", "exit", "q"):
+                break
+
+            handler = self._commands.get(cmd)
+            if handler is None:
+                # Try prefix match
+                matches = [k for k in self._commands if k.startswith(cmd)]
+                if len(matches) == 1:
+                    handler = self._commands[matches[0]]
+                else:
+                    print(f"  Unknown command: {cmd}. Type 'help' for commands.")
+                    continue
+
+            try:
+                result = handler(args)
+                if asyncio.iscoroutine(result):
+                    await result
+            except KeyboardInterrupt:
+                print(f"\n{_dim('Interrupted.')}")
+            except Exception as e:
+                print(f"  {_red(f'Error: {e}')}")
+
+            print()
+
+    def _print_banner(self) -> None:
+        """Print REPL welcome banner."""
+        try:
+            from flatmachines_cli import __version__
+            version = __version__
+        except Exception:
+            version = "?"
+
+        n = self._index.count
+        machines_text = f"{n} example{'s' if n != 1 else ''}" if n else "no examples"
+        print(f"\n  {_bold('flatmachines')} {_dim(f'v{version}')} — {machines_text} found")
+        print(f"  {_dim('type help for commands, list to see machines')}")
+        print()
+
+    # --- Commands ---
+
+    def _cmd_help(self, args: List[str]) -> None:
+        """Show available commands."""
+        print(f"""
+  {_bold('Commands')}
+
+    {_cyan('list')}                       Show discovered machines
+    {_cyan('inspect')} <name|path>        Show machine structure (states, transitions, agents)
+    {_cyan('validate')} <name|path>       Run schema validation
+    {_cyan('context')} <name|path>        Show context template and required inputs
+    {_cyan('run')} <name|path> [json]     Execute a machine (prompts for input if needed)
+    {_cyan('history')}                    Show recent executions
+    {_cyan('bus')}                        Dump last DataBus snapshot
+    {_cyan('help')}                       This message
+    {_cyan('quit')}                       Exit""")
+
+    def _cmd_list(self, args: List[str]) -> None:
+        """List discovered machines."""
+        machines = self._index.list_all()
+        if not machines:
+            print("  No machines found.")
+            return
+
+        # Calculate column widths
+        name_w = max(len(m.name) for m in machines)
+        name_w = max(name_w, 4)
+
+        print(f"  {'Name':<{name_w}}  {'States':>6}  Description")
+        print(f"  {'─' * name_w}  {'─' * 6}  {'─' * 40}")
+
+        for m in machines:
+            desc = m.description[:50] if m.description else _dim("—")
+            features = []
+            if m.has_machines:
+                features.append("machines")
+            if m.has_agents:
+                features.append("agents")
+            feat_str = f" {_dim('[' + ', '.join(features) + ']')}" if features else ""
+
+            print(f"  {_cyan(m.name):<{name_w + 9}}  {m.state_count:>6}  {desc}{feat_str}")
+
+    def _cmd_inspect(self, args: List[str]) -> None:
+        """Inspect a machine config."""
+        if not args:
+            print("  Usage: inspect <name|path>")
+            return
+
+        info = self._resolve(args[0])
+        if not info:
+            return
+
+        from .inspector import inspect_machine
+        print(inspect_machine(info.path))
+
+    def _cmd_validate(self, args: List[str]) -> None:
+        """Validate a machine config."""
+        if not args:
+            print("  Usage: validate <name|path>")
+            return
+
+        info = self._resolve(args[0])
+        if not info:
+            return
+
+        from .inspector import validate_machine
+        print(f"\n  Validating {_bold(info.name)} ...")
+        print(validate_machine(info.path))
+
+    def _cmd_context(self, args: List[str]) -> None:
+        """Show context template."""
+        if not args:
+            print("  Usage: context <name|path>")
+            return
+
+        info = self._resolve(args[0])
+        if not info:
+            return
+
+        from .inspector import show_context
+        print(show_context(info.path))
+
+    async def _cmd_run(self, args: List[str]) -> None:
+        """Execute a machine."""
+        if not args:
+            print("  Usage: run <name|path> [json_input]")
+            return
+
+        info = self._resolve(args[0])
+        if not info:
+            return
+
+        # Parse or prompt for input
+        input_data = self._get_input(info, args[1:])
+        if input_data is None:
+            return  # user cancelled
+
+        print(f"\n  Running {_bold(info.name)} ...")
+        print(f"  {_dim(f'input: {json.dumps(input_data)}')}")
+        print()
+
+        record = ExecutionRecord(
+            name=info.name,
+            path=info.path,
+            input=input_data,
+        )
+
+        t0 = time.monotonic()
+        try:
+            result = await self._execute_machine(info.path, input_data)
+            record.duration_s = time.monotonic() - t0
+            record.success = True
+            record.output = result
+        except KeyboardInterrupt:
+            record.duration_s = time.monotonic() - t0
+            record.error = "Interrupted"
+            print(f"\n  {_yellow('Interrupted')}")
+        except Exception as e:
+            record.duration_s = time.monotonic() - t0
+            record.error = str(e)
+            print(f"\n  {_red(f'Error: {e}')}")
+
+        self._history.append(record)
+
+        if record.success:
+            print(f"\n  {_green('✓')} Completed in {record.duration_s:.1f}s")
+            if record.output:
+                # Show output compactly
+                out_str = json.dumps(record.output, indent=2, default=str)
+                if len(out_str) > 500:
+                    out_str = out_str[:497] + "..."
+                print(f"  {_dim(out_str)}")
+
+    def _cmd_history(self, args: List[str]) -> None:
+        """Show execution history."""
+        if not self._history:
+            print("  No executions yet.")
+            return
+
+        for i, rec in enumerate(self._history, 1):
+            status = _green("✓") if rec.success else _red("✗")
+            duration = f"{rec.duration_s:.1f}s"
+            error_msg = f" — {rec.error}" if rec.error else ""
+            print(f"  {i}. {status} {_bold(rec.name)} ({duration}){_dim(error_msg)}")
+
+    def _cmd_bus(self, args: List[str]) -> None:
+        """Dump last DataBus snapshot."""
+        if self._last_bus_snapshot is None:
+            print("  No bus data yet. Run a machine first.")
+            return
+
+        print(json.dumps(self._last_bus_snapshot, indent=2, default=str))
+
+    # --- Helpers ---
+
+    def _resolve(self, name_or_path: str) -> Optional[MachineInfo]:
+        """Resolve a machine name/path, printing errors on failure."""
+        info = self._index.resolve(name_or_path)
+        if info:
+            return info
+
+        # Check for ambiguous prefix
+        matches = self._index.prefix_matches(name_or_path)
+        if len(matches) > 1:
+            names = ", ".join(m.name for m in matches)
+            print(f"  Ambiguous: {names}")
+        else:
+            print(f"  Not found: {name_or_path}")
+            print(f"  {_dim('Use list to see available machines, or pass a file path')}")
+        return None
+
+    def _get_input(
+        self,
+        info: MachineInfo,
+        extra_args: List[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Get machine input — from args JSON or interactive prompts.
+
+        Returns None if user cancels.
+        """
+        # If JSON provided as arg, use it
+        if extra_args:
+            json_str = " ".join(extra_args)
+            try:
+                data = json.loads(json_str)
+                if isinstance(data, dict):
+                    return data
+                print(f"  {_red('Input must be a JSON object')}")
+                return None
+            except json.JSONDecodeError as e:
+                print(f"  {_red(f'Invalid JSON: {e}')}")
+                return None
+
+        # Load config to find required input keys
+        from .inspector import load_config, _classify_context
+        config = load_config(info.path)
+        context = config.get("data", {}).get("context", {})
+        input_keys, _ = _classify_context(context)
+
+        if not input_keys:
+            return {}
+
+        # Prompt for each required key
+        print(f"  {_dim('Enter values (empty to skip, ctrl-c to cancel):')}")
+        result = {}
+        try:
+            for key in input_keys:
+                default_hint = ""
+                val = context.get(key)
+                if isinstance(val, str) and "default(" in val:
+                    # Extract default from Jinja template
+                    import re
+                    m = re.search(r"default\(([^)]+)\)", val)
+                    if m:
+                        default_hint = f" [{m.group(1).strip()}]"
+
+                raw = input(f"    {_bold(key)}{_dim(default_hint)}: ").strip()
+                if raw:
+                    # Try to parse as JSON value (numbers, bools, etc.)
+                    try:
+                        result[key] = json.loads(raw)
+                    except json.JSONDecodeError:
+                        result[key] = raw
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return None
+
+        return result
+
+    async def _execute_machine(
+        self,
+        config_path: str,
+        input_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Execute a machine through the CLI backend pipeline."""
+        import logging
+        import warnings
+
+        # Suppress noisy warnings during execution
+        warnings.filterwarnings("ignore", message=".*validation.*")
+        warnings.filterwarnings("ignore", message=".*Flatmachine.*")
+        warnings.filterwarnings("ignore", message=".*Flatagent.*")
+
+        from flatmachines import FlatMachine
+        from .backend import CLIBackend
+        from .bus import DataBus
+        from .frontend import TerminalFrontend
+        from .hooks import CLIHooks
+        from .main import _try_find_tool_provider
+
+        bus = DataBus()
+        frontend = TerminalFrontend(auto_approve=False)
+        backend = CLIBackend(bus=bus, frontend=frontend)
+        backend.set_frontend(frontend)
+
+        tool_provider_factory = _try_find_tool_provider(self._working_dir)
+        hooks = CLIHooks(backend, tool_provider_factory=tool_provider_factory)
+
+        machine = FlatMachine(
+            config_file=config_path,
+            hooks=hooks,
+        )
+
+        result = await backend.run_machine(machine, input=input_data)
+
+        # Capture bus snapshot for debug
+        self._last_bus_snapshot = bus.snapshot()
+
+        return result
+
+
+async def interactive_repl(
+    project_root: Optional[str] = None,
+    extra_paths: Optional[List[str]] = None,
+    working_dir: Optional[str] = None,
+) -> None:
+    """Entry point for the interactive REPL."""
+    repl = FlatMachinesREPL(
+        project_root=project_root,
+        extra_paths=extra_paths,
+        working_dir=working_dir,
+    )
+    await repl.start()

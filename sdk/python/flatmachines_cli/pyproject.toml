@@ -28,6 +28,7 @@ classifiers = [
 dependencies = [
     "flatmachines[flatagents]>=2.5.0",
     "flatagents[litellm]>=2.5.0",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
