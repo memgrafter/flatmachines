@@ -182,6 +182,38 @@ class CLIBackend:
 
         self._running = False
 
+    # --- Monitoring ---
+
+    def health_check(self) -> Dict[str, Any]:
+        """Return a health summary for monitoring/observability.
+
+        Returns a dict with:
+            running: bool
+            processor_count: int
+            processors: list of per-processor stats
+            bus_slots: int
+            bus_slot_names: list of slot names
+            frontend: str (class name or "None")
+        """
+        proc_stats = []
+        for p in self._processors:
+            info = {
+                "name": p.slot_name,
+                "type": type(p).__name__,
+                "running": p._task is not None and not p._task.done(),
+            }
+            info.update(p.stats)
+            proc_stats.append(info)
+
+        return {
+            "running": self._running,
+            "processor_count": len(self._processors),
+            "processors": proc_stats,
+            "bus_slots": len(self._bus),
+            "bus_slot_names": self._bus.slot_names(),
+            "frontend": type(self._frontend).__name__ if self._frontend else None,
+        }
+
     # --- Event dispatch ---
 
     def emit(self, event: Dict[str, Any]) -> None:
