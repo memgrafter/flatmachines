@@ -80,7 +80,9 @@ class Processor(ABC):
 
     def reset(self) -> None:
         """Reset processor state for a new machine execution. Override in subclasses."""
-        pass
+        self._events_processed = 0
+        self._events_dropped = 0
+        self._queue_hwm = 0
 
     def accepts(self, event: Dict[str, Any]) -> bool:
         """Check if this processor handles the given event type."""
