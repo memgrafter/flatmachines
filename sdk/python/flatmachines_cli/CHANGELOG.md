@@ -38,6 +38,17 @@
 - **REPL history persistence**: Command history saved to `~/.flatmachines_history`.
 - **Tool call ID tracking**: `ToolProcessor` now tracks and matches by `tool_call_id`
   for precise parallel tool tracking.
+- **Structured JSON logging**: `--log-format json` flag for production log aggregation.
+  `_JSONFormatter` emits ISO timestamps, exception details, logger names.
+- **`--log-level` CLI flag**: Set log level without env vars (`DEBUG/INFO/WARNING/ERROR`).
+- **DataBus persistence**: `to_json()/from_json()/save()/load()` methods for
+  crash recovery and state inspection.
+- **Processor backpressure stats**: `Processor.stats` property exposes
+  `events_processed`, `events_dropped`, `queue_hwm` for monitoring.
+- **Backend shutdown timeout**: `stop(timeout=5.0)` force-cancels stuck processors
+  after timeout expires.
+- **Non-blocking human review**: `_human_review` uses `run_in_executor` when
+  inside a running event loop to avoid blocking.
 
 ### Improvements
 - **Input validation**: `DataBus.slot()` and `DataBus.write()` validate name parameter.
