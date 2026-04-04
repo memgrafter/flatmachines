@@ -91,11 +91,14 @@ class Processor(ABC):
         Push an event into this processor's queue. Non-blocking.
         Called by the backend dispatcher. Never raises.
         """
-        # Drop if queue is full — UDP semantics. 1024 is generous headroom.
+        # Drop if queue is full — UDP semantics.
         try:
             self._queue.put_nowait(event)
         except asyncio.QueueFull:
-            pass
+            logger.debug(
+                "Processor %s dropped event %s (queue full)",
+                self.slot_name, event.get("type", "?"),
+            )
 
     async def _run(self) -> None:
         """Main loop: drain queue, process, hz-cap writes.
@@ -484,7 +487,14 @@ class ContentProcessor(Processor):
             ctx = event.get("context", {})
             result = ctx.get("result", "")
             if result:
-                self._text = str(result)
+                if isinstance(result, dict):
+                    import json
+                    try:
+                        self._text = json.dumps(result, indent=2, default=str)
+                    except (TypeError, ValueError):
+                        self._text = str(result)
+                else:
+                    self._text = str(result)
 
         return self._snapshot()
 

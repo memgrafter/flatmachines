@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import signal
 from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -148,7 +147,10 @@ class CLIBackend:
         # Wait for processor tasks to finish
         tasks = [p._task for p in self._processors if p._task and not p._task.done()]
         if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for task_result in results:
+                if isinstance(task_result, Exception) and not isinstance(task_result, asyncio.CancelledError):
+                    logger.warning("Processor task error during shutdown: %s", task_result)
 
         # Stop frontend
         if self._frontend:
