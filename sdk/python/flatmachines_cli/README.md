@@ -22,9 +22,13 @@ context <name|path>        Show context template and required inputs
 run <name|path> [json]     Execute a machine (prompts for input if needed)
 history                    Show recent executions
 bus                        Dump last DataBus snapshot
+stats                      Show processor/hook performance stats
+save [path]                Save bus snapshot to JSON file
 help                       Show commands
 quit                       Exit
 ```
+
+Tab-completion is available for commands and machine names.
 
 ## CLI Commands
 
@@ -101,3 +105,17 @@ uv pip install --python .venv/bin/python -e ".[dev]"
 - `test_quality.py` — Docstrings and API consistency
 - `test_repr.py` — Debug repr completeness
 - `test_init.py` — Public API surface
+- `test_api_contract.py` — API contract stability
+- `test_cli_subcommands.py` — CLI subcommand tests (list/inspect/validate/context)
+- `test_json_logging.py` — Structured JSON logging
+- `test_bus_persistence.py` — DataBus save/load/serialization
+- `test_bus_diff.py` — Snapshot comparison
+- `test_health_check.py` — Backend monitoring
+- `test_hooks_timing.py` — Hook timing instrumentation
+- `test_human_review.py` — Human review input handling
+- `test_processor_stats.py` — Backpressure metrics
+- `test_processor_reset.py` — Reset between runs
+- `test_integration_lifecycle.py` — Full lifecycle integration
+- `test_repl_stats.py` — REPL stats command
+- `test_repl_save.py` — REPL save command
+- `test_repl_completion.py` — Tab-completion
