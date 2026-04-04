@@ -269,6 +269,28 @@ def main():
         ))
         return
 
+    def _resolve_machine_path(name_or_path: str, working_dir: str) -> Optional[str]:
+        """Resolve a machine name or path to an absolute config file path.
+
+        Returns the resolved path, or None if not found.
+        """
+        from .discovery import MachineIndex, find_project_root
+
+        project_root = find_project_root(working_dir)
+        index = MachineIndex(project_root=project_root)
+        info = index.resolve(name_or_path)
+        if info:
+            return info.path
+
+        # Try as direct file path
+        config_path = Path(name_or_path)
+        if not config_path.is_absolute():
+            config_path = Path.cwd() / config_path
+        if config_path.is_file():
+            return str(config_path)
+
+        return None
+
     if args.command == "list":
         from .discovery import MachineIndex, find_project_root
 
@@ -286,65 +308,20 @@ def main():
             print(f"  {m.name} ({m.state_count} states){desc}")
         return
 
-    if args.command == "inspect":
-        from .inspector import inspect_machine
-        from .discovery import MachineIndex, find_project_root
+    if args.command in ("inspect", "validate", "context"):
+        from .inspector import inspect_machine, validate_machine, show_context
 
-        project_root = find_project_root(working_dir)
-        index = MachineIndex(project_root=project_root)
-        info = index.resolve(args.config)
-        if info:
-            print(inspect_machine(info.path))
-        else:
-            # Try as direct path
-            config_path = Path(args.config)
-            if not config_path.is_absolute():
-                config_path = Path.cwd() / config_path
-            if config_path.is_file():
-                print(inspect_machine(str(config_path)))
-            else:
-                print(f"Machine not found: {args.config}")
-                sys.exit(1)
-        return
+        resolved = _resolve_machine_path(args.config, working_dir)
+        if not resolved:
+            print(f"Machine not found: {args.config}")
+            sys.exit(1)
 
-    if args.command == "validate":
-        from .inspector import validate_machine
-        from .discovery import MachineIndex, find_project_root
-
-        project_root = find_project_root(working_dir)
-        index = MachineIndex(project_root=project_root)
-        info = index.resolve(args.config)
-        if info:
-            print(validate_machine(info.path))
-        else:
-            config_path = Path(args.config)
-            if not config_path.is_absolute():
-                config_path = Path.cwd() / config_path
-            if config_path.is_file():
-                print(validate_machine(str(config_path)))
-            else:
-                print(f"Machine not found: {args.config}")
-                sys.exit(1)
-        return
-
-    if args.command == "context":
-        from .inspector import show_context
-        from .discovery import MachineIndex, find_project_root
-
-        project_root = find_project_root(working_dir)
-        index = MachineIndex(project_root=project_root)
-        info = index.resolve(args.config)
-        if info:
-            print(show_context(info.path))
-        else:
-            config_path = Path(args.config)
-            if not config_path.is_absolute():
-                config_path = Path.cwd() / config_path
-            if config_path.is_file():
-                print(show_context(str(config_path)))
-            else:
-                print(f"Machine not found: {args.config}")
-                sys.exit(1)
+        handlers = {
+            "inspect": inspect_machine,
+            "validate": validate_machine,
+            "context": show_context,
+        }
+        print(handlers[args.command](resolved))
         return
 
     if args.command == "run":

@@ -52,3 +52,10 @@ class TestResolveConfig:
         result = _resolve_config("relative/path.yml")
         assert result.endswith("relative/path.yml")
         assert Path(result).is_absolute()
+
+
+class TestTryFindToolProvider:
+    def test_returns_none_or_callable(self):
+        from flatmachines_cli.main import _try_find_tool_provider
+        result = _try_find_tool_provider("/tmp")
+        assert result is None or callable(result)
