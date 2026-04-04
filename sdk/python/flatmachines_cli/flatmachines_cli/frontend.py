@@ -150,14 +150,18 @@ class TerminalFrontend(Frontend):
         if not data:
             return
 
-        # Print new tool results since last render
+        # Print new tool results since last render.
+        # Note: history may be truncated by history_limit, so we can't index
+        # it with _last_tool_call_count directly. Instead, compute how many
+        # new entries to show from the tail of the history list.
         history = data.get("history", [])
         new_count = data.get("total_calls", 0)
         if new_count <= self._last_tool_call_count:
             return
 
-        # Print only new entries
-        new_entries = history[self._last_tool_call_count:]
+        num_new = new_count - self._last_tool_call_count
+        # Take at most num_new entries from the end of history
+        new_entries = history[-num_new:] if num_new <= len(history) else history
         for entry in new_entries:
             status = _red("x") if entry.get("is_error") else _green("v")
             summary = entry.get("summary", "")

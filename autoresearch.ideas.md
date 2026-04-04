@@ -23,13 +23,12 @@
 - [x] CHANGELOG documenting all changes
 - [x] mypy configuration
 
-## Remaining Production Items
-- [ ] TerminalFrontend._human_review uses sync input() — blocks event loop
-- [ ] REPL command history persistence (save to ~/.flatmachines_history)
-- [ ] Proper shutdown signal handling (SIGINT/SIGTERM in main)
-- [ ] ToolProcessor: handle multiple active tools with same name
-- [ ] Structured logging (JSON format option for production)
+## Remaining Production Items (Nice-to-Have)
+- [ ] TerminalFrontend._human_review uses sync input() — blocks event loop (workaround: run_in_executor)
+- [ ] REPL command history persistence (save to ~/.flatmachines_history via readline)
+- [ ] Proper shutdown signal handling (SIGINT/SIGTERM graceful cleanup in main)
+- [ ] Structured logging (JSON format option via logging config)
 - [ ] Connection/IPC timeout configuration for future Rust frontend
-- [ ] Add property-based testing for bus/processor invariants
-- [ ] Add benchmarks for processor throughput
-- [ ] Consider adding health check / metrics endpoint
+- [ ] Property-based testing with hypothesis library
+- [ ] Processor throughput benchmarks
+- [ ] Health check / metrics endpoint for production monitoring

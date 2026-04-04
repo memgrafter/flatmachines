@@ -358,7 +358,11 @@ class ToolProcessor(Processor):
 
         if etype == events.TOOL_CALLS:
             self._active = [
-                {"name": tc.get("name", ""), "arguments": tc.get("arguments", {})}
+                {
+                    "name": tc.get("name", ""),
+                    "arguments": tc.get("arguments", {}),
+                    "tool_call_id": tc.get("tool_call_id", ""),
+                }
                 for tc in event.get("tool_calls", [])
             ]
 
@@ -396,15 +400,20 @@ class ToolProcessor(Processor):
                 if path and path not in self._files_modified:
                     self._files_modified.append(path)
 
-            # Remove ONE matching tool from active (not all with same name,
-            # since parallel tools may have duplicate names like "bash")
+            # Remove the matching tool from active. Prefer matching by
+            # tool_call_id (exact), fall back to name (first match).
+            tool_call_id = event.get("tool_call_id", "")
             removed = False
             new_active = []
             for a in self._active:
-                if not removed and a["name"] == name:
-                    removed = True  # skip first match
-                else:
-                    new_active.append(a)
+                if not removed:
+                    if tool_call_id and a.get("tool_call_id") == tool_call_id:
+                        removed = True
+                        continue
+                    elif not tool_call_id and a["name"] == name:
+                        removed = True
+                        continue
+                new_active.append(a)
             self._active = new_active
 
         return self._snapshot()

@@ -20,9 +20,14 @@ from typing import Any, Dict, List, Optional
 from .discovery import MachineIndex, MachineInfo
 
 try:
-    import readline  # noqa: F401 — enables arrow keys, history in input()
+    import readline
+
+    _HISTORY_FILE = os.path.expanduser("~/.flatmachines_history")
+    _HISTORY_LENGTH = 1000
 except ImportError:
-    pass
+    readline = None  # type: ignore
+    _HISTORY_FILE = None
+    _HISTORY_LENGTH = 0
 
 
 # --- ANSI helpers ---
@@ -99,8 +104,27 @@ class FlatMachinesREPL:
             "?": self._cmd_help,
         }
 
+    def _load_history(self) -> None:
+        """Load command history from disk."""
+        if readline is not None and _HISTORY_FILE:
+            try:
+                readline.read_history_file(_HISTORY_FILE)
+                readline.set_history_length(_HISTORY_LENGTH)
+            except (FileNotFoundError, OSError):
+                pass
+
+    def _save_history(self) -> None:
+        """Save command history to disk."""
+        if readline is not None and _HISTORY_FILE:
+            try:
+                readline.set_history_length(_HISTORY_LENGTH)
+                readline.write_history_file(_HISTORY_FILE)
+            except OSError:
+                pass
+
     async def start(self) -> None:
         """Run the REPL loop."""
+        self._load_history()
         self._print_banner()
 
         while True:
@@ -111,11 +135,13 @@ class FlatMachinesREPL:
                 self._interrupt_count += 1
                 if self._interrupt_count >= 2:
                     print()
+                    self._save_history()
                     break
                 print(f"\n{_dim('(ctrl-c again to quit)')}")
                 continue
             except EOFError:
                 print()
+                self._save_history()
                 break
 
             if not raw:
@@ -131,6 +157,7 @@ class FlatMachinesREPL:
             args = parts[1:]
 
             if cmd in ("quit", "exit", "q"):
+                self._save_history()
                 break
 
             handler = self._commands.get(cmd)
