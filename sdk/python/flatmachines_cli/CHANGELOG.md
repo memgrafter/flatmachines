@@ -25,6 +25,10 @@
   `tool_call_id` match when available).
 - **ContentProcessor dict results**: Fixed `str(dict)` producing unreadable repr
   output — now formats as pretty-printed JSON.
+- **TokenProcessor None cost**: Fixed `round(None, 6)` crash when event has
+  `cost: None`. Now uses None-safe access throughout.
+- **ToolProcessor _summarize_tool None args**: Fixed `AttributeError` crash when
+  tool arguments dict is `None`. Added guard at top of method.
 
 ### New Features
 - **CLI subcommands**: Added `list`, `inspect`, `validate` as direct CLI commands
@@ -49,6 +53,18 @@
   after timeout expires.
 - **Non-blocking human review**: `_human_review` uses `run_in_executor` when
   inside a running event loop to avoid blocking.
+- **`context` CLI subcommand**: Show context template via `flatmachines context`.
+- **`--dry-run` flag**: Validate, inspect, and show context without executing.
+- **DataBus `diff()`**: Compare current bus state against a previous snapshot.
+- **DataBus `subscribe()`/`unsubscribe()`**: Push-based slot update notifications.
+- **Backend `health_check()`**: Returns processor stats, bus info, and frontend type.
+- **Hook timing instrumentation**: `CLIHooks.timing_stats` property reports per-hook
+  `calls`, `total_ms`, `avg_ms`.
+- **REPL `stats` command**: Show processor backpressure and hook timings.
+- **REPL `save` command**: Save last bus snapshot to JSON file.
+- **REPL tab-completion**: Readline tab-completion for commands and machine names.
+- **Processor stat reset**: `reset()` now clears `events_processed`, `events_dropped`,
+  and `queue_hwm` for clean per-run monitoring.
 
 ### Improvements
 - **Input validation**: `DataBus.slot()` and `DataBus.write()` validate name parameter.
@@ -61,12 +77,20 @@
 - **Development status**: Upgraded from Alpha to Beta.
 
 ### Test Suite
-- 438+ tests covering all modules with zero failures
+- **959 tests** across **70 test files** with **zero failures**
 - Unit tests for bus, events, processors, hooks, backend, frontend, protocol
 - Integration tests for full pipeline: hooks → events → processors → bus → frontend
+- End-to-end tests simulating complete machine execution
 - Concurrency tests for parallel slot access and processor independence
+- Defensive access tests with pathological inputs to all processors
+- API contract tests ensuring public interface stability
+- Event-processor field naming contract tests
 - Serialization tests validating JSON-serializable bus snapshots
 - Error path tests for exception recovery and malformed inputs
+- Inspector robustness tests with malformed/empty configs
 - Quality tests for docstrings, API consistency, and version format
-- REPL command tests for all interactive commands
-- Packaging tests for structure, metadata, and dependency availability
+- CLI subcommand tests (list/inspect/validate/context/--dry-run)
+- REPL command tests including stats, save, tab-completion, input parsing
+- Packaging tests for structure, metadata, version consistency
+- Processor backpressure and reset tests
+- Frontend rendering tests for all display paths
