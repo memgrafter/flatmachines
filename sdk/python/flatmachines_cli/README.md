@@ -47,3 +47,45 @@ flatmachines run machine.yml --standalone "task description"
 - **CLIBackend**: orchestrates processors, bus, and frontend lifecycle
 - **Frontend protocol**: abstract interface (the Rust replacement boundary)
 - **TerminalFrontend**: simple line-based output (temporary, replaceable)
+
+## Development
+
+```bash
+# Install dev dependencies
+uv pip install --python .venv/bin/python -e ".[dev]"
+
+# Run tests
+.venv/bin/python -m pytest tests/ -v
+
+# Run specific test file
+.venv/bin/python -m pytest tests/test_bus.py -v
+
+# Run with coverage
+.venv/bin/python -m pytest tests/ --tb=short -q
+```
+
+### Test Structure
+
+- `test_bus.py` — DataBus and Slot unit tests
+- `test_events.py` — Event constructors and type constants
+- `test_processors.py` — Processor pipeline behavior
+- `test_processor_advanced.py` — Custom processors, timing, edge cases
+- `test_backend.py` — CLIBackend lifecycle and dispatch
+- `test_hooks.py` — CLIHooks bridge tests
+- `test_frontend.py` — TerminalFrontend rendering
+- `test_rendering.py` — Frontend change detection and output
+- `test_protocol.py` — Frontend ABC and ActionHandler
+- `test_discovery.py` — Machine config discovery
+- `test_inspector.py` — Machine inspector formatting
+- `test_inspector_advanced.py` — Complex config inspection
+- `test_repl.py` — REPL command tests
+- `test_main.py` — CLI entry point
+- `test_integration.py` — Full pipeline integration tests
+- `test_concurrency.py` — Concurrent access patterns
+- `test_serialization.py` — JSON serialization boundary
+- `test_validation.py` — Input validation and error handling
+- `test_error_paths.py` — Error recovery tests
+- `test_edge_cases.py` — Boundary conditions
+- `test_quality.py` — Docstrings and API consistency
+- `test_repr.py` — Debug repr completeness
+- `test_init.py` — Public API surface
