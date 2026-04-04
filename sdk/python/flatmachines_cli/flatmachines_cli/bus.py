@@ -152,6 +152,7 @@ class DataBus:
 
     def __init__(self):
         self._slots: Dict[str, Slot] = {}
+        self._subscribers: list = []  # list of (slot_name_or_None, callback)
 
     def slot(self, name: str) -> Slot:
         """Get or create a named slot.
@@ -182,7 +183,42 @@ class DataBus:
             TypeError: If name is not a string.
             ValueError: If name is empty.
         """
-        return self.slot(name).write(value)
+        version = self.slot(name).write(value)
+        # Notify subscribers
+        for sub_name, callback in self._subscribers:
+            if sub_name is None or sub_name == name:
+                try:
+                    callback(name, value)
+                except Exception:
+                    pass  # Never let subscriber errors affect writes
+        return version
+
+    def subscribe(self, callback, slot_name: Optional[str] = None) -> None:
+        """Register a callback for slot updates.
+
+        The callback is called synchronously on every write() with
+        (slot_name, value). If slot_name is given, only writes to that
+        slot trigger the callback. If None, all writes trigger it.
+
+        Callbacks must be fast and non-blocking — they run in the
+        writer's context. For heavy work, enqueue to an async task.
+
+        Args:
+            callback: Callable(slot_name: str, value: Any) → None
+            slot_name: Optional filter — only receive writes to this slot
+        """
+        self._subscribers.append((slot_name, callback))
+
+    def unsubscribe(self, callback) -> None:
+        """Remove a subscriber callback.
+
+        Removes the first matching callback. If the callback was registered
+        multiple times, only the first registration is removed.
+        """
+        for i, (_, cb) in enumerate(self._subscribers):
+            if cb is callback:
+                self._subscribers.pop(i)
+                return
 
     def read(self, name: str) -> Optional[SlotValue]:
         """Read from a named slot. Returns None if slot doesn't exist or is empty."""
@@ -230,8 +266,9 @@ class DataBus:
         return list(self._slots.keys())
 
     def reset(self):
-        """Clear all slots. Used for new machine execution."""
+        """Clear all slots and subscribers. Used for new machine execution."""
         self._slots.clear()
+        self._subscribers.clear()
 
     def __repr__(self) -> str:
         slot_info = ", ".join(
