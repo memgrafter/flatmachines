@@ -105,7 +105,7 @@ class FlatMachinesREPL:
 
         while True:
             try:
-                raw = input(f"{_bold('fm')}> ").strip()
+                raw = input("fm> ").strip()
                 self._interrupt_count = 0
             except KeyboardInterrupt:
                 self._interrupt_count += 1
