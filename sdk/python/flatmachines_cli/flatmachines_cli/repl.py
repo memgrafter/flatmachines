@@ -103,6 +103,7 @@ class FlatMachinesREPL:
             "history": self._cmd_history,
             "bus": self._cmd_bus,
             "stats": self._cmd_stats,
+            "save": self._cmd_save,
             "help": self._cmd_help,
             "?": self._cmd_help,
         }
@@ -249,6 +250,7 @@ class FlatMachinesREPL:
     {_cyan('history')}                    Show recent executions
     {_cyan('bus')}                        Dump last DataBus snapshot
     {_cyan('stats')}                      Show processor/hook performance stats
+    {_cyan('save')} [path]                Save last bus snapshot to JSON file
     {_cyan('help')}                       This message
     {_cyan('quit')}                       Exit""")
 
@@ -417,6 +419,23 @@ class FlatMachinesREPL:
                 print(f"    {'─' * 20} {'─' * 6} {'─' * 10} {'─' * 8}")
                 for name, st in sorted(timing.items()):
                     print(f"    {name:<20} {st['calls']:>6} {st['total_ms']:>10.3f} {st['avg_ms']:>8.3f}")
+
+    def _cmd_save(self, args: List[str]) -> None:
+        """Save last bus snapshot to a JSON file."""
+        if self._last_bus_snapshot is None:
+            print("  No bus data yet. Run a machine first.")
+            return
+
+        path = args[0] if args else "bus_snapshot.json"
+        try:
+            import json as _json
+            from pathlib import Path
+            Path(path).write_text(
+                _json.dumps(self._last_bus_snapshot, indent=2, default=str)
+            )
+            print(f"  {_green('✓')} Saved to {_bold(path)}")
+        except Exception as e:
+            print(f"  {_red(f'Error saving: {e}')}")
 
     # --- Helpers ---
 
