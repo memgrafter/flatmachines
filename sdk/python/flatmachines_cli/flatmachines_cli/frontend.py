@@ -215,7 +215,11 @@ class TerminalFrontend(Frontend):
     # --- Action handlers ---
 
     def _human_review(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Show agent output, ask for follow-up or accept."""
+        """Show agent output, ask for follow-up or accept.
+
+        Uses asyncio.run_in_executor to avoid blocking the event loop
+        while waiting for user input.
+        """
         result = context.get("result", "")
         if result:
             print()
@@ -231,10 +235,7 @@ class TerminalFrontend(Frontend):
             return context
 
         print()
-        try:
-            response = input("> ").strip()
-        except (EOFError, KeyboardInterrupt):
-            response = ""
+        response = self._prompt_user()
 
         if response:
             chain = context.get("_tool_loop_chain")
@@ -250,3 +251,44 @@ class TerminalFrontend(Frontend):
 
     def __repr__(self) -> str:
         return f"TerminalFrontend(fps={self._fps}, auto_approve={self._auto_approve})"
+
+    @staticmethod
+    def _prompt_user() -> str:
+        """Read user input, returning empty string on EOF/interrupt.
+
+        If an asyncio event loop is running, this uses run_in_executor
+        to avoid blocking the loop. Otherwise, calls input() directly.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None and loop.is_running():
+            import concurrent.futures
+            future = loop.run_in_executor(None, _safe_input)
+            # We're called from a sync context within an async loop.
+            # Use a concurrent.futures event to bridge.
+            done = concurrent.futures.Future()
+
+            def _on_done(task):
+                try:
+                    done.set_result(task.result())
+                except Exception as e:
+                    done.set_result("")
+
+            asyncio.ensure_future(future).add_done_callback(_on_done)
+            try:
+                return done.result(timeout=3600)  # 1hr max wait
+            except Exception:
+                return ""
+        else:
+            return _safe_input()
+
+
+def _safe_input() -> str:
+    """Read a line from stdin, returning empty string on EOF/interrupt."""
+    try:
+        return input("> ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return ""

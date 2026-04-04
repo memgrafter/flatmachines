@@ -50,6 +50,9 @@ class Processor(ABC):
         self._queue: asyncio.Queue = asyncio.Queue(maxsize=queue_size)
         self._task: Optional[asyncio.Task] = None
         self._pending_data: Any = None  # buffered between hz-throttled writes
+        self._events_processed: int = 0
+        self._events_dropped: int = 0
+        self._queue_hwm: int = 0  # high-water mark
 
     @property
     @abstractmethod
@@ -94,10 +97,14 @@ class Processor(ABC):
         # Drop if queue is full — UDP semantics.
         try:
             self._queue.put_nowait(event)
+            qsize = self._queue.qsize()
+            if qsize > self._queue_hwm:
+                self._queue_hwm = qsize
         except asyncio.QueueFull:
+            self._events_dropped += 1
             logger.debug(
-                "Processor %s dropped event %s (queue full)",
-                self.slot_name, event.get("type", "?"),
+                "Processor %s dropped event %s (queue full, drops=%d)",
+                self.slot_name, event.get("type", "?"), self._events_dropped,
             )
 
     async def _run(self) -> None:
@@ -133,6 +140,7 @@ class Processor(ABC):
 
             try:
                 data = self.process(event)
+                self._events_processed += 1
             except Exception as e:
                 logger.warning(
                     "Processor %s failed on event %s: %s",
@@ -151,6 +159,25 @@ class Processor(ABC):
             else:
                 # Buffer latest — will be flushed after min_interval timeout
                 self._pending_data = data
+
+    @property
+    def stats(self) -> Dict[str, Any]:
+        """Return processor statistics for monitoring.
+
+        Returns dict with:
+            events_processed: total events processed
+            events_dropped: total events dropped (queue full)
+            queue_hwm: high-water mark of queue size
+            queue_size: current queue size
+            queue_capacity: max queue capacity
+        """
+        return {
+            "events_processed": self._events_processed,
+            "events_dropped": self._events_dropped,
+            "queue_hwm": self._queue_hwm,
+            "queue_size": self._queue.qsize(),
+            "queue_capacity": self._queue.maxsize,
+        }
 
     def __repr__(self) -> str:
         running = "running" if self._task and not self._task.done() else "stopped"
