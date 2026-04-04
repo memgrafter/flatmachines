@@ -102,11 +102,14 @@ class TestCLIBackendEventDispatch:
     @pytest.mark.asyncio
     async def test_emit_dispatches_to_processors(self):
         bus = DataBus()
-        backend = CLIBackend(bus=bus)
+        # Use high-Hz processors to avoid throttle delays in tests
+        from flatmachines_cli.processors import StatusProcessor
+        procs = [StatusProcessor(bus, max_hz=1000)]
+        backend = CLIBackend(bus=bus, processors=procs)
         await backend.start()
         evt = events.machine_start({"machine": {"machine_name": "test"}})
         backend.emit(evt)
-        await asyncio.sleep(0.15)
+        await asyncio.sleep(0.1)
         data = bus.read_data("status")
         assert data is not None
         assert data["machine_name"] == "test"
@@ -115,14 +118,16 @@ class TestCLIBackendEventDispatch:
     @pytest.mark.asyncio
     async def test_emit_only_to_matching_processors(self):
         bus = DataBus()
-        backend = CLIBackend(bus=bus)
+        from flatmachines_cli.processors import ToolProcessor
+        procs = [ToolProcessor(bus, max_hz=1000)]
+        backend = CLIBackend(bus=bus, processors=procs)
         await backend.start()
         evt = events.tool_calls("s", [{"name": "bash"}], {
             "_tool_loop_content": "thinking",
             "_tool_loop_usage": {},
         })
         backend.emit(evt)
-        await asyncio.sleep(0.15)
+        await asyncio.sleep(0.1)
         tool_data = bus.read_data("tools")
         assert tool_data is not None
         await backend.stop()

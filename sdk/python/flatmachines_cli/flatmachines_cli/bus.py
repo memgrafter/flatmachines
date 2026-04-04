@@ -15,9 +15,12 @@ Readers (frontend) read when they can, always get latest.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, Generic, Optional, Tuple, TypeVar
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -74,10 +77,9 @@ class Slot(Generic[T]):
         self._data = value
         self._version += 1
         self._timestamp = time.monotonic()
+        # Wake all current waiters. The event stays set until explicitly
+        # cleared by wait(), allowing multiple concurrent waiters to wake.
         self._event.set()
-        # Clear immediately — waiters that were already awaiting get woken,
-        # new waiters after this point will block until next write.
-        self._event.clear()
         return self._version
 
     def read(self) -> Optional[SlotValue[T]]:
@@ -116,7 +118,8 @@ class Slot(Generic[T]):
     async def wait(self, timeout: Optional[float] = None) -> SlotValue[T]:
         """
         Wait for next write. For event-driven consumers.
-        Raises TimeoutError if timeout expires.
+        Raises TimeoutError if timeout expires with no value ever written.
+        Returns current value on timeout if a value exists.
         """
         try:
             await asyncio.wait_for(self._event.wait(), timeout=timeout)
@@ -124,11 +127,16 @@ class Slot(Generic[T]):
             # Return current value on timeout (may be None if never written)
             if self._version == 0:
                 raise
+        # Clear event so the next wait() call blocks until the next write
+        self._event.clear()
         return SlotValue(
             data=self._data,
             version=self._version,
             timestamp=self._timestamp,
         )
+
+    def __repr__(self) -> str:
+        return f"Slot(name={self._name!r}, version={self._version}, has_value={self.has_value})"
 
 
 class DataBus:
@@ -146,13 +154,34 @@ class DataBus:
         self._slots: Dict[str, Slot] = {}
 
     def slot(self, name: str) -> Slot:
-        """Get or create a named slot."""
+        """Get or create a named slot.
+
+        Args:
+            name: Slot name. Must be a non-empty string.
+
+        Raises:
+            TypeError: If name is not a string.
+            ValueError: If name is empty.
+        """
+        if not isinstance(name, str):
+            raise TypeError(f"Slot name must be a string, got {type(name).__name__}")
+        if not name:
+            raise ValueError("Slot name must not be empty")
         if name not in self._slots:
             self._slots[name] = Slot(name=name)
         return self._slots[name]
 
     def write(self, name: str, value: Any) -> int:
-        """Write to a named slot. Creates slot if needed. Returns version."""
+        """Write to a named slot. Creates slot if needed. Returns version.
+
+        Args:
+            name: Slot name. Must be a non-empty string.
+            value: Value to write (any type).
+
+        Raises:
+            TypeError: If name is not a string.
+            ValueError: If name is empty.
+        """
         return self.slot(name).write(value)
 
     def read(self, name: str) -> Optional[SlotValue]:
@@ -203,3 +232,17 @@ class DataBus:
     def reset(self):
         """Clear all slots. Used for new machine execution."""
         self._slots.clear()
+
+    def __repr__(self) -> str:
+        slot_info = ", ".join(
+            f"{n}(v{s.version})" for n, s in self._slots.items() if s.has_value
+        )
+        return f"DataBus([{slot_info}])"
+
+    def __len__(self) -> int:
+        """Number of slots (including empty ones)."""
+        return len(self._slots)
+
+    def __bool__(self) -> bool:
+        """DataBus is always truthy, even when empty."""
+        return True

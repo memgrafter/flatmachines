@@ -233,7 +233,9 @@ class TerminalFrontend(Frontend):
             response = ""
 
         if response:
-            chain = context.get("_tool_loop_chain", [])
+            chain = context.get("_tool_loop_chain")
+            if chain is None:
+                chain = []
             chain.append({"role": "user", "content": response})
             context["_tool_loop_chain"] = chain
             context["human_approved"] = False
@@ -241,3 +243,6 @@ class TerminalFrontend(Frontend):
             context["human_approved"] = True
 
         return context
+
+    def __repr__(self) -> str:
+        return f"TerminalFrontend(fps={self._fps}, auto_approve={self._auto_approve})"

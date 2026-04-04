@@ -21,7 +21,11 @@ Key async guarantees:
 from __future__ import annotations
 
 import asyncio
+import logging
+import signal
 from typing import Any, Callable, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from .bus import DataBus
 from .processors import Processor, default_processors
@@ -57,8 +61,8 @@ class CLIBackend:
         processors: Optional[List[Processor]] = None,
         frontend: Optional[Frontend] = None,
     ):
-        self._bus = bus or DataBus()
-        self._processors = processors or default_processors(self._bus)
+        self._bus = bus if bus is not None else DataBus()
+        self._processors = processors if processors is not None else default_processors(self._bus)
         self._frontend = frontend
         self._action_handler = ActionHandler()
         self._frontend_task: Optional[asyncio.Task] = None
@@ -103,6 +107,7 @@ class CLIBackend:
         Call before machine.execute().
         """
         if self._running:
+            logger.debug("Backend already running, skipping start")
             return
 
         self._bus.reset()
@@ -111,6 +116,7 @@ class CLIBackend:
         for proc in self._processors:
             proc.reset()
             proc.start()
+            logger.debug("Started processor %s (max_hz=%.1f)", proc.slot_name, proc._max_hz)
 
         # Start frontend render loop in background
         if self._frontend:
@@ -126,6 +132,7 @@ class CLIBackend:
         Call after machine.execute() returns.
         """
         if not self._running:
+            logger.debug("Backend not running, skipping stop")
             return
 
         # Stop all processors (they flush pending data)
@@ -194,5 +201,11 @@ class CLIBackend:
         try:
             result = await machine.execute(input=input, **execute_kwargs)
             return result
+        except asyncio.CancelledError:
+            logger.info("Machine execution cancelled")
+            raise
+        except Exception:
+            logger.exception("Machine execution failed")
+            raise
         finally:
             await self.stop()

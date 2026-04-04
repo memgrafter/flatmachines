@@ -38,11 +38,11 @@ ALL_TYPES = frozenset({
 # Each returns a plain dict. "type" is always first key for readability.
 
 def machine_start(context: Dict[str, Any]) -> Dict[str, Any]:
-    machine_meta = context.get("machine", {})
+    machine_meta = context.get("machine") or {}
     return {
         "type": MACHINE_START,
-        "machine_name": machine_meta.get("machine_name", ""),
-        "execution_id": machine_meta.get("execution_id", ""),
+        "machine_name": machine_meta.get("machine_name", "") if isinstance(machine_meta, dict) else "",
+        "execution_id": machine_meta.get("execution_id", "") if isinstance(machine_meta, dict) else "",
         "context": context,
     }
 
@@ -59,10 +59,11 @@ def machine_end(
 
 
 def state_enter(state_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    machine = context.get("machine") or {}
     return {
         "type": STATE_ENTER,
         "state": state_name,
-        "step": context.get("machine", {}).get("step", 0),
+        "step": machine.get("step", 0) if isinstance(machine, dict) else 0,
         "context": context,
     }
 

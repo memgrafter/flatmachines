@@ -18,12 +18,15 @@ Processor lifecycle:
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
 from . import events
 from .bus import DataBus
+
+logger = logging.getLogger(__name__)
 
 # Sentinel to signal processor shutdown
 _STOP = object()
@@ -39,12 +42,12 @@ class Processor(ABC):
         process()   — handle one event, return data to write (or None to skip)
     """
 
-    def __init__(self, bus: DataBus, max_hz: float = 30.0):
+    def __init__(self, bus: DataBus, max_hz: float = 30.0, queue_size: int = 1024):
         self._bus = bus
         self._max_hz = max_hz
         self._min_interval = 1.0 / max_hz if max_hz > 0 else 0.0
         self._last_write: float = 0.0
-        self._queue: asyncio.Queue = asyncio.Queue()
+        self._queue: asyncio.Queue = asyncio.Queue(maxsize=queue_size)
         self._task: Optional[asyncio.Task] = None
         self._pending_data: Any = None  # buffered between hz-throttled writes
 
@@ -125,7 +128,14 @@ class Processor(ABC):
             if not self.accepts(event):
                 continue
 
-            data = self.process(event)
+            try:
+                data = self.process(event)
+            except Exception as e:
+                logger.warning(
+                    "Processor %s failed on event %s: %s",
+                    self.slot_name, event.get("type", "?"), e,
+                )
+                continue
             if data is None:
                 continue
 
@@ -138,6 +148,11 @@ class Processor(ABC):
             else:
                 # Buffer latest — will be flushed after min_interval timeout
                 self._pending_data = data
+
+    def __repr__(self) -> str:
+        running = "running" if self._task and not self._task.done() else "stopped"
+        pending = " (pending)" if self._pending_data is not None else ""
+        return f"{type(self).__name__}(slot={self.slot_name!r}, hz={self._max_hz}, {running}{pending})"
 
     def start(self) -> asyncio.Task:
         """Start the processor as an async task."""
@@ -208,18 +223,19 @@ class StatusProcessor(Processor):
             self._states_visited = []
 
         elif etype == events.STATE_ENTER:
-            self._state = event["state"]
+            state = event.get("state", "")
+            self._state = state
             self._step = event.get("step", self._step)
             self._phase = "running"
-            if event["state"] not in self._states_visited:
-                self._states_visited.append(event["state"])
+            if state and state not in self._states_visited:
+                self._states_visited.append(state)
 
         elif etype == events.STATE_EXIT:
-            self._prev_state = event["state"]
+            self._prev_state = event.get("state", self._prev_state)
 
         elif etype == events.TRANSITION:
-            self._prev_state = event["from_state"]
-            self._state = event["to_state"]
+            self._prev_state = event.get("from_state", self._prev_state)
+            self._state = event.get("to_state", self._state)
 
         elif etype == events.MACHINE_END:
             self._phase = "done"

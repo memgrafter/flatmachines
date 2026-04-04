@@ -13,11 +13,14 @@ backend's action handler, which coordinates with the frontend.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from flatmachines import MachineHooks
 
 from . import events
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .backend import CLIBackend

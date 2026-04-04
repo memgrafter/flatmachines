@@ -7,12 +7,15 @@ metadata without full FlatMachine initialization.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -68,7 +71,11 @@ def _parse_machine_header(path: str) -> Optional[MachineInfo]:
             has_machines=bool(data.get("machines")),
             state_count=len(states),
         )
-    except Exception:
+    except (OSError, yaml.YAMLError) as e:
+        logger.debug("Failed to parse machine header %s: %s", path, e)
+        return None
+    except Exception as e:
+        logger.warning("Unexpected error parsing machine header %s: %s", path, e)
         return None
 
 

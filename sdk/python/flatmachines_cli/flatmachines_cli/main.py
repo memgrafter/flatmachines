@@ -168,9 +168,16 @@ async def repl(config_file: str, working_dir: str) -> None:
 
 
 def main():
+    from flatmachines_cli import __version__
+
     parser = argparse.ArgumentParser(
         prog="flatmachines",
         description="FlatMachines CLI — run state machines with async data pipeline",
+    )
+    parser.add_argument(
+        "--version", "-V",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
         "--working-dir", "-w",
@@ -226,6 +233,13 @@ def main():
         return
 
     if args.command == "run":
+        # Validate config file exists
+        config_path = Path(args.config)
+        if not config_path.is_absolute():
+            config_path = Path.cwd() / config_path
+        if not config_path.is_file():
+            run_parser.error(f"Config file not found: {args.config}")
+
         if args.standalone:
             task = args.standalone if isinstance(args.standalone, str) and args.standalone is not True else args.task
             if not task:

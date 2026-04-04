@@ -17,3 +17,4 @@ logs
 .aider.tags.cache.v4/
 .speed-kills/
 auth.json
+sdk/examples/coding_machine_cli/swift/.build/
