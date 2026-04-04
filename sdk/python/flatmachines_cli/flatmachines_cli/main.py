@@ -8,6 +8,7 @@ Usage:
     flatmachines run machine.yml -p "task"     # single-shot
     flatmachines run machine.yml               # agent REPL on specific config
     flatmachines run machine.yml --standalone "task"
+    flatmachines --version                     # show version
 """
 
 from __future__ import annotations
