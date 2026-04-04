@@ -326,16 +326,22 @@ class TokenProcessor(Processor):
             return self._snapshot()
 
         if etype == events.TOOL_CALLS:
-            usage = event.get("usage", {})
-            self._input_tokens = usage.get("input_tokens", self._input_tokens)
-            self._output_tokens = usage.get("output_tokens", self._output_tokens)
-            self._total_cost = event.get("cost", self._total_cost)
-            self._turns = event.get("turns", self._turns)
-            self._tool_calls_count += len(event.get("tool_calls", []))
+            usage = event.get("usage") or {}
+            self._input_tokens = usage.get("input_tokens", self._input_tokens) or self._input_tokens
+            self._output_tokens = usage.get("output_tokens", self._output_tokens) or self._output_tokens
+            cost = event.get("cost")
+            if cost is not None:
+                self._total_cost = cost
+            turns = event.get("turns")
+            if turns is not None:
+                self._turns = turns
+            self._tool_calls_count += len(event.get("tool_calls") or [])
 
         if etype == events.MACHINE_END:
-            ctx = event.get("context", {})
-            self._total_cost = ctx.get("_tool_loop_cost", self._total_cost)
+            ctx = event.get("context") or {}
+            cost = ctx.get("_tool_loop_cost")
+            if cost is not None:
+                self._total_cost = cost
 
         return self._snapshot()
 
@@ -344,7 +350,7 @@ class TokenProcessor(Processor):
             "input_tokens": self._input_tokens,
             "output_tokens": self._output_tokens,
             "total_tokens": self._input_tokens + self._output_tokens,
-            "total_cost": round(self._total_cost, 6),
+            "total_cost": round(self._total_cost or 0.0, 6),
             "turns": self._turns,
             "tool_calls_count": self._tool_calls_count,
         }
