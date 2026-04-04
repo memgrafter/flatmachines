@@ -201,6 +201,12 @@ def main():
         help="Working directory for file operations (default: cwd)",
     )
     parser.add_argument(
+        "--log-level",
+        default=None,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Set log level (overrides LOG_LEVEL env var)",
+    )
+    parser.add_argument(
         "--examples-dir",
         default=None,
         help="Additional directory to scan for machine configs",
@@ -268,6 +274,13 @@ def main():
 
     args = parser.parse_args()
     working_dir = os.path.abspath(args.working_dir)
+
+    # Apply --log-level if specified
+    if args.log_level:
+        level = getattr(logging, args.log_level)
+        logging.getLogger().setLevel(level)
+        for _logger_name in ("flatagents", "flatmachines", "flatmachines_cli", "LiteLLM"):
+            logging.getLogger(_logger_name).setLevel(level)
 
     if not args.command:
         # No subcommand → interactive REPL

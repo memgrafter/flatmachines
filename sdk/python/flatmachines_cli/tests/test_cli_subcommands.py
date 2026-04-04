@@ -115,6 +115,24 @@ class TestContextCommand:
         assert result.returncode != 0
 
 
+class TestLogLevel:
+    def test_log_level_flag_accepted(self, tmp_path):
+        f = tmp_path / "machine.yml"
+        f.write_text(MACHINE_YAML)
+        result = subprocess.run(
+            [PYTHON, "-m", "flatmachines_cli.main", "--log-level", "DEBUG", "inspect", str(f)],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0
+
+    def test_invalid_log_level_rejected(self):
+        result = subprocess.run(
+            [PYTHON, "-m", "flatmachines_cli.main", "--log-level", "INVALID", "--version"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode != 0
+
+
 class TestHelpOutput:
     def test_help_shows_subcommands(self):
         result = subprocess.run(
