@@ -26,9 +26,18 @@ help                       Show commands
 quit                       Exit
 ```
 
-## Direct Execution
+## CLI Commands
 
 ```bash
+# List discovered machines
+flatmachines list
+
+# Inspect a machine config (states, transitions, agents)
+flatmachines inspect machine.yml
+
+# Validate against schema
+flatmachines validate machine.yml
+
 # Single-shot with human review
 flatmachines run machine.yml -p "task description"
 
@@ -37,6 +46,9 @@ flatmachines run machine.yml
 
 # Standalone (no human review)
 flatmachines run machine.yml --standalone "task description"
+
+# Show version
+flatmachines --version
 ```
 
 ## Architecture

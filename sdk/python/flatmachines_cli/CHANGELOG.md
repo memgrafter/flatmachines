@@ -17,14 +17,27 @@
   `show_context` crashing on nonexistent or invalid YAML files.
 - **Event constructors**: Fixed `machine_start` and `state_enter` crashing when
   `context.machine` is `None`.
+- **Frontend tool rendering**: Fixed desync when `history` is truncated by
+  `history_limit` — `history[_last_tool_call_count:]` returned `[]` when
+  index exceeded history length. Now uses tail indexing.
+- **ToolProcessor parallel tracking**: Fixed removal of ALL active tools matching
+  by name when completing one tool. Now removes only one match (or exact
+  `tool_call_id` match when available).
+- **ContentProcessor dict results**: Fixed `str(dict)` producing unreadable repr
+  output — now formats as pretty-printed JSON.
 
 ### New Features
+- **CLI subcommands**: Added `list`, `inspect`, `validate` as direct CLI commands
+  (previously only available in the interactive REPL).
 - **CLI `--version` flag**: Added `-V`/`--version` to display version.
 - **Config file validation**: CLI validates config file exists before attempting run.
 - **`py.typed` marker**: PEP 561 support for type checking.
 - **Configurable queue size**: Processor queue size now configurable (default 1024).
 - **Logging throughout**: Added structured logging to backend, processors, discovery,
   and hooks modules.
+- **REPL history persistence**: Command history saved to `~/.flatmachines_history`.
+- **Tool call ID tracking**: `ToolProcessor` now tracks and matches by `tool_call_id`
+  for precise parallel tool tracking.
 
 ### Improvements
 - **Input validation**: `DataBus.slot()` and `DataBus.write()` validate name parameter.
