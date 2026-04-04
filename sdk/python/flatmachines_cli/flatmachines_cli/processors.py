@@ -468,6 +468,8 @@ class ToolProcessor(Processor):
 
     @staticmethod
     def _summarize_tool(name: str, args: Dict[str, Any]) -> str:
+        if args is None:
+            args = {}
         if name == "bash":
             cmd = args.get("command", "")
             return f"bash: {cmd[:80]}" if cmd else "bash"
