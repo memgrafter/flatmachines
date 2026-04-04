@@ -115,6 +115,28 @@ class TestContextCommand:
         assert result.returncode != 0
 
 
+class TestDryRun:
+    def test_dry_run_flag(self, tmp_path):
+        f = tmp_path / "machine.yml"
+        f.write_text(MACHINE_YAML)
+        result = subprocess.run(
+            [PYTHON, "-m", "flatmachines_cli.main", "run", str(f), "--dry-run"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0
+        assert "Dry Run" in result.stdout
+        assert "Validation" in result.stdout
+        assert "Structure" in result.stdout
+        assert "Context" in result.stdout
+
+    def test_dry_run_nonexistent(self):
+        result = subprocess.run(
+            [PYTHON, "-m", "flatmachines_cli.main", "run", "/nonexistent.yml", "--dry-run"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode != 0
+
+
 class TestLogLevel:
     def test_log_level_flag_accepted(self, tmp_path):
         f = tmp_path / "machine.yml"

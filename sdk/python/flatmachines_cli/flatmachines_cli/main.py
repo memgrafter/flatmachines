@@ -313,6 +313,12 @@ def main():
         const=True,
         help="Run without interactive review",
     )
+    run_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Validate config and show what would run without executing",
+    )
 
     args = parser.parse_args()
     working_dir = os.path.abspath(args.working_dir)
@@ -403,6 +409,22 @@ def main():
             config_path = Path.cwd() / config_path
         if not config_path.is_file():
             run_parser.error(f"Config file not found: {args.config}")
+
+        if getattr(args, 'dry_run', False):
+            from .inspector import inspect_machine, validate_machine, show_context
+            config_str = str(config_path)
+            print("=== Dry Run ===")
+            print(f"Config: {config_str}")
+            print()
+            print("--- Validation ---")
+            print(validate_machine(config_str))
+            print()
+            print("--- Structure ---")
+            print(inspect_machine(config_str))
+            print()
+            print("--- Context ---")
+            print(show_context(config_str))
+            return
 
         if args.standalone:
             # --standalone can be used with or without a value:
