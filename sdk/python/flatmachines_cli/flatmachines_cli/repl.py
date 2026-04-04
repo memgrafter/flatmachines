@@ -90,6 +90,8 @@ class FlatMachinesREPL:
         self._interrupt_count = 0
 
         # Command dispatch table
+        self._last_backend: Optional[Any] = None
+        self._last_hooks: Optional[Any] = None
         self._commands = {
             "list": self._cmd_list,
             "ls": self._cmd_list,
@@ -100,6 +102,7 @@ class FlatMachinesREPL:
             "run": self._cmd_run,
             "history": self._cmd_history,
             "bus": self._cmd_bus,
+            "stats": self._cmd_stats,
             "help": self._cmd_help,
             "?": self._cmd_help,
         }
@@ -209,6 +212,7 @@ class FlatMachinesREPL:
     {_cyan('run')} <name|path> [json]     Execute a machine (prompts for input if needed)
     {_cyan('history')}                    Show recent executions
     {_cyan('bus')}                        Dump last DataBus snapshot
+    {_cyan('stats')}                      Show processor/hook performance stats
     {_cyan('help')}                       This message
     {_cyan('quit')}                       Exit""")
 
@@ -348,6 +352,36 @@ class FlatMachinesREPL:
 
         print(json.dumps(self._last_bus_snapshot, indent=2, default=str))
 
+    def _cmd_stats(self, args: List[str]) -> None:
+        """Show performance stats from last execution."""
+        if self._last_backend is None:
+            print("  No execution data yet. Run a machine first.")
+            return
+
+        # Backend health check
+        print(f"\n  {_bold('Backend Health')}")
+        health = self._last_backend.health_check()
+        print(f"    Processors: {health['processor_count']}")
+        print(f"    Bus slots:  {health['bus_slots']}")
+
+        # Processor stats
+        if health['processors']:
+            print(f"\n  {_bold('Processor Stats')}")
+            print(f"    {'Name':<12} {'Processed':>10} {'Dropped':>8} {'QueueHWM':>9}")
+            print(f"    {'─' * 12} {'─' * 10} {'─' * 8} {'���' * 9}")
+            for p in health['processors']:
+                print(f"    {p['name']:<12} {p['events_processed']:>10} {p['events_dropped']:>8} {p['queue_hwm']:>9}")
+
+        # Hook timing stats
+        if self._last_hooks and hasattr(self._last_hooks, 'timing_stats'):
+            timing = self._last_hooks.timing_stats
+            if timing:
+                print(f"\n  {_bold('Hook Timings')}")
+                print(f"    {'Hook':<20} {'Calls':>6} {'Total(ms)':>10} {'Avg(ms)':>8}")
+                print(f"    {'─' * 20} {'─' * 6} {'─' * 10} {'─' * 8}")
+                for name, st in sorted(timing.items()):
+                    print(f"    {name:<20} {st['calls']:>6} {st['total_ms']:>10.3f} {st['avg_ms']:>8.3f}")
+
     # --- Helpers ---
 
     def _resolve(self, name_or_path: str) -> Optional[MachineInfo]:
@@ -460,8 +494,10 @@ class FlatMachinesREPL:
 
         result = await backend.run_machine(machine, input=input_data)
 
-        # Capture bus snapshot for debug
+        # Capture bus snapshot and references for debug/stats
         self._last_bus_snapshot = bus.snapshot()
+        self._last_backend = backend
+        self._last_hooks = hooks
 
         return result
 
