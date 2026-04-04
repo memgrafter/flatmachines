@@ -192,6 +192,32 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="command")
 
+    # --- list command ---
+    list_parser = subparsers.add_parser(
+        "list",
+        help="List discovered machine configs",
+    )
+
+    # --- inspect command ---
+    inspect_parser = subparsers.add_parser(
+        "inspect",
+        help="Inspect a machine config (states, transitions, agents)",
+    )
+    inspect_parser.add_argument(
+        "config",
+        help="Machine name or path to YAML config",
+    )
+
+    # --- validate command ---
+    validate_parser = subparsers.add_parser(
+        "validate",
+        help="Validate a machine config against the schema",
+    )
+    validate_parser.add_argument(
+        "config",
+        help="Machine name or path to YAML config",
+    )
+
     # --- run command ---
     run_parser = subparsers.add_parser(
         "run",
@@ -231,6 +257,64 @@ def main():
             extra_paths=extra_paths,
             working_dir=working_dir,
         ))
+        return
+
+    if args.command == "list":
+        from .discovery import MachineIndex, find_project_root
+
+        extra_paths = [args.examples_dir] if args.examples_dir else None
+        project_root = find_project_root(working_dir)
+        index = MachineIndex(project_root=project_root, extra_paths=extra_paths)
+
+        machines = index.list_all()
+        if not machines:
+            print("No machines found.")
+            return
+
+        for m in machines:
+            desc = f" — {m.description}" if m.description else ""
+            print(f"  {m.name} ({m.state_count} states){desc}")
+        return
+
+    if args.command == "inspect":
+        from .inspector import inspect_machine
+        from .discovery import MachineIndex, find_project_root
+
+        project_root = find_project_root(working_dir)
+        index = MachineIndex(project_root=project_root)
+        info = index.resolve(args.config)
+        if info:
+            print(inspect_machine(info.path))
+        else:
+            # Try as direct path
+            config_path = Path(args.config)
+            if not config_path.is_absolute():
+                config_path = Path.cwd() / config_path
+            if config_path.is_file():
+                print(inspect_machine(str(config_path)))
+            else:
+                print(f"Machine not found: {args.config}")
+                sys.exit(1)
+        return
+
+    if args.command == "validate":
+        from .inspector import validate_machine
+        from .discovery import MachineIndex, find_project_root
+
+        project_root = find_project_root(working_dir)
+        index = MachineIndex(project_root=project_root)
+        info = index.resolve(args.config)
+        if info:
+            print(validate_machine(info.path))
+        else:
+            config_path = Path(args.config)
+            if not config_path.is_absolute():
+                config_path = Path.cwd() / config_path
+            if config_path.is_file():
+                print(validate_machine(str(config_path)))
+            else:
+                print(f"Machine not found: {args.config}")
+                sys.exit(1)
         return
 
     if args.command == "run":
