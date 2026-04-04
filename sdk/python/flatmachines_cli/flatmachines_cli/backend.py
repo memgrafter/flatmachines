@@ -131,10 +131,14 @@ class CLIBackend:
 
         self._running = True
 
-    async def stop(self) -> None:
+    async def stop(self, timeout: float = 5.0) -> None:
         """
         Stop all processors and the frontend.
         Call after machine.execute() returns.
+
+        Args:
+            timeout: Maximum seconds to wait for processors to drain.
+                     After timeout, stuck processors are force-cancelled.
         """
         if not self._running:
             logger.debug("Backend not running, skipping stop")
@@ -144,13 +148,27 @@ class CLIBackend:
         for proc in self._processors:
             proc.stop()
 
-        # Wait for processor tasks to finish
+        # Wait for processor tasks to finish, with timeout
         tasks = [p._task for p in self._processors if p._task and not p._task.done()]
         if tasks:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for task_result in results:
-                if isinstance(task_result, Exception) and not isinstance(task_result, asyncio.CancelledError):
-                    logger.warning("Processor task error during shutdown: %s", task_result)
+            try:
+                results = await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True),
+                    timeout=timeout,
+                )
+                for task_result in results:
+                    if isinstance(task_result, Exception) and not isinstance(task_result, asyncio.CancelledError):
+                        logger.warning("Processor task error during shutdown: %s", task_result)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Processor shutdown timed out after %.1fs, force-cancelling %d stuck tasks",
+                    timeout, len([t for t in tasks if not t.done()]),
+                )
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                # Wait briefly for cancellation to propagate
+                await asyncio.gather(*[t for t in tasks if not t.done()], return_exceptions=True)
 
         # Stop frontend
         if self._frontend:
