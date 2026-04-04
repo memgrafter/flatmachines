@@ -381,7 +381,9 @@ class ToolProcessor(Processor):
                 "is_error": is_error,
                 "summary": summary,
             })
-            if len(self._history) > self._history_limit:
+            if self._history_limit == 0:
+                self._history = []
+            elif len(self._history) > self._history_limit:
                 self._history = self._history[-self._history_limit:]
 
             self._total_calls += 1
