@@ -246,3 +246,64 @@ class DataBus:
     def __bool__(self) -> bool:
         """DataBus is always truthy, even when empty."""
         return True
+
+    def to_json(self) -> str:
+        """Serialize all slot data to a JSON string.
+
+        Only includes slots that have been written to. The output is
+        a JSON object mapping slot names to their current data values.
+
+        This is intended for persistence/crash-recovery, not for IPC
+        (use snapshot() for that — it returns the same data as a dict).
+
+        Returns:
+            JSON string of {name: data} for all written slots.
+        """
+        import json
+        return json.dumps(self.snapshot(), default=str, indent=2)
+
+    @classmethod
+    def from_json(cls, data: str) -> "DataBus":
+        """Restore a DataBus from a JSON string (from to_json).
+
+        Each key becomes a slot with version=1. Useful for crash
+        recovery or loading a saved state.
+
+        Args:
+            data: JSON string (as produced by to_json).
+
+        Returns:
+            A new DataBus with restored slot values.
+        """
+        import json
+        parsed = json.loads(data)
+        bus = cls()
+        for name, value in parsed.items():
+            bus.write(name, value)
+        return bus
+
+    def save(self, path: str) -> None:
+        """Save bus state to a JSON file.
+
+        Args:
+            path: File path to write to.
+        """
+        from pathlib import Path
+        Path(path).write_text(self.to_json())
+
+    @classmethod
+    def load(cls, path: str) -> "DataBus":
+        """Load bus state from a JSON file.
+
+        Args:
+            path: File path to read from.
+
+        Returns:
+            A new DataBus with restored slot values.
+
+        Raises:
+            FileNotFoundError: If path doesn't exist.
+            json.JSONDecodeError: If file contains invalid JSON.
+        """
+        from pathlib import Path
+        return cls.from_json(Path(path).read_text())
