@@ -218,6 +218,16 @@ def main():
         help="Machine name or path to YAML config",
     )
 
+    # --- context command ---
+    context_parser = subparsers.add_parser(
+        "context",
+        help="Show context template and required inputs",
+    )
+    context_parser.add_argument(
+        "config",
+        help="Machine name or path to YAML config",
+    )
+
     # --- run command ---
     run_parser = subparsers.add_parser(
         "run",
@@ -312,6 +322,26 @@ def main():
                 config_path = Path.cwd() / config_path
             if config_path.is_file():
                 print(validate_machine(str(config_path)))
+            else:
+                print(f"Machine not found: {args.config}")
+                sys.exit(1)
+        return
+
+    if args.command == "context":
+        from .inspector import show_context
+        from .discovery import MachineIndex, find_project_root
+
+        project_root = find_project_root(working_dir)
+        index = MachineIndex(project_root=project_root)
+        info = index.resolve(args.config)
+        if info:
+            print(show_context(info.path))
+        else:
+            config_path = Path(args.config)
+            if not config_path.is_absolute():
+                config_path = Path.cwd() / config_path
+            if config_path.is_file():
+                print(show_context(str(config_path)))
             else:
                 print(f"Machine not found: {args.config}")
                 sys.exit(1)

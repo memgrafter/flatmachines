@@ -94,6 +94,27 @@ class TestValidateCommand:
         assert result.returncode != 0
 
 
+class TestContextCommand:
+    def test_context_by_path(self, tmp_path):
+        f = tmp_path / "machine.yml"
+        f.write_text(MACHINE_YAML)
+
+        result = subprocess.run(
+            [PYTHON, "-m", "flatmachines_cli.main", "context", str(f)],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0
+        assert "Context" in result.stdout
+        assert "task" in result.stdout
+
+    def test_context_nonexistent(self, tmp_path):
+        result = subprocess.run(
+            [PYTHON, "-m", "flatmachines_cli.main", "context", "/nonexistent/file.yml"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode != 0
+
+
 class TestHelpOutput:
     def test_help_shows_subcommands(self):
         result = subprocess.run(
@@ -104,6 +125,7 @@ class TestHelpOutput:
         assert "list" in result.stdout
         assert "inspect" in result.stdout
         assert "validate" in result.stdout
+        assert "context" in result.stdout
         assert "run" in result.stdout
 
     def test_run_help(self):
