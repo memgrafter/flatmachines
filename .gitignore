@@ -17,3 +17,8 @@ logs
 .aider.tags.cache.v4/
 .speed-kills/
 auth.json
+.speed-kills/speed-kills
+.speed-kills/indexes/
+.speed-kills/state.db
+.speed-kills/state.db-shm
+.speed-kills/state.db-wal
