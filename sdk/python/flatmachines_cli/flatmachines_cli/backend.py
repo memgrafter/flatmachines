@@ -68,6 +68,12 @@ class CLIBackend:
         self._frontend_task: Optional[asyncio.Task] = None
         self._running = False
 
+    def __repr__(self) -> str:
+        state = "running" if self._running else "stopped"
+        procs = len(self._processors)
+        frontend = type(self._frontend).__name__ if self._frontend else "None"
+        return f"CLIBackend({state}, procs={procs}, frontend={frontend})"
+
     @property
     def bus(self) -> DataBus:
         """The shared data bus. Read by frontends, written by processors."""

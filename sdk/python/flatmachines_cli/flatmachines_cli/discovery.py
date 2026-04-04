@@ -30,6 +30,9 @@ class MachineInfo:
     has_machines: bool = False
     state_count: int = 0
 
+    def __repr__(self) -> str:
+        return f"MachineInfo(name={self.name!r}, states={self.state_count})"
+
     @property
     def short_path(self) -> str:
         """Path relative to cwd or home for display."""
@@ -146,6 +149,9 @@ class MachineIndex:
         if extra_paths:
             for info in discover_paths(extra_paths):
                 self._machines[info.name] = info
+
+    def __repr__(self) -> str:
+        return f"MachineIndex(count={len(self._machines)})"
 
     @property
     def count(self) -> int:
