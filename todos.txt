@@ -69,6 +69,11 @@
 - JS Codex CLI adapter mocked test suite (unit + integration-style): add tests that mock `child_process.spawn` and feed NDJSON event streams to validate success/error/timeout/resume parsing without live Codex auth.
 - Python codex_cli adapter regression: fix `CodexCliExecutor.execute()` compatibility with execution layer `session_id` kwarg (`TypeError: unexpected keyword argument 'session_id'`) so `sdk/examples/codex_cli_adapter/python` runs again.
 - Parity checker strict mode: harden `scripts/check-example-sdk-parity.mjs` to fail on capability mismatch (not only target resolution), with optional flag to keep current permissive behavior for transitional runs.
+- flatmachines.sqlite created in CWD when backend: sqlite has no db_path. [2026-04-04]
+  Two issues:
+  1. sdk/examples/listener_os/config/machine.yml sets `backend: sqlite` without `db_path`, causing flatmachines.sqlite to appear in whatever directory the example is run from. Fix: add explicit `db_path` to the example config.
+  2. The default db_path fallback in _initialize_persistence (flatmachine.py:281) is the relative path 'flatmachines.sqlite'. Any user who sets `backend: sqlite` without `db_path` gets a file silently created in CWD. Consider: (a) require db_path when backend is sqlite (no implicit default), or (b) default to an absolute path like ~/.flatmachines/state.db, or (c) at minimum log a warning when using the implicit default so the user knows where the file is being created.
+  Also: test_persistence_config_sqlite_default_db_path in test_sqlite_persistence_config.py doesn't use tmp_path, leaking flatmachines.sqlite into test runner CWD.
 - Distributed execution backends (Redis/Postgres) + cross-network peering
 - TypeScript SDK (vibe complete, untested)
 - `max_depth` to limit machine launch nesting
