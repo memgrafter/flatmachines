@@ -95,9 +95,26 @@ class Processor(ABC):
             pass
 
     async def _run(self) -> None:
-        """Main loop: drain queue, process, hz-cap writes."""
+        """Main loop: drain queue, process, hz-cap writes.
+
+        Uses a timeout on queue.get() to ensure pending data is flushed
+        even when no new events arrive. Without this, the last buffered
+        update could be lost until stop() or the next event.
+        """
         while True:
-            event = await self._queue.get()
+            try:
+                event = await asyncio.wait_for(
+                    self._queue.get(),
+                    timeout=self._min_interval if self._pending_data is not None else None,
+                )
+            except asyncio.TimeoutError:
+                # No new event arrived — flush pending data
+                if self._pending_data is not None:
+                    self._bus.write(self.slot_name, self._pending_data)
+                    self._last_write = time.monotonic()
+                    self._pending_data = None
+                continue
+
             if event is _STOP:
                 # Flush any pending data before exit
                 if self._pending_data is not None:
@@ -119,13 +136,8 @@ class Processor(ABC):
                 self._last_write = now
                 self._pending_data = None
             else:
-                # Buffer latest — will be written on next eligible tick
+                # Buffer latest — will be flushed after min_interval timeout
                 self._pending_data = data
-
-        # Flush on exit
-        if self._pending_data is not None:
-            self._bus.write(self.slot_name, self._pending_data)
-            self._pending_data = None
 
     def start(self) -> asyncio.Task:
         """Start the processor as an async task."""
