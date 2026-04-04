@@ -247,6 +247,32 @@ class DataBus:
         """DataBus is always truthy, even when empty."""
         return True
 
+    def diff(self, other_snapshot: Dict[str, Any]) -> Dict[str, str]:
+        """Compare current bus state against a previous snapshot.
+
+        Returns a dict of {slot_name: "added" | "removed" | "changed" | "unchanged"}
+        for every slot that exists in either the current bus or the other snapshot.
+
+        Args:
+            other_snapshot: A previous snapshot dict (from snapshot()).
+
+        Returns:
+            Dict mapping slot names to their change status.
+        """
+        current = self.snapshot()
+        all_keys = set(current.keys()) | set(other_snapshot.keys())
+        result = {}
+        for key in sorted(all_keys):
+            if key not in other_snapshot:
+                result[key] = "added"
+            elif key not in current:
+                result[key] = "removed"
+            elif current[key] != other_snapshot[key]:
+                result[key] = "changed"
+            else:
+                result[key] = "unchanged"
+        return result
+
     def to_json(self) -> str:
         """Serialize all slot data to a JSON string.
 
