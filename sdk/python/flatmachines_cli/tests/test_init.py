@@ -71,7 +71,8 @@ class TestPublicAPI:
         import flatmachines_cli
         public = {n for n in dir(flatmachines_cli) if not n.startswith("_")}
         modules = {"bus", "events", "processors", "hooks", "backend",
-                    "protocol", "frontend", "discovery", "inspector", "repl"}
+                    "protocol", "frontend", "discovery", "inspector", "repl",
+                    "main"}
         public -= modules
         all_set = set(flatmachines_cli.__all__)
         missing = public - all_set

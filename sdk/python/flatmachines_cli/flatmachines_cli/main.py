@@ -169,6 +169,42 @@ async def repl(config_file: str, working_dir: str) -> None:
         print()
 
 
+class _JSONFormatter(logging.Formatter):
+    """Structured JSON log formatter for production use."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        import json as _json
+        import time as _time
+
+        log_entry = {
+            "timestamp": _time.strftime(
+                "%Y-%m-%dT%H:%M:%S", _time.gmtime(record.created)
+            ) + f".{int(record.msecs):03d}Z",
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info and record.exc_info[1]:
+            log_entry["exception"] = {
+                "type": type(record.exc_info[1]).__name__,
+                "message": str(record.exc_info[1]),
+            }
+        return _json.dumps(log_entry, default=str)
+
+
+def _configure_json_logging(log_level: Optional[str] = None) -> None:
+    """Set up structured JSON logging on all relevant loggers."""
+    level = getattr(logging, log_level) if log_level else logging.INFO
+    handler = logging.StreamHandler()
+    handler.setFormatter(_JSONFormatter())
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.addHandler(handler)
+    root.setLevel(level)
+    for name in ("flatagents", "flatmachines", "flatmachines_cli", "LiteLLM"):
+        logging.getLogger(name).setLevel(level)
+
+
 def _run_async(coro):
     """Run an async coroutine with graceful signal handling.
 
@@ -205,6 +241,12 @@ def main():
         default=None,
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Set log level (overrides LOG_LEVEL env var)",
+    )
+    parser.add_argument(
+        "--log-format",
+        default="text",
+        choices=["text", "json"],
+        help="Log output format: text (default) or json (structured)",
     )
     parser.add_argument(
         "--examples-dir",
@@ -275,8 +317,10 @@ def main():
     args = parser.parse_args()
     working_dir = os.path.abspath(args.working_dir)
 
-    # Apply --log-level if specified
-    if args.log_level:
+    # Apply logging configuration
+    if args.log_format == "json":
+        _configure_json_logging(args.log_level)
+    elif args.log_level:
         level = getattr(logging, args.log_level)
         logging.getLogger().setLevel(level)
         for _logger_name in ("flatagents", "flatmachines", "flatmachines_cli", "LiteLLM"):
