@@ -241,9 +241,15 @@ def main():
             run_parser.error(f"Config file not found: {args.config}")
 
         if args.standalone:
-            task = args.standalone if isinstance(args.standalone, str) and args.standalone is not True else args.task
+            # --standalone can be used with or without a value:
+            # --standalone "task" → args.standalone = "task"
+            # --standalone → args.standalone = True (const), use -p for task
+            if isinstance(args.standalone, str) and args.standalone is not True:
+                task = args.standalone
+            else:
+                task = args.task
             if not task:
-                run_parser.error("--standalone requires a task")
+                run_parser.error("--standalone requires a task (pass it directly or use -p)")
             asyncio.run(run_standalone(args.config, task, working_dir))
         elif args.task:
             asyncio.run(run_once(args.config, args.task, working_dir))
