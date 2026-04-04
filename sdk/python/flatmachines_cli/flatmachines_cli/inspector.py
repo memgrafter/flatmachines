@@ -51,7 +51,12 @@ def inspect_machine(path: str) -> str:
     Shows: name, states with transitions, agents, machines,
     context template, and structural notes.
     """
-    config = load_config(path)
+    try:
+        config = load_config(path)
+    except FileNotFoundError:
+        return _red(f"  File not found: {path}")
+    except Exception as e:
+        return _red(f"  Failed to load config: {e}")
     data = config.get("data", {})
     metadata = config.get("metadata", {})
     states = data.get("states", {})
@@ -232,7 +237,12 @@ def _classify_context(context: Dict[str, Any]) -> Tuple[List[str], List[str]]:
 
 def show_context(path: str) -> str:
     """Show the context template and required input keys."""
-    config = load_config(path)
+    try:
+        config = load_config(path)
+    except FileNotFoundError:
+        return _red(f"  File not found: {path}")
+    except Exception as e:
+        return _red(f"  Failed to load config: {e}")
     data = config.get("data", {})
     context = data.get("context", {})
 
@@ -272,7 +282,12 @@ def validate_machine(path: str) -> str:
     except ImportError:
         return _red("  flatmachines not installed — cannot validate")
 
-    config = load_config(path)
+    try:
+        config = load_config(path)
+    except FileNotFoundError:
+        return _red(f"  File not found: {path}")
+    except Exception as e:
+        return _red(f"  Failed to load config: {e}")
     lines = []
 
     with warnings.catch_warnings(record=True) as caught:
