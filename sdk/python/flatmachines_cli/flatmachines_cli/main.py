@@ -17,6 +17,7 @@ import argparse
 import asyncio
 import logging
 import os
+import signal
 import sys
 import warnings
 from pathlib import Path
@@ -168,6 +169,20 @@ async def repl(config_file: str, working_dir: str) -> None:
         print()
 
 
+def _run_async(coro):
+    """Run an async coroutine with graceful signal handling.
+
+    Catches KeyboardInterrupt and exits cleanly instead of printing
+    a traceback.
+    """
+    try:
+        asyncio.run(coro)
+    except KeyboardInterrupt:
+        # Clean exit on Ctrl-C
+        print()
+        sys.exit(130)  # 128 + SIGINT(2)
+
+
 def main():
     from flatmachines_cli import __version__
 
@@ -262,7 +277,7 @@ def main():
         extra_paths = [args.examples_dir] if args.examples_dir else None
         project_root = find_project_root(working_dir)
 
-        asyncio.run(interactive_repl(
+        _run_async(interactive_repl(
             project_root=project_root,
             extra_paths=extra_paths,
             working_dir=working_dir,
@@ -342,11 +357,11 @@ def main():
                 task = args.task
             if not task:
                 run_parser.error("--standalone requires a task (pass it directly or use -p)")
-            asyncio.run(run_standalone(args.config, task, working_dir))
+            _run_async(run_standalone(args.config, task, working_dir))
         elif args.task:
-            asyncio.run(run_once(args.config, args.task, working_dir))
+            _run_async(run_once(args.config, args.task, working_dir))
         else:
-            asyncio.run(repl(args.config, working_dir))
+            _run_async(repl(args.config, working_dir))
 
 
 if __name__ == "__main__":

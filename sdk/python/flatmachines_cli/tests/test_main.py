@@ -59,3 +59,30 @@ class TestTryFindToolProvider:
         from flatmachines_cli.main import _try_find_tool_provider
         result = _try_find_tool_provider("/tmp")
         assert result is None or callable(result)
+
+
+class TestRunAsync:
+    def test_run_async_exists(self):
+        from flatmachines_cli.main import _run_async
+        assert callable(_run_async)
+
+    def test_run_async_runs_coroutine(self):
+        from flatmachines_cli.main import _run_async
+        result = []
+
+        async def simple():
+            result.append(True)
+
+        _run_async(simple())
+        assert result == [True]
+
+    def test_run_async_keyboard_interrupt(self):
+        """KeyboardInterrupt should exit with code 130."""
+        from flatmachines_cli.main import _run_async
+
+        async def interrupted():
+            raise KeyboardInterrupt()
+
+        with pytest.raises(SystemExit) as exc_info:
+            _run_async(interrupted())
+        assert exc_info.value.code == 130
