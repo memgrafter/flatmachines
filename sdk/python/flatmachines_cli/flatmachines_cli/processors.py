@@ -396,10 +396,16 @@ class ToolProcessor(Processor):
                 if path and path not in self._files_modified:
                     self._files_modified.append(path)
 
-            # Remove from active
-            self._active = [
-                a for a in self._active if a["name"] != name
-            ]
+            # Remove ONE matching tool from active (not all with same name,
+            # since parallel tools may have duplicate names like "bash")
+            removed = False
+            new_active = []
+            for a in self._active:
+                if not removed and a["name"] == name:
+                    removed = True  # skip first match
+                else:
+                    new_active.append(a)
+            self._active = new_active
 
         return self._snapshot()
 
