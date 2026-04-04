@@ -115,6 +115,42 @@ class FlatMachinesREPL:
                 readline.set_history_length(_HISTORY_LENGTH)
             except (FileNotFoundError, OSError):
                 pass
+        # Set up tab completion
+        if readline is not None:
+            readline.set_completer(self._completer)
+            readline.parse_and_bind("tab: complete")
+            readline.set_completer_delims(" ")
+
+    def _completer(self, text: str, state: int) -> Optional[str]:
+        """Tab-completion for REPL commands and machine names.
+
+        First word: complete command names.
+        Second word (after inspect/validate/context/run): complete machine names.
+        """
+        try:
+            buffer = readline.get_line_buffer() if readline else ""
+            parts = buffer.split()
+
+            if not parts or (len(parts) == 1 and not buffer.endswith(" ")):
+                # Complete command names
+                prefix = text.lower()
+                all_cmds = list(self._commands.keys()) + ["quit", "exit"]
+                matches = [c for c in all_cmds if c.startswith(prefix)]
+            else:
+                # Complete machine names for commands that take them
+                cmd = parts[0].lower()
+                if cmd in ("inspect", "info", "validate", "context", "run"):
+                    prefix = text.lower()
+                    machines = self._index.list_all()
+                    matches = [m.name for m in machines if m.name.lower().startswith(prefix)]
+                else:
+                    matches = []
+
+            if state < len(matches):
+                return matches[state]
+            return None
+        except Exception:
+            return None
 
     def _save_history(self) -> None:
         """Save command history to disk."""
