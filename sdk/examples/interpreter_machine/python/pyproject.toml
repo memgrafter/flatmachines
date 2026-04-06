@@ -1,0 +1,18 @@
+[project]
+name = "interpreter-machine"
+version = "0.1.0"
+description = "Interpreter machine — interprets statements and builds INTERPRETATIONS.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flatmachines[flatagents,metrics]",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[project.scripts]
+interpreter = "interpreter_machine.main:main"

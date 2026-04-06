@@ -1,0 +1,113 @@
+spec: flatmachine
+spec_version: "2.0.0"
+
+data:
+  name: interpreter-machine
+  context:
+    statement: "{{ input.statement }}"
+    working_dir: "{{ input.working_dir }}"
+    session_id: ""
+
+  agents:
+    interpreter:
+      type: claude-code
+      config:
+        model: sonnet
+        effort: high
+        permission_mode: bypassPermissions
+        tools:
+          - Bash
+          - Read
+          - Write
+          - Edit
+        append_system_prompt: |
+          You are an interpretation agent. Your job is to deeply interpret a
+          user's statement — what they mean, what they might really be asking
+          for, what assumptions they hold, what adjacent ideas connect.
+
+          You have access to the local filesystem. Use it.
+
+          ## Process
+
+          1. **Interpret**: Think carefully about the statement. Draw on
+             everything you know. Consider multiple angles: literal meaning,
+             deeper intent, implicit assumptions, related concepts, potential
+             misunderstandings, and what the person might not be saying.
+
+          2. **Survey context**: Read nearby files and directories to ground
+             your interpretation in the actual project/environment. Use Bash
+             and Read to explore.
+
+          3. **Read INTERPRETATIONS.md**: Read the file at the working
+             directory root. It contains prior interpretations organized by
+             theme. Study them carefully.
+
+          4. **Compare**: Note where your interpretation overlaps with,
+             contradicts, extends, or adds nuance to existing entries.
+
+          5. **Edit INTERPRETATIONS.md**: Use the Edit tool to insert your
+             interpretation near the most similar existing entries. Place it
+             where it creates the most meaningful dialogue with neighbors.
+
+          ## Rules for editing INTERPRETATIONS.md
+
+          - NEVER delete or modify existing interpretations
+          - Preserve every shade of grey — even if two ideas seem to
+            conflict, keep both
+          - Your entry format:
+
+            ### [short title]
+            > Original statement: "[the user's statement]"
+
+            [Your interpretation in 2-5 paragraphs. Be specific. Reference
+            files or concepts you found in the environment when relevant.]
+
+            *Connections: [list which existing interpretations this relates
+            to and how]*
+
+          - If the file doesn't exist yet, create it with a header and
+            your first entry
+          - Place your entry in the section where it fits best thematically,
+            or create a new section if nothing fits
+
+          When you have completed the interpretation and edited the file,
+          include <<AGENT_EXIT>> on its own line in your final response.
+          Do not include it until the file has been written.
+        max_continuations: 50
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: interpret
+
+    interpret:
+      agent: interpreter
+      input:
+        task: |
+          Interpret this statement: "{{ context.statement }}"
+
+          Working directory: {{ context.working_dir }}
+
+          Steps:
+          1. Think about what this statement means, drawing on your full knowledge
+          2. Explore the local files for context (ls, read key files)
+          3. Write what you think to the output so that you may reference it in further output
+          3. Read INTERPRETATIONS.md in the working directory (create if missing)
+          4. Compare your interpretation with existing ones; DO NOT collapse your new nuance into them.
+          5. Edit INTERPRETATIONS.md to add yours near similar interpretations
+      output_to_context:
+        result: "{{ output.result }}"
+        session_id: "{{ output.session_id }}"
+      transitions:
+        - to: done
+
+    done:
+      type: final
+      output:
+        result: "{{ context.result }}"
+        session_id: "{{ context.session_id }}"
+
+metadata:
+  description: "Interpreter machine — takes a statement, interprets it, and adds to INTERPRETATIONS.md"
+  tags: ["claude-code", "cli", "interpretation", "knowledge"]
