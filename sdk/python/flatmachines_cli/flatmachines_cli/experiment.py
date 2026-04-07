@@ -124,6 +124,7 @@ class ExperimentTracker:
         direction: str = "higher",
         log_path: Optional[str] = None,
         working_dir: Optional[str] = None,
+        git_enabled: bool = False,
     ):
         """
         Args:
@@ -132,6 +133,7 @@ class ExperimentTracker:
             direction: "higher" or "lower" — which direction is better.
             log_path: Path to JSONL log file. Default: experiments.jsonl
             working_dir: Directory for running commands. Default: cwd.
+            git_enabled: If True, auto-commit on keep and auto-revert on discard.
         """
         self._name = name
         self._metric_name = metric_name
@@ -142,6 +144,7 @@ class ExperimentTracker:
         self._next_id = 1
         self._initialized = False
         self._baseline: Optional[float] = None
+        self._git_enabled = git_enabled
 
     def initialize(self) -> None:
         """Initialize the experiment session.
@@ -317,6 +320,13 @@ class ExperimentTracker:
             **self._entry_to_dict(entry),
         })
 
+        # Git integration: auto-commit on keep, auto-revert on discard
+        if self._git_enabled:
+            if status == "keep":
+                self.git_commit(description or f"Experiment #{entry.experiment_id}")
+            elif status in ("discard", "crash"):
+                self.git_revert()
+
         return entry
 
     # Alias for convenience
@@ -384,6 +394,111 @@ class ExperimentTracker:
         mean = sum(recent) / len(recent)
         variance = sum((x - mean) ** 2 for x in recent) / len(recent)
         return variance ** 0.5
+
+    def confidence_score(self) -> Optional[float]:
+        """Calculate confidence that the best improvement is real.
+
+        Returns the best improvement as a multiple of the noise floor.
+        - >= 2.0: improvement is likely real
+        - 1.0 - 2.0: borderline, consider re-running
+        - < 1.0: within noise, likely not a real improvement
+        - None: not enough data (need >= 3 kept results)
+
+        Compares the best kept result against the baseline (first kept).
+        """
+        kept = [e.primary_metric for e in self._history if e.status == "keep"]
+        if len(kept) < 3:
+            return None
+
+        nf = self.noise_floor()
+        if nf is None or nf == 0:
+            # No noise → if there's any improvement, it's infinite confidence
+            if len(kept) >= 2 and kept[-1] != kept[0]:
+                return float("inf")
+            return None
+
+        best = self.best_metric()
+        baseline = self._baseline
+        if best is None or baseline is None:
+            return None
+
+        if self._direction == "higher":
+            improvement = best - baseline
+        else:
+            improvement = baseline - best
+
+        if improvement <= 0:
+            return 0.0
+
+        return improvement / nf
+
+    # Alias
+    confidence = confidence_score
+
+    # --- Git operations ---
+
+    def git_commit(self, message: str = "experiment") -> bool:
+        """Stage all changes and commit.
+
+        Args:
+            message: Commit message.
+
+        Returns:
+            True if commit succeeded, False otherwise.
+        """
+        try:
+            # Stage all changes
+            subprocess.run(
+                ["git", "add", "-A"],
+                cwd=self._working_dir,
+                capture_output=True,
+                check=True,
+            )
+            # Commit
+            result = subprocess.run(
+                ["git", "commit", "-m", message, "--allow-empty"],
+                cwd=self._working_dir,
+                capture_output=True,
+                text=True,
+            )
+            return result.returncode == 0
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return False
+
+    def git_revert(self) -> bool:
+        """Revert all uncommitted changes (git checkout + clean).
+
+        Returns:
+            True if revert succeeded, False otherwise.
+        """
+        try:
+            # Reset staged changes
+            subprocess.run(
+                ["git", "reset", "HEAD", "--"],
+                cwd=self._working_dir,
+                capture_output=True,
+            )
+            # Discard unstaged changes
+            subprocess.run(
+                ["git", "checkout", "--", "."],
+                cwd=self._working_dir,
+                capture_output=True,
+                check=True,
+            )
+            # Clean untracked files
+            subprocess.run(
+                ["git", "clean", "-fd"],
+                cwd=self._working_dir,
+                capture_output=True,
+            )
+            return True
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return False
+
+    # Alias
+    commit_changes = git_commit
+    revert_changes = git_revert
+    git_reset = git_revert
 
     # --- Persistence ---
 

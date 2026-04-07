@@ -58,11 +58,13 @@ class SelfImprover:
         direction: str = "higher",
         log_path: Optional[str] = None,
         working_dir: Optional[str] = None,
+        git_enabled: bool = False,
     ):
         self._target_dir = os.path.abspath(target_dir)
         self._benchmark_command = benchmark_command
         self._test_command = test_command
         self._working_dir = working_dir or os.getcwd()
+        self._git_enabled = git_enabled
 
         self._tracker = ExperimentTracker(
             name=f"self-improve-{Path(target_dir).name}",
@@ -72,6 +74,7 @@ class SelfImprover:
                 Path(self._target_dir) / ".self_improve" / "experiments.jsonl"
             ),
             working_dir=self._working_dir,
+            git_enabled=git_enabled,
         )
         self._tracker.initialize()
 

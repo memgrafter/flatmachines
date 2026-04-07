@@ -954,6 +954,276 @@ phase3=$((score - phase1 - phase2))
 echo ""
 echo "Phase 3 subtotal: $phase3 / 100"
 
+# ==================================================================
+echo ""
+echo "=== Phase 4: Autonomous Loop Features (100 pts) ==="
+# ==================================================================
+
+# ------------------------------------------------------------------
+# 14. Git integration (30 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- Git Integration ---"
+
+# 14a. ExperimentTracker has git operations (10 pts)
+if $PYTHON -c "
+from flatmachines_cli.experiment import ExperimentTracker
+t = ExperimentTracker.__new__(ExperimentTracker)
+has_commit = hasattr(t, 'git_commit') or hasattr(t, 'commit_changes')
+has_revert = hasattr(t, 'git_revert') or hasattr(t, 'revert_changes') or hasattr(t, 'git_reset')
+assert has_commit, 'no git commit method'
+assert has_revert, 'no git revert method'
+print('OK')
+" 2>/dev/null; then
+    award 10 "tracker has git commit/revert"
+else
+    fail_check "tracker git operations"
+fi
+
+# 14b. Git operations actually work (10 pts)
+if $PYTHON -c "
+import tempfile, os, subprocess
+from flatmachines_cli.experiment import ExperimentTracker
+
+with tempfile.TemporaryDirectory() as td:
+    # Set up a git repo
+    subprocess.run(['git', 'init'], cwd=td, capture_output=True)
+    subprocess.run(['git', 'config', 'user.email', 'test@test.com'], cwd=td, capture_output=True)
+    subprocess.run(['git', 'config', 'user.name', 'Test'], cwd=td, capture_output=True)
+    
+    # Create initial file and commit
+    (open(os.path.join(td, 'test.txt'), 'w')).write('initial')
+    subprocess.run(['git', 'add', '.'], cwd=td, capture_output=True)
+    subprocess.run(['git', 'commit', '-m', 'initial'], cwd=td, capture_output=True)
+    
+    t = ExperimentTracker(
+        log_path=os.path.join(td, 'log.jsonl'),
+        working_dir=td,
+    )
+    t.init()
+    
+    # Make a change
+    (open(os.path.join(td, 'test.txt'), 'w')).write('modified')
+    
+    # Commit
+    committed = t.git_commit('test commit')
+    assert committed, 'commit failed'
+    
+    # Verify the commit exists
+    result = subprocess.run(['git', 'log', '--oneline', '-1'], cwd=td, capture_output=True, text=True)
+    assert 'test commit' in result.stdout
+    
+    # Make another change
+    (open(os.path.join(td, 'test.txt'), 'w')).write('bad change')
+    subprocess.run(['git', 'add', '.'], cwd=td, capture_output=True)
+    
+    # Revert
+    reverted = t.git_revert()
+    assert reverted, 'revert failed'
+    
+    # Verify reverted
+    content = open(os.path.join(td, 'test.txt')).read()
+    assert content == 'modified', f'Expected modified, got: {content}'
+    
+    print('Git ops OK')
+" 2>/dev/null; then
+    award 10 "git commit/revert work"
+else
+    fail_check "git commit/revert"
+fi
+
+# 14c. log_result integrates with git (keep=commit, discard=revert) (10 pts)
+if $PYTHON -c "
+import tempfile, os, subprocess
+from flatmachines_cli.experiment import ExperimentTracker, ExperimentResult
+
+with tempfile.TemporaryDirectory() as td:
+    subprocess.run(['git', 'init'], cwd=td, capture_output=True)
+    subprocess.run(['git', 'config', 'user.email', 'test@test.com'], cwd=td, capture_output=True)
+    subprocess.run(['git', 'config', 'user.name', 'Test'], cwd=td, capture_output=True)
+    open(os.path.join(td, 'f.txt'), 'w').write('v1')
+    subprocess.run(['git', 'add', '.'], cwd=td, capture_output=True)
+    subprocess.run(['git', 'commit', '-m', 'v1'], cwd=td, capture_output=True)
+    
+    t = ExperimentTracker(
+        log_path=os.path.join(td, 'log.jsonl'),
+        working_dir=td,
+        git_enabled=True,
+    )
+    t.init()
+    
+    # Simulate improvement: change file, log as keep
+    open(os.path.join(td, 'f.txt'), 'w').write('v2')
+    r = ExperimentResult(command='t', exit_code=0, stdout='', stderr='',
+                        duration_s=1.0, success=True)
+    t.log(result=r, status='keep', description='improvement')
+    
+    # Verify committed
+    result = subprocess.run(['git', 'log', '--oneline'], cwd=td, capture_output=True, text=True)
+    assert 'improvement' in result.stdout or len(result.stdout.strip().split(chr(10))) >= 2
+    
+    # Simulate regression: change file, log as discard
+    open(os.path.join(td, 'f.txt'), 'w').write('v3-bad')
+    subprocess.run(['git', 'add', '.'], cwd=td, capture_output=True)
+    t.log(result=r, status='discard', description='regression')
+    
+    # Verify reverted
+    content = open(os.path.join(td, 'f.txt')).read()
+    assert content == 'v2', f'Expected v2, got: {content}'
+    
+    print('Git integration OK')
+" 2>/dev/null; then
+    award 10 "log_result git integration (keep=commit, discard=revert)"
+else
+    fail_check "log_result git integration"
+fi
+
+# ------------------------------------------------------------------
+# 15. Confidence scoring (20 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- Confidence Scoring ---"
+
+# 15a. confidence_score method exists (10 pts)
+if $PYTHON -c "
+from flatmachines_cli.experiment import ExperimentTracker
+t = ExperimentTracker.__new__(ExperimentTracker)
+assert hasattr(t, 'confidence_score') or hasattr(t, 'confidence')
+print('OK')
+" 2>/dev/null; then
+    award 10 "confidence_score method exists"
+else
+    fail_check "confidence_score method"
+fi
+
+# 15b. confidence_score returns meaningful values (10 pts)
+if $PYTHON -c "
+import tempfile, os
+from flatmachines_cli.experiment import ExperimentTracker, ExperimentResult
+
+with tempfile.TemporaryDirectory() as td:
+    t = ExperimentTracker(
+        direction='higher',
+        log_path=os.path.join(td, 'log.jsonl'),
+    )
+    t.init()
+    
+    # Not enough data
+    c = t.confidence_score()
+    assert c is None, f'Expected None with no data, got {c}'
+    
+    # Add baseline results (noise)
+    r = ExperimentResult(command='t', exit_code=0, stdout='', stderr='', duration_s=1.0, success=True)
+    for v in [100.0, 101.0, 99.0, 100.5, 100.2]:
+        t.log(result=r, status='keep', primary_metric=v)
+    
+    # Add a real improvement
+    t.log(result=r, status='keep', primary_metric=110.0)
+    
+    c = t.confidence_score()
+    assert c is not None, 'Expected confidence score'
+    assert c > 1.0, f'Expected >1.0x for clear improvement, got {c}'
+    
+    print(f'Confidence: {c:.1f}x')
+" 2>/dev/null; then
+    award 10 "confidence_score returns meaningful values"
+else
+    fail_check "confidence_score values"
+fi
+
+# ------------------------------------------------------------------
+# 16. Enhanced improve command (25 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- Enhanced Improve ---"
+
+# 16a. SelfImprover uses git when available (10 pts)
+if $PYTHON -c "
+from flatmachines_cli.improve import SelfImprover
+import inspect
+src = inspect.getsource(SelfImprover)
+has_git = 'git' in src.lower()
+print(f'git refs: {has_git}')
+assert has_git, 'SelfImprover has no git awareness'
+" 2>/dev/null; then
+    award 10 "SelfImprover is git-aware"
+else
+    fail_check "SelfImprover git-aware"
+fi
+
+# 16b. Tests for git integration (10 pts)
+GIT_TESTS=$($PYTHON -m pytest "$CLI_DIR/tests/" -q --co -k "git" 2>/dev/null | grep -c "test_" || true)
+GIT_TESTS=${GIT_TESTS:-0}
+if [ "$GIT_TESTS" -ge 3 ]; then
+    award 10 "git integration tests ($GIT_TESTS)"
+elif [ "$GIT_TESTS" -ge 1 ]; then
+    award 5 "git integration tests ($GIT_TESTS, want ≥3)"
+else
+    fail_check "git integration tests"
+fi
+
+# 16c. Tests for confidence scoring (5 pts)
+CONF_TESTS=$($PYTHON -m pytest "$CLI_DIR/tests/" -q --co -k "confidence" 2>/dev/null | grep -c "test_" || true)
+CONF_TESTS=${CONF_TESTS:-0}
+if [ "$CONF_TESTS" -ge 2 ]; then
+    award 5 "confidence scoring tests ($CONF_TESTS)"
+elif [ "$CONF_TESTS" -ge 1 ]; then
+    award 3 "confidence scoring tests ($CONF_TESTS, want ≥2)"
+else
+    fail_check "confidence scoring tests"
+fi
+
+# ------------------------------------------------------------------
+# 17. Robustness (25 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- Robustness ---"
+
+# 17a. All tests still pass (15 pts)
+ALL_RESULT=$($PYTHON -m pytest "$CLI_DIR/tests/" -q --tb=no 2>&1 | tail -1)
+ALL_FAILED=$(echo "$ALL_RESULT" | grep -oP '\d+(?= failed)' || echo 0)
+ALL_PASSED=$(echo "$ALL_RESULT" | grep -oP '\d+(?= passed)' || echo 0)
+if [ "${ALL_FAILED:-0}" = "0" ] && [ "${ALL_PASSED:-0}" -gt 0 ]; then
+    award 15 "all $ALL_PASSED tests pass"
+else
+    fail_check "test failures: $ALL_FAILED"
+fi
+
+# 17b. No new warnings in imports (5 pts)
+IMPORT_WARNINGS=$($PYTHON -W error -c "
+import flatmachines_cli
+from flatmachines_cli.experiment import ExperimentTracker
+from flatmachines_cli.improve import SelfImprover
+" 2>&1 | grep -c "Warning\|Error" || true)
+if [ "${IMPORT_WARNINGS:-0}" = "0" ]; then
+    award 5 "clean imports (no warnings)"
+else
+    fail_check "import warnings ($IMPORT_WARNINGS)"
+fi
+
+# 17c. Source files have docstrings (5 pts)
+if $PYTHON -c "
+from flatmachines_cli import experiment, improve
+assert experiment.__doc__, 'experiment.py missing module docstring'
+assert improve.__doc__, 'improve.py missing module docstring'
+from flatmachines_cli.experiment import ExperimentTracker, ExperimentResult, parse_metrics
+assert ExperimentTracker.__doc__
+assert ExperimentResult.__doc__
+assert parse_metrics.__doc__
+from flatmachines_cli.improve import SelfImprover, SelfImproveHooks
+assert SelfImprover.__doc__
+assert SelfImproveHooks.__doc__
+print('Docs OK')
+" 2>/dev/null; then
+    award 5 "all classes/functions have docstrings"
+else
+    fail_check "missing docstrings"
+fi
+
+phase4=$((score - phase1 - phase2 - phase3))
+echo ""
+echo "Phase 4 subtotal: $phase4 / 100"
+
 # ------------------------------------------------------------------
 # Final
 # ------------------------------------------------------------------
@@ -962,7 +1232,8 @@ echo "=== Score Summary ==="
 echo "  Phase 1 (presence): $phase1 / 100"
 echo "  Phase 2 (quality):  $phase2 / 100"
 echo "  Phase 3 (readiness): $phase3 / 100"
-echo "  capability_score = $score / 300"
+echo "  Phase 4 (autonomous): $phase4 / 100"
+echo "  capability_score = $score / 400"
 
 # Count all passing tests
 TEST_RESULT=$($PYTHON -m pytest "$CLI_DIR/tests/" -q --tb=no 2>&1 | tail -1)
