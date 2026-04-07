@@ -703,6 +703,226 @@ class FlatAgent:
     # Execution
     # ─────────────────────────────────────────────────────────────────────────
 
+    def _build_llm_params(
+        self,
+        all_messages: List[Dict[str, Any]],
+        external_tools: Optional[List[Dict[str, Any]]],
+        mcp_tools: List[Dict[str, Any]],
+        codex_session_id: Optional[str],
+    ) -> Dict[str, Any]:
+        """Build the parameter dict for the LLM call.
+
+        Assembles model params, optional fields, provider passthrough,
+        tools, and response format into a single dict.
+        """
+        params: Dict[str, Any] = {"model": self.model, "messages": all_messages}
+
+        # Optional scalar model params
+        _OPTIONAL = {
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "top_p": self.top_p,
+            "top_k": self.top_k,
+            "frequency_penalty": self.frequency_penalty,
+            "presence_penalty": self.presence_penalty,
+            "seed": self.seed,
+        }
+        for key, value in _OPTIONAL.items():
+            if value is not None:
+                params[key] = value
+
+        # base_url has backend-specific key
+        if self.base_url is not None:
+            params["base_url" if self._backend == "codex" else "api_base"] = self.base_url
+
+        if self.stream:
+            params["stream"] = True
+            if self.stream_options is not None:
+                params["stream_options"] = self.stream_options
+
+        # Pass through provider-specific params from model config
+        _KNOWN_MODEL_FIELDS = {
+            'name', 'provider', 'temperature', 'max_tokens', 'top_p', 'top_k',
+            'frequency_penalty', 'presence_penalty', 'seed', 'base_url', 'stream',
+            'stream_options', 'profile', 'backend'
+        }
+        if self._backend == "codex":
+            _KNOWN_MODEL_FIELDS.update({
+                'api', 'oauth', 'auth', 'headers', 'service_tier',
+                'codex_auth_file', 'codex_originator', 'codex_transport', 'codex_refresh',
+                'codex_timeout_seconds', 'codex_max_retries', 'codex_token_url',
+                'codex_client_id', 'codex_session_id', 'codex_reasoning_effort',
+                'codex_reasoning_summary', 'codex_text_verbosity'
+            })
+        for key, value in self._model_config_raw.items():
+            if key not in _KNOWN_MODEL_FIELDS and key not in params and value is not None:
+                params[key] = value
+
+        # Forward machine-provided session_id for Codex prompt caching
+        if self._backend == "codex" and codex_session_id and "session_id" not in params:
+            params["session_id"] = codex_session_id
+
+        # Attach tools
+        if external_tools:
+            params["tools"] = external_tools
+        elif mcp_tools:
+            params["tools"] = self._convert_tools_for_llm(mcp_tools)
+
+        # Use JSON mode when output schema is set and no tools are active
+        has_tools = bool(external_tools or mcp_tools)
+        if self.output_schema and not has_tools:
+            params["response_format"] = {"type": "json_object"}
+
+        return params
+
+    def _process_success_response(
+        self,
+        response: Any,
+        monitor: "AgentMonitor",
+    ) -> Tuple[Optional["UsageInfo"], Optional["RateLimitInfo"], Optional["FinishReason"]]:
+        """Extract usage, rate-limit, and finish-reason from a successful LLM response.
+
+        Returns (usage_info, rate_limit_info, finish_reason).
+        """
+        usage_info = None
+        if hasattr(response, 'usage') and response.usage:
+            usage = response.usage
+            input_tokens = getattr(usage, 'prompt_tokens', 0) or 0
+            output_tokens = getattr(usage, 'completion_tokens', 0) or 0
+            cache_read_tokens, cache_write_tokens = self._extract_cache_tokens(usage)
+            cost_info = self._calculate_cost(
+                response, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+            )
+            usage_info = UsageInfo(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=input_tokens + output_tokens,
+                cache_read_tokens=cache_read_tokens,
+                cache_write_tokens=cache_write_tokens,
+                cost=cost_info,
+            )
+            monitor.metrics["tokens"] = input_tokens + output_tokens
+            monitor.metrics["input_tokens"] = input_tokens
+            monitor.metrics["output_tokens"] = output_tokens
+            if cache_read_tokens:
+                monitor.metrics["cache_read_tokens"] = cache_read_tokens
+            if cache_write_tokens:
+                monitor.metrics["cache_write_tokens"] = cache_write_tokens
+            if cost_info:
+                monitor.metrics["cost"] = cost_info.total
+
+        finish_reason = self._extract_finish_reason(response)
+        if finish_reason:
+            monitor.metrics["finish_reason"] = finish_reason.value
+
+        # Debug session continuity for codex prompt caching
+        if self._backend == "codex":
+            request_meta = getattr(response, "_request_meta", {}) or {}
+            request_headers = request_meta.get("headers") if isinstance(request_meta, dict) else {}
+            if not isinstance(request_headers, dict):
+                request_headers = {}
+            logger.info(
+                "Codex request debug: session_id=%s prompt_cache_key=%s finish_reason=%s cache_read_tokens=%s",
+                request_headers.get("session_id"),
+                request_meta.get("prompt_cache_key") if isinstance(request_meta, dict) else None,
+                finish_reason.value if finish_reason else None,
+                usage_info.cache_read_tokens if usage_info else 0,
+            )
+
+        # Rate limit headers
+        response_headers = extract_headers_from_response(response)
+        if response_headers:
+            rate_limit_info = extract_rate_limit_info(response_headers)
+            self._record_rate_limit_metrics(monitor, rate_limit_info)
+        else:
+            rate_limit_info = RateLimitInfo(raw_headers={})
+
+        return usage_info, rate_limit_info, finish_reason
+
+    def _process_error(
+        self,
+        e: Exception,
+        monitor: "AgentMonitor",
+        rendered_user_prompt: Optional[str],
+    ) -> "AgentResponse":
+        """Handle an LLM call error: extract metadata, record metrics, return error response."""
+        error_headers = extract_headers_from_error(e)
+        status_code = extract_status_code(e)
+        rate_limit_info = extract_rate_limit_info(error_headers) if error_headers else RateLimitInfo(raw_headers={})
+        retryable = is_retryable_error(e, status_code)
+
+        error_info = ErrorInfo(
+            error_type=type(e).__name__,
+            message=str(e),
+            status_code=status_code,
+            retryable=retryable,
+        )
+
+        monitor.metrics["error"] = True
+        monitor.metrics["error_type"] = error_info.error_type
+        if status_code:
+            monitor.metrics["status_code"] = status_code
+        if rate_limit_info:
+            self._record_rate_limit_metrics(monitor, rate_limit_info)
+            if rate_limit_info.is_limited():
+                monitor.metrics["rate_limited"] = True
+
+        log_msg = (
+            f"LLM call failed: {error_info.error_type} - {error_info.message[:100]}"
+            + (f" (status={status_code})" if status_code else "")
+            + (" [rate_limited]" if rate_limit_info and rate_limit_info.is_limited() else "")
+        )
+        if error_headers is not None:
+            log_msg += f" | headers={dict(error_headers)}"
+        logger.warning(log_msg)
+
+        return AgentResponse(
+            error=error_info,
+            rate_limit=rate_limit_info,
+            finish_reason=FinishReason.ERROR,
+            raw_response=getattr(e, 'response', None),
+            rendered_user_prompt=rendered_user_prompt,
+        )
+
+    def _parse_agent_output(
+        self,
+        response: Any,
+        mcp_tools: List[Dict[str, Any]],
+        has_tools: bool,
+    ) -> Tuple[Optional[str], Optional[Dict[str, Any]], Optional[List["ToolCall"]]]:
+        """Parse content, structured output, and tool calls from the LLM response.
+
+        Returns (content, output, tool_calls).
+        """
+        message = response.choices[0].message
+        content = message.content
+
+        # Parse output schema if applicable
+        output = None
+        if self.output_schema and content and not has_tools:
+            try:
+                output = json.loads(strip_markdown_json(content))
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse JSON response: {content}")
+                output = {"_raw": content}
+
+        # Extract tool calls if present
+        tool_calls = None
+        if hasattr(message, 'tool_calls') and message.tool_calls:
+            tool_calls = []
+            for tc in message.tool_calls:
+                tool_name = tc.function.name
+                server = self._find_tool_server(tool_name, mcp_tools)
+                try:
+                    arguments = json.loads(tc.function.arguments)
+                except json.JSONDecodeError:
+                    arguments = {}
+                tool_calls.append(ToolCall(
+                    id=tc.id, server=server, tool=tool_name, arguments=arguments,
+                ))
+
+        return content, output, tool_calls
+
     async def call(
         self,
         tool_provider: Optional["MCPToolProvider"] = None,
@@ -729,21 +949,17 @@ class FlatAgent:
             self._tool_provider = tool_provider
             self._tools_cache = None  # Clear cache
 
-        # Use caller-provided tools or discover via MCP
+        # Resolve tools: caller-provided or MCP discovery
         if tools is not None:
-            # Caller provided tools directly — skip MCP discovery
             _external_tools = tools
             _mcp_tools: list = []
             tools_prompt = ""
         else:
-            # Discover tools if MCP is configured
             _mcp_tools = self._discover_tools()
             _external_tools = None
             tools_prompt = self._render_tool_prompt(_mcp_tools)
 
-        # Session identity is transport metadata, not prompt input.
-        # Strip it from input_data so continuation calls (messages=..., no fresh
-        # user input) are not misclassified as having new user content.
+        # Strip codex session_id from input (transport metadata, not prompt input)
         codex_session_id = None
         if self._backend == "codex" and "session_id" in input_data:
             codex_session_id = input_data.pop("session_id")
@@ -753,15 +969,11 @@ class FlatAgent:
         user_prompt = self._render_user_prompt(input_data, tools_prompt=tools_prompt, tools=_mcp_tools)
         rendered_user_prompt = user_prompt
         if messages is not None and not input_data:
-            # Continuation call without fresh input should not report a synthetic
-            # rendered prompt (it wasn't added to request messages).
             rendered_user_prompt = None
 
-        # Build messages
+        # Build messages list
         if messages:
-            # Continue from provided message history
             all_messages = [{"role": "system", "content": system_prompt}] + messages
-            # Only add user prompt if input_data was provided
             if input_data:
                 all_messages.append({"role": "user", "content": user_prompt})
         else:
@@ -770,233 +982,32 @@ class FlatAgent:
                 {"role": "user", "content": user_prompt}
             ]
 
-        # Build LLM call parameters
-        params = {
-            "model": self.model,
-            "messages": all_messages,
-        }
-        # Only include temperature if explicitly provided
-        if self.temperature is not None:
-            params["temperature"] = self.temperature
-        # Only include max_tokens if explicitly provided
-        if self.max_tokens is not None:
-            params["max_tokens"] = self.max_tokens
+        # Assemble LLM params
+        params = self._build_llm_params(
+            all_messages, _external_tools, _mcp_tools, codex_session_id,
+        )
 
-        # Add extended model parameters if set
-        if self.top_p is not None:
-            params["top_p"] = self.top_p
-        if self.top_k is not None:
-            params["top_k"] = self.top_k
-        if self.frequency_penalty is not None:
-            params["frequency_penalty"] = self.frequency_penalty
-        if self.presence_penalty is not None:
-            params["presence_penalty"] = self.presence_penalty
-        if self.seed is not None:
-            params["seed"] = self.seed
-        if self.base_url is not None:
-            if self._backend == "codex":
-                params["base_url"] = self.base_url
-            else:
-                params["api_base"] = self.base_url  # litellm uses api_base
-        if self.stream:
-            params["stream"] = True
-            if self.stream_options is not None:
-                params["stream_options"] = self.stream_options
-
-        # Pass through provider-specific params from model config
-        # LiteLLM and AISuite both forward unknown kwargs to the provider
-        _KNOWN_MODEL_FIELDS = {
-            'name', 'provider', 'temperature', 'max_tokens', 'top_p', 'top_k',
-            'frequency_penalty', 'presence_penalty', 'seed', 'base_url', 'stream',
-            'stream_options', 'profile', 'backend'
-        }
-        if self._backend == "codex":
-            _KNOWN_MODEL_FIELDS.update({
-                'api', 'oauth', 'auth', 'headers', 'service_tier',
-                'codex_auth_file', 'codex_originator', 'codex_transport', 'codex_refresh',
-                'codex_timeout_seconds', 'codex_max_retries', 'codex_token_url',
-                'codex_client_id', 'codex_session_id', 'codex_reasoning_effort',
-                'codex_reasoning_summary', 'codex_text_verbosity'
-            })
-        for key, value in self._model_config_raw.items():
-            if key not in _KNOWN_MODEL_FIELDS and key not in params and value is not None:
-                params[key] = value
-
-        # Forward machine-provided session_id into Codex params so prompt_cache_key
-        # is set for this request.
-        if self._backend == "codex" and codex_session_id and "session_id" not in params:
-            params["session_id"] = codex_session_id
-
-        # Add tools if available
-        if _external_tools:
-            # Caller provided tools in OpenAI format — use directly
-            params["tools"] = _external_tools
-        elif _mcp_tools:
-            params["tools"] = self._convert_tools_for_llm(_mcp_tools)
-
-        # Use JSON mode if we have an output schema and no tools
-        has_tools = bool(_external_tools or _mcp_tools)
-        if self.output_schema and not has_tools:
-            params["response_format"] = {"type": "json_object"}
-
-        # Call LLM via selected backend with metrics tracking
-        input_tokens = 0
-        output_tokens = 0
-        response = None
-        error_info = None
-        rate_limit_info = None
-        usage_info = None
-        finish_reason = None
-        
+        # Call LLM with metrics tracking
         with AgentMonitor(
             self.agent_name,
             extra_attributes={"model": self.model, "backend": self._backend}
         ) as monitor:
             try:
                 response = await self._call_llm(params)
-                
-                # Extract token usage from successful response
-                if hasattr(response, 'usage') and response.usage:
-                    usage = response.usage
-                    input_tokens = getattr(usage, 'prompt_tokens', 0) or 0
-                    output_tokens = getattr(usage, 'completion_tokens', 0) or 0
-                    
-                    # Extract cache tokens (LiteLLM exposes these for Anthropic/OpenAI)
-                    cache_read_tokens, cache_write_tokens = self._extract_cache_tokens(usage)
-                    
-                    # Calculate cost
-                    cost_info = self._calculate_cost(response, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens)
-                    
-                    usage_info = UsageInfo(
-                        input_tokens=input_tokens,
-                        output_tokens=output_tokens,
-                        total_tokens=input_tokens + output_tokens,
-                        cache_read_tokens=cache_read_tokens,
-                        cache_write_tokens=cache_write_tokens,
-                        cost=cost_info,
-                    )
-                    
-                    # Record metrics
-                    monitor.metrics["tokens"] = input_tokens + output_tokens
-                    monitor.metrics["input_tokens"] = input_tokens
-                    monitor.metrics["output_tokens"] = output_tokens
-                    if cache_read_tokens:
-                        monitor.metrics["cache_read_tokens"] = cache_read_tokens
-                    if cache_write_tokens:
-                        monitor.metrics["cache_write_tokens"] = cache_write_tokens
-                    if cost_info:
-                        monitor.metrics["cost"] = cost_info.total
-                
-                # Extract finish reason
-                finish_reason = self._extract_finish_reason(response)
-                if finish_reason:
-                    monitor.metrics["finish_reason"] = finish_reason.value
-
-                # Debug session continuity for codex prompt caching.
-                if self._backend == "codex":
-                    request_meta = getattr(response, "_request_meta", {}) or {}
-                    request_headers = request_meta.get("headers") if isinstance(request_meta, dict) else {}
-                    if not isinstance(request_headers, dict):
-                        request_headers = {}
-                    session_header = request_headers.get("session_id")
-                    prompt_cache_key = request_meta.get("prompt_cache_key") if isinstance(request_meta, dict) else None
-                    logger.info(
-                        "Codex request debug: session_id=%s prompt_cache_key=%s finish_reason=%s cache_read_tokens=%s",
-                        session_header,
-                        prompt_cache_key,
-                        finish_reason.value if finish_reason else None,
-                        usage_info.cache_read_tokens if usage_info else 0,
-                    )
-                
-                # Extract rate limit headers from successful response
-                response_headers = extract_headers_from_response(response)
-                if response_headers:
-                    rate_limit_info = extract_rate_limit_info(response_headers)
-                    self._record_rate_limit_metrics(monitor, rate_limit_info)
-                else:
-                    # Ensure raw_headers is at least empty dict
-                    rate_limit_info = RateLimitInfo(raw_headers={})
-                    
+                usage_info, rate_limit_info, finish_reason = self._process_success_response(
+                    response, monitor,
+                )
             except Exception as e:
-                # Extract headers and status from error
-                error_headers = extract_headers_from_error(e)
-                status_code = extract_status_code(e)
-                rate_limit_info = extract_rate_limit_info(error_headers) if error_headers else RateLimitInfo(raw_headers={})
-                retryable = is_retryable_error(e, status_code)
-                
-                error_info = ErrorInfo(
-                    error_type=type(e).__name__,
-                    message=str(e),
-                    status_code=status_code,
-                    retryable=retryable,
-                )
-                
-                # Record error metrics
-                monitor.metrics["error"] = True
-                monitor.metrics["error_type"] = error_info.error_type
-                if status_code:
-                    monitor.metrics["status_code"] = status_code
-                if rate_limit_info:
-                    self._record_rate_limit_metrics(monitor, rate_limit_info)
-                    if rate_limit_info.is_limited():
-                        monitor.metrics["rate_limited"] = True
-                
-                log_msg = (
-                    f"LLM call failed: {error_info.error_type} - {error_info.message[:100]}"
-                    + (f" (status={status_code})" if status_code else "")
-                    + (" [rate_limited]" if rate_limit_info and rate_limit_info.is_limited() else "")
-                )
-                if error_headers is not None:
-                    log_msg += f" | headers={dict(error_headers)}"
-                logger.warning(log_msg)
-                
-                # Return error response instead of raising
-                return AgentResponse(
-                    error=error_info,
-                    rate_limit=rate_limit_info,
-                    finish_reason=FinishReason.ERROR,
-                    raw_response=getattr(e, 'response', None),
-                    rendered_user_prompt=rendered_user_prompt,
-                )
+                return self._process_error(e, monitor, rendered_user_prompt)
 
         # Track usage
         self.total_api_calls += 1
         if usage_info and usage_info.cost:
             self.total_cost += usage_info.cost.total
 
-        # Extract response content
-        message = response.choices[0].message
-        content = message.content
-
-        # Parse output schema if applicable
-        output = None
-        if self.output_schema and content and not has_tools:
-            try:
-                # Strip markdown fences - LLMs sometimes wrap JSON in ```json blocks
-                output = json.loads(strip_markdown_json(content))
-            except json.JSONDecodeError:
-                logger.warning(f"Failed to parse JSON response: {content}")
-                output = {"_raw": content}
-
-        # Extract tool calls if present
-        tool_calls = None
-        if hasattr(message, 'tool_calls') and message.tool_calls:
-            tool_calls = []
-            for tc in message.tool_calls:
-                tool_name = tc.function.name
-                server = self._find_tool_server(tool_name, _mcp_tools)
-
-                try:
-                    arguments = json.loads(tc.function.arguments)
-                except json.JSONDecodeError:
-                    arguments = {}
-
-                tool_calls.append(ToolCall(
-                    id=tc.id,
-                    server=server,
-                    tool=tool_name,
-                    arguments=arguments
-                ))
+        # Parse response
+        has_tools = bool(_external_tools or _mcp_tools)
+        content, output, tool_calls = self._parse_agent_output(response, _mcp_tools, has_tools)
 
         return AgentResponse(
             content=content,

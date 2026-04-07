@@ -18,7 +18,7 @@ import time
 import warnings
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     from jinja2 import Template
@@ -1495,6 +1495,140 @@ class FlatMachine:
                     return float(total)
         return 0.0
 
+    def _check_tool_loop_guardrails(
+        self,
+        turns: int,
+        max_turns: int,
+        tool_calls_count: int,
+        max_tool_calls: int,
+        loop_cost: float,
+        max_cost: Optional[float],
+        start_time: float,
+        total_timeout: float,
+        pending_count: int = 0,
+    ) -> Optional[str]:
+        """Check tool-loop guardrails.
+
+        Returns the stop reason string if a guardrail was hit, or None.
+        ``pending_count`` is used for the per-batch tool call count check.
+        """
+        if time.monotonic() - start_time >= total_timeout:
+            return 'timeout'
+        if turns >= max_turns:
+            return 'max_turns'
+        if max_cost is not None and loop_cost >= max_cost:
+            return 'cost_limit'
+        if pending_count and tool_calls_count + pending_count > max_tool_calls:
+            return 'max_tool_calls'
+        return None
+
+    async def _execute_single_tool(
+        self,
+        tc_name: str,
+        tc_id: str,
+        tc_args: Dict[str, Any],
+        tool_provider,
+        tool_timeout: float,
+        allowed_tools: set,
+        denied_tools: set,
+        skip_tools: set,
+    ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+        """Execute a single tool call with policy checks.
+
+        Returns ``(chain_message, tool_result_dict)``.
+        ``tool_result_dict`` is None when the tool was skipped/denied
+        (the chain message is still produced for the LLM).
+        """
+        # Skip if hook requested
+        if tc_id in skip_tools or tc_name in skip_tools:
+            return {
+                "role": "tool", "tool_call_id": tc_id,
+                "content": f"Tool '{tc_name}' was skipped by policy.",
+            }, None
+
+        # Deny list
+        if denied_tools and tc_name in denied_tools:
+            return {
+                "role": "tool", "tool_call_id": tc_id,
+                "content": f"Tool '{tc_name}' is not allowed.",
+            }, None
+
+        # Allow list (whitelist mode)
+        if allowed_tools and tc_name not in allowed_tools:
+            return {
+                "role": "tool", "tool_call_id": tc_id,
+                "content": f"Tool '{tc_name}' is not allowed.",
+            }, None
+
+        # Execute
+        if tool_provider is not None:
+            try:
+                tool_result = await asyncio.wait_for(
+                    tool_provider.execute_tool(tc_name, tc_id, tc_args),
+                    timeout=tool_timeout,
+                )
+            except asyncio.TimeoutError:
+                from flatagents.tools import ToolResult as _ToolResult
+                tool_result = _ToolResult(
+                    content=f"Tool '{tc_name}' timed out after {tool_timeout}s",
+                    is_error=True,
+                )
+            except Exception as e:
+                from flatagents.tools import ToolResult as _ToolResult
+                tool_result = _ToolResult(
+                    content=f"Error executing '{tc_name}': {e}",
+                    is_error=True,
+                )
+        else:
+            from flatagents.tools import ToolResult as _ToolResult
+            tool_result = _ToolResult(
+                content=f"No tool provider configured for '{tc_name}'",
+                is_error=True,
+            )
+
+        chain_msg = {
+            "role": "tool", "tool_call_id": tc_id,
+            "content": tool_result.content,
+        }
+        result_dict = {
+            "tool_call_id": tc_id, "name": tc_name,
+            "arguments": tc_args, "content": tool_result.content,
+            "is_error": tool_result.is_error,
+        }
+        return chain_msg, result_dict
+
+    async def _force_final_response(
+        self,
+        chain: List[Dict[str, Any]],
+        executor,
+        context: Dict[str, Any],
+    ) -> Optional[str]:
+        """Make one toolless LLM call to force a text response after guardrail exit.
+
+        Mutates *chain* and *context* in place.  Returns the final content
+        string, or None on failure.
+        """
+        try:
+            chain.append({
+                "role": "user",
+                "content": (
+                    "[System: tool use limit reached. Provide your final response now "
+                    "using the information gathered so far.]"
+                ),
+            })
+            final_result = await executor.execute_with_tools(
+                input_data={}, tools=[], messages=chain, context=context,
+            )
+            self._accumulate_agent_metrics(final_result)
+            if final_result.content and str(final_result.content).strip():
+                chain.append(self._build_assistant_message(final_result))
+                context['_tool_loop_content'] = final_result.content
+                context['_tool_loop_usage'] = final_result.usage
+                return final_result.content
+        except Exception as e:
+            logger.warning("Final response pass failed: %s", e)
+        return None
+
     async def _execute_tool_loop(
         self,
         state_name: str,
@@ -1540,7 +1674,6 @@ class FlatMachine:
         # Get agent executor — must support execute_with_tools
         executor = self._get_executor(agent_name)
         try:
-            # Check capability
             executor.execute_with_tools
         except AttributeError:
             adapter_type = type(executor).__name__
@@ -1550,10 +1683,8 @@ class FlatMachine:
                 f"on the adapter or remove tool_loop from state '{state_name}'."
             )
 
-        # Get tool provider
+        # Get tool provider and definitions
         tool_provider = self._resolve_tool_provider(state_name)
-
-        # Resolve tool definitions
         tool_defs = self._resolve_tool_definitions(agent_name, tool_provider)
 
         # Build initial input
@@ -1561,9 +1692,7 @@ class FlatMachine:
         variables = {"context": context, "input": context}
         agent_input = self._render_dict(input_spec, variables)
 
-        # Restore chain from prior round only when state+agent identity matches.
-        # This preserves prefix cache for same-state continuation while preventing
-        # cross-state/agent chain bleed.
+        # Restore chain from prior round (preserves prefix cache)
         saved_chain = context.pop('_tool_loop_chain', None)
         saved_chain_state = context.pop('_tool_loop_chain_state', None)
         saved_chain_agent = context.pop('_tool_loop_chain_agent', None)
@@ -1580,83 +1709,74 @@ class FlatMachine:
         last_content: Optional[str] = None
 
         while True:
-            # --- Guardrail checks ---
-            if time.monotonic() - start_time >= total_timeout:
-                context['_tool_loop_stop'] = 'timeout'
-                break
-            if turns >= max_turns:
-                context['_tool_loop_stop'] = 'max_turns'
-                break
-            if max_cost is not None and loop_cost >= max_cost:
-                context['_tool_loop_stop'] = 'cost_limit'
+            # --- Pre-turn guardrail check ---
+            stop = self._check_tool_loop_guardrails(
+                turns, max_turns, tool_calls_count, max_tool_calls,
+                loop_cost, max_cost, start_time, total_timeout,
+            )
+            if stop:
+                context['_tool_loop_stop'] = stop
                 break
 
-            # --- Call agent via execute_with_tools ---
+            # --- Call agent ---
             if turns == 0 and not has_prior_chain:
-                # First call ever — render user prompt from input_data
                 result = await executor.execute_with_tools(
-                    input_data=agent_input,
-                    tools=tool_defs,
-                    messages=None,
-                    context=context,
+                    input_data=agent_input, tools=tool_defs, messages=None, context=context,
                 )
             else:
-                # Continuation — pass chain (preserves prefix cache)
                 result = await executor.execute_with_tools(
-                    input_data={},
-                    tools=tool_defs,
-                    messages=chain,
-                    context=context,
+                    input_data={}, tools=tool_defs, messages=chain, context=context,
                 )
 
             turns += 1
             self._accumulate_agent_metrics(result)
             loop_cost += self._extract_cost(result)
 
-            # Update context with loop metadata
             context['_tool_loop_turns'] = turns
             context['_tool_loop_cost'] = loop_cost
             context['_tool_calls_count'] = tool_calls_count
             context['_tool_loop_content'] = result.content
             context['_tool_loop_usage'] = result.usage
 
-            # --- Handle error ---
             if result.error:
                 raise RuntimeError(
                     f"{result.error.get('type', 'AgentError')}: "
                     f"{result.error.get('message', 'unknown')}"
                 )
 
-            # --- Seed chain on first turn ---
+            # Seed chain on first turn
             if turns == 1 and not has_prior_chain and result.rendered_user_prompt:
                 chain.append({"role": "user", "content": result.rendered_user_prompt})
 
-            # --- Build assistant message and append to chain ---
             assistant_msg = self._build_assistant_message(result)
             chain.append(assistant_msg)
             last_content = result.content
 
-            # --- No tool calls = loop complete ---
+            # No tool calls = loop complete
             if result.finish_reason != "tool_use":
                 break
 
             pending_calls = result.tool_calls or []
 
-            # --- Guardrail: tool call count ---
-            if tool_calls_count + len(pending_calls) > max_tool_calls:
-                context['_tool_loop_stop'] = 'max_tool_calls'
+            # Per-batch tool call count check
+            stop = self._check_tool_loop_guardrails(
+                turns, max_turns + 1, tool_calls_count, max_tool_calls,
+                loop_cost, None, start_time, total_timeout + 1,
+                pending_count=len(pending_calls),
+            )
+            if stop:
+                context['_tool_loop_stop'] = stop
                 break
 
-            # --- HOOK: on_tool_calls (once per LLM response) ---
+            # HOOK: on_tool_calls (once per LLM response)
             context = await self._run_hook(
                 'on_tool_calls', state_name, pending_calls, context,
             )
-
             if context.get('_abort_tool_loop'):
                 context['_tool_loop_stop'] = 'aborted'
                 break
 
-            # --- Execute tools ONE AT A TIME with per-tool hooks + checkpoints ---
+            # --- Execute tools one at a time ---
             skip_tools = set(context.pop('_skip_tools', []))
 
             for tc in pending_calls:
@@ -1664,92 +1784,34 @@ class FlatMachine:
                 tc_id = tc.get('id')
                 tc_args = tc.get('arguments', {})
 
-                # Skip if hook requested
-                if tc_id in skip_tools or tc_name in skip_tools:
-                    chain.append({
-                        "role": "tool",
-                        "tool_call_id": tc_id,
-                        "content": f"Tool '{tc_name}' was skipped by policy.",
-                    })
-                    continue
+                chain_msg, tool_result_dict = await self._execute_single_tool(
+                    tc_name, tc_id, tc_args,
+                    tool_provider, tool_timeout,
+                    allowed_tools, denied_tools, skip_tools,
+                )
+                chain.append(chain_msg)
 
-                # Check allow/deny
-                if denied_tools and tc_name in denied_tools:
-                    chain.append({
-                        "role": "tool",
-                        "tool_call_id": tc_id,
-                        "content": f"Tool '{tc_name}' is not allowed.",
-                    })
-                    continue
-                if allowed_tools and tc_name not in allowed_tools:
-                    chain.append({
-                        "role": "tool",
-                        "tool_call_id": tc_id,
-                        "content": f"Tool '{tc_name}' is not allowed.",
-                    })
-                    continue
-
-                # Execute single tool
-                if tool_provider is not None:
-                    try:
-                        tool_result = await asyncio.wait_for(
-                            tool_provider.execute_tool(tc_name, tc_id, tc_args),
-                            timeout=tool_timeout,
-                        )
-                    except asyncio.TimeoutError:
-                        from flatagents.tools import ToolResult as _ToolResult
-                        tool_result = _ToolResult(
-                            content=f"Tool '{tc_name}' timed out after {tool_timeout}s",
-                            is_error=True,
-                        )
-                    except Exception as e:
-                        from flatagents.tools import ToolResult as _ToolResult
-                        tool_result = _ToolResult(
-                            content=f"Error executing '{tc_name}': {e}",
-                            is_error=True,
-                        )
-                else:
-                    from flatagents.tools import ToolResult as _ToolResult
-                    tool_result = _ToolResult(
-                        content=f"No tool provider configured for '{tc_name}'",
-                        is_error=True,
-                    )
+                if tool_result_dict is None:
+                    continue  # skipped/denied — no hooks or checkpoints
 
                 tool_calls_count += 1
-
-                tool_result_dict = {
-                    "tool_call_id": tc_id,
-                    "name": tc_name,
-                    "arguments": tc_args,
-                    "content": tool_result.content,
-                    "is_error": tool_result.is_error,
-                }
-
-                chain.append({
-                    "role": "tool",
-                    "tool_call_id": tc_id,
-                    "content": tool_result.content,
-                })
-
                 context['_tool_calls_count'] = tool_calls_count
 
-                # --- HOOK: on_tool_result (per tool call) ---
+                # HOOK: on_tool_result
                 context = await self._run_hook(
                     'on_tool_result', state_name, tool_result_dict, context,
                 )
 
-                # --- Checkpoint after each tool call ---
+                # Checkpoint after each tool call
                 await self._save_checkpoint(
                     'tool_call', state_name, self._current_step, context,
                     tool_loop_state={
-                        "chain": chain,
-                        "turns": turns,
-                        "tool_calls_count": tool_calls_count,
-                        "loop_cost": loop_cost,
+                        "chain": chain, "turns": turns,
+                        "tool_calls_count": tool_calls_count, "loop_cost": loop_cost,
                     },
                 )
 
-                # --- Evaluate conditional transitions after each tool call ---
+                # Evaluate conditional transitions
                 if context.get('_abort_tool_loop'):
                     context['_tool_loop_stop'] = 'aborted'
                     break
@@ -1760,53 +1822,29 @@ class FlatMachine:
                     context['_tool_loop_next_state'] = next_state
                     break
 
-            # Check if inner loop broke out
             if context.get('_tool_loop_stop'):
                 break
 
-            # --- Inject steering messages from hook ---
+            # Inject steering messages from hook
             steering = context.pop('_steering_messages', None)
             if steering:
                 for msg in steering:
                     chain.append(msg)
 
-        # --- Final response pass when loop exited due to guardrails ---
-        # If the loop stopped before the LLM gave a text response (e.g., it was
-        # still requesting tool calls when max_tool_calls/max_turns hit), make
-        # one more call WITHOUT tools so the LLM is forced to produce text.
+        # Final response pass when loop exited due to guardrails
         stop_reason = context.get('_tool_loop_stop')
-        if stop_reason and stop_reason in ('max_tool_calls', 'max_turns', 'timeout', 'cost_limit'):
+        if stop_reason in ('max_tool_calls', 'max_turns', 'timeout', 'cost_limit'):
             if not last_content or not str(last_content).strip():
-                try:
-                    chain.append({
-                        "role": "user",
-                        "content": (
-                            "[System: tool use limit reached. Provide your final response now "
-                            "using the information gathered so far.]"
-                        ),
-                    })
-                    final_result = await executor.execute_with_tools(
-                        input_data={},
-                        tools=[],  # no tools — force text response
-                        messages=chain,
-                        context=context,
-                    )
-                    self._accumulate_agent_metrics(final_result)
-                    if final_result.content and str(final_result.content).strip():
-                        assistant_msg = self._build_assistant_message(final_result)
-                        chain.append(assistant_msg)
-                        last_content = final_result.content
-                        context['_tool_loop_content'] = final_result.content
-                        context['_tool_loop_usage'] = final_result.usage
-                except Exception as e:
-                    logger.warning("Final response pass failed: %s", e)
+                final = await self._force_final_response(chain, executor, context)
+                if final:
+                    last_content = final
 
         # Save chain identity for potential continuation (preserves prefix cache)
         context['_tool_loop_chain'] = chain
         context['_tool_loop_chain_state'] = state_name
         context['_tool_loop_chain_agent'] = agent_name
 
-        # --- Build output ---
+        # Build output
         output = {
             "content": last_content,
             "_tool_calls_count": tool_calls_count,

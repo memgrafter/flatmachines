@@ -96,6 +96,7 @@ from .dispatcher import SignalDispatcher
 from .resume import MachineResumer, ReferenceResolver, ConfigStoreResumer, ConfigFileResumer
 from .signals_helpers import send_and_notify
 from .flatmachine import WaitingForSignal
+from .api import MachineExecutionAPI, MachineHandle, MachineInfo
 
 __all__ = [
     "__version__",
@@ -189,4 +190,7 @@ __all__ = [
     "ConfigFileResumer",
     "send_and_notify",
     "WaitingForSignal",
+    "MachineExecutionAPI",
+    "MachineHandle",
+    "MachineInfo",
 ]
