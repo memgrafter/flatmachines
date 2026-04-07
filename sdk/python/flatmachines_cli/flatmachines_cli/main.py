@@ -266,10 +266,10 @@ def _run_async(coro):
     """Run an async coroutine with graceful signal handling.
 
     Catches KeyboardInterrupt and exits cleanly instead of printing
-    a traceback.
+    a traceback. Returns the coroutine result.
     """
     try:
-        asyncio.run(coro)
+        return asyncio.run(coro)
     except KeyboardInterrupt:
         # Clean exit on Ctrl-C
         print()
@@ -592,7 +592,7 @@ def main():
         return
 
     if args.command == "improve":
-        from .improve import SelfImprover, ImprovementRunner
+        from .improve import SelfImprover
 
         target = os.path.abspath(args.target_dir)
         benchmark = args.benchmark
@@ -628,35 +628,41 @@ def main():
         print()
 
         if args.run:
-            # Full evaluation loop
-            def _on_iter(iteration, ctx):
-                status = ctx.get("last_status", "?")
-                score = ctx.get("current_score", "?")
-                best = ctx.get("best_score", "?")
-                print(f"  [{iteration}] status={status}  score={score}  best={best}")
+            # Resolve machine config
+            config = args.config
+            if not config or not os.path.isfile(config):
+                config = str(
+                    Path(__file__).parent.parent / "config" / "self_improve.yml"
+                )
 
-            runner = ImprovementRunner(
-                improver=improver,
+            print(f"  Config:    {config}")
+            print()
+            print("Running self-improvement via FlatMachine...")
+            print()
+
+            result = _run_async(run_once(
+                config_file=config,
+                task=f"Improve the code in {target} to optimize {args.metric}",
+                working_dir=target,
+                human_review=False,
+                auto_approve=True,
+                target_dir=target,
+                benchmark_command=benchmark,
+                test_command=args.test or "",
+                metric_name=args.metric,
+                metric_direction=args.direction,
                 max_iterations=args.max_iterations,
-                on_iteration=_on_iter,
-            )
+                git_enabled=args.git,
+            ))
 
-            print("Running evaluation loop...")
-            print()
-            context = runner.run()
+            if result:
+                print()
+                print("Result:")
+                for k, v in result.items():
+                    val = str(v)[:120]
+                    print(f"  {k}: {val}")
 
-            print()
-            print(runner.format_status(context))
-            print()
-            print("History:")
-            print(runner.format_history(context))
-
-            # Exit with appropriate code
-            final = context.get("final_summary", {})
-            if final.get("kept", 0) > 0:
-                sys.exit(0)
-            else:
-                sys.exit(1)
+            sys.exit(0)
         else:
             # Baseline only
             print("Running baseline benchmark...")
