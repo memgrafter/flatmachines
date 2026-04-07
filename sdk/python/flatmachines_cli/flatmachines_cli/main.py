@@ -61,13 +61,22 @@ def _make_self_improve_handler():
 
     On first call, creates SelfImprover from the machine context.
     Subsequent calls reuse the same instance.
+
+    Supports both the original simple actions and the converged two-loop actions.
     """
-    from .improve import SelfImprover, SelfImproveHooks
+    from .improve import SelfImprover, ConvergedSelfImproveHooks
+    from .evaluation import EvaluationSpec
 
     state = {"hooks": None}
 
     def handler(action_name, context):
         if state["hooks"] is None:
+            # Build EvaluationSpec from context if eval_spec dict is present
+            eval_spec = None
+            eval_spec_dict = context.get("eval_spec")
+            if isinstance(eval_spec_dict, dict) and eval_spec_dict.get("benchmark_command"):
+                eval_spec = EvaluationSpec.from_dict(eval_spec_dict)
+
             improver = SelfImprover(
                 target_dir=context.get("target_dir", "."),
                 benchmark_command=context.get("benchmark_command", "echo 'METRIC score=0'"),
@@ -76,11 +85,28 @@ def _make_self_improve_handler():
                 direction=context.get("metric_direction", "higher"),
                 working_dir=context.get("working_dir", os.getcwd()),
                 git_enabled=context.get("git_enabled", False),
+                eval_spec=eval_spec,
+                enable_isolation=context.get("enable_isolation", False),
             )
-            state["hooks"] = SelfImproveHooks(improver)
+            state["hooks"] = ConvergedSelfImproveHooks(improver)
+
         return state["hooks"].on_action(action_name, context)
 
     return handler
+
+
+# All self-improve actions (simple + converged)
+_SELF_IMPROVE_ACTIONS = {
+    # Original simple actions
+    "evaluate_improvement", "archive_result", "revert_changes",
+    # Converged outer loop
+    "select_parent_from_archive", "create_isolated_worktree",
+    "extract_diff_and_archive", "cleanup_isolated_worktree",
+    "write_archive_summary",
+    # Converged inner loop
+    "run_checks", "evaluate_with_staging",
+    "commit_inner_improvement", "revert_inner_changes",
+}
 
 
 def _register_self_improve_actions(backend, config_file: str) -> None:
@@ -93,9 +119,8 @@ def _register_self_improve_actions(backend, config_file: str) -> None:
     except Exception:
         return
 
-    actions = {"evaluate_improvement", "archive_result", "revert_changes"}
     states = config.get("data", {}).get("states", {})
-    used = {s.get("action") for s in states.values()} & actions
+    used = {s.get("action") for s in states.values()} & _SELF_IMPROVE_ACTIONS
 
     if not used:
         return

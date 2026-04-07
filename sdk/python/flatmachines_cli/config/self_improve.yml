@@ -19,24 +19,24 @@ data:
       benchmark_command: "{{ input.benchmark_command }}"
       metric_name: "{{ input.metric_name | default('score') }}"
       direction: "{{ input.metric_direction | default('higher') }}"
-      timeout_s: "{{ input.timeout_s | default(300) }}"
+      timeout_s: "{{ input.timeout_s | default(300) | float }}"
       checks_command: "{{ input.checks_command | default('') }}"
-      checks_timeout_s: "{{ input.checks_timeout_s | default(30) }}"
+      checks_timeout_s: "{{ input.checks_timeout_s | default(30) | float }}"
       quick_benchmark_command: "{{ input.quick_benchmark_command | default('') }}"
-      quick_timeout_s: "{{ input.quick_timeout_s | default(60) }}"
-      quick_threshold: "{{ input.quick_threshold | default(0) }}"
+      quick_timeout_s: "{{ input.quick_timeout_s | default(60) | float }}"
+      quick_threshold: "{{ input.quick_threshold | default(0) | float }}"
       protected_paths: "{{ input.protected_paths | default([]) }}"
       editable_patterns: "{{ input.editable_patterns | default(['**/*.py']) }}"
       log_file: "{{ input.log_file | default('run.log') }}"
 
     # Outer loop state
-    max_generations: "{{ input.max_generations | default(50) }}"
+    max_generations: 1
     generation: 0
     parent_id: null
     parent_selection: "{{ input.parent_selection | default('best') }}"
 
     # Inner loop state (per generation)
-    inner_iterations: "{{ input.inner_iterations | default(3) }}"
+    inner_iterations: 3
     inner_iteration: 0
     max_iterations: 10
 
@@ -76,11 +76,11 @@ data:
     improve:
       agent: coder
       tool_loop:
-        max_turns: 40
-        max_tool_calls: 120
-        max_cost: 5.00
+        max_turns: 12
+        max_tool_calls: 40
+        max_cost: 2.00
         tool_timeout: 120
-        total_timeout: 1200
+        total_timeout: 300
       input:
         task: |
           You are a self-improving coding agent. Iteration {{ context.inner_iteration + 1 }}/{{ context.inner_iterations }}, generation {{ context.generation }}.
