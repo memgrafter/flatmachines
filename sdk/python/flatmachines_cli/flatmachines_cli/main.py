@@ -278,7 +278,15 @@ def main():
     )
     validate_parser.add_argument(
         "config",
-        help="Machine name or path to YAML config",
+        nargs="?",
+        default=None,
+        help="Machine name or path to YAML config (default: built-in self_improve.yml)",
+    )
+    validate_parser.add_argument(
+        "--self-improve", "-s",
+        action="store_true",
+        default=False,
+        help="Use self-improvement validator (checks agents, profiles, transitions)",
     )
 
     # --- context command ---
@@ -431,8 +439,8 @@ def main():
             print(f"  {m.name} ({m.state_count} states){desc}")
         return
 
-    if args.command in ("inspect", "validate", "context"):
-        from .inspector import inspect_machine, validate_machine, show_context
+    if args.command in ("inspect", "context"):
+        from .inspector import inspect_machine, show_context
 
         resolved = _resolve_machine_path(args.config, working_dir)
         if not resolved:
@@ -441,11 +449,54 @@ def main():
 
         handlers = {
             "inspect": inspect_machine,
-            "validate": validate_machine,
             "context": show_context,
         }
         print(handlers[args.command](resolved))
         return
+
+    if args.command == "validate":
+        # Self-improvement validator or standard validator
+        if args.self_improve or args.config is None:
+            from .improve import validate_self_improve_config
+
+            config_path = None
+            if args.config:
+                resolved = _resolve_machine_path(args.config, working_dir)
+                if resolved:
+                    config_path = resolved
+                else:
+                    config_path = args.config  # Let validator handle the error
+
+            result = validate_self_improve_config(config_path)
+
+            # Pretty-print results
+            if result["valid"]:
+                info = result["info"]
+                print(f"  ✓ Valid self-improvement config: {info.get('name', '?')}")
+                print(f"    States: {info.get('state_count', '?')}")
+                print(f"    Agents: {info.get('agent_count', '?')}")
+                print(f"    Profiles: {'yes' if info.get('has_profiles') else 'no'}")
+            else:
+                print(f"  ✗ Invalid config")
+                for err in result["errors"]:
+                    print(f"    ✗ {err}")
+                sys.exit(1)
+
+            if result["warnings"]:
+                print()
+                for warn in result["warnings"]:
+                    print(f"    ⚠ {warn}")
+
+            sys.exit(0)
+        else:
+            from .inspector import validate_machine
+
+            resolved = _resolve_machine_path(args.config, working_dir)
+            if not resolved:
+                print(f"Machine not found: {args.config}")
+                sys.exit(1)
+            print(validate_machine(resolved))
+            return
 
     if args.command == "improve":
         from .improve import SelfImprover

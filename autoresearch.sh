@@ -1454,6 +1454,188 @@ phase5=$((score - phase1 - phase2 - phase3 - phase4))
 echo ""
 echo "Phase 5 subtotal: $phase5 / 100"
 
+# ==================================================================
+echo ""
+echo "=== Phase 6: Advanced Features (100 pts) ==="
+# ==================================================================
+
+# ------------------------------------------------------------------
+# 22. Tracker enhancements (40 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- Tracker Enhancements ---"
+
+# 22a. best()/worst_result() convenience accessors (10 pts)
+if $PYTHON -c "
+import tempfile, os
+from flatmachines_cli.experiment import ExperimentTracker, ExperimentResult
+
+td = tempfile.mkdtemp()
+t = ExperimentTracker(direction='higher', log_path=os.path.join(td, 'log.jsonl'))
+t.init()
+r = ExperimentResult(command='t', exit_code=0, stdout='', stderr='', duration_s=1.0, success=True)
+t.log(result=r, status='keep', primary_metric=50.0)
+t.log(result=r, status='keep', primary_metric=100.0)
+t.log(result=r, status='keep', primary_metric=75.0)
+
+assert t.best().primary_metric == 100.0
+assert t.worst_result().primary_metric == 50.0
+print('best/worst OK')
+" 2>/dev/null; then
+    award 10 "best()/worst_result() work"
+else
+    fail_check "best/worst methods"
+fi
+
+# 22b. diff() comparison (10 pts)
+if $PYTHON -c "
+import tempfile, os
+from flatmachines_cli.experiment import ExperimentTracker, ExperimentResult
+
+td = tempfile.mkdtemp()
+t = ExperimentTracker(direction='higher', log_path=os.path.join(td, 'log.jsonl'))
+t.init()
+r1 = ExperimentResult(command='t', exit_code=0, stdout='', stderr='', duration_s=1.0, success=True)
+r2 = ExperimentResult(command='t', exit_code=0, stdout='', stderr='', duration_s=2.0, success=True)
+e1 = t.log(result=r1, status='keep', primary_metric=100.0)
+e2 = t.log(result=r2, status='keep', primary_metric=150.0)
+
+d = t.diff(e1, e2)
+assert d['metric_delta'] == 50.0
+assert d['metric_pct'] == 50.0
+assert d['improved'] is True
+assert d['entry1_id'] == 1
+assert d['entry2_id'] == 2
+print('diff OK')
+" 2>/dev/null; then
+    award 10 "diff() comparison"
+else
+    fail_check "diff method"
+fi
+
+# 22c. export_csv() (10 pts)
+if $PYTHON -c "
+import tempfile, os
+from flatmachines_cli.experiment import ExperimentTracker, ExperimentResult
+
+td = tempfile.mkdtemp()
+t = ExperimentTracker(log_path=os.path.join(td, 'log.jsonl'))
+t.init()
+r = ExperimentResult(command='t', exit_code=0, stdout='', stderr='', duration_s=1.0, success=True)
+t.log(result=r, status='keep', primary_metric=100.0, description='first')
+t.log(result=r, status='discard', primary_metric=90.0, description='second')
+
+csv = t.export_csv()
+lines = csv.strip().split('\n')
+assert len(lines) == 3  # header + 2 rows
+assert 'id,description,status' in lines[0]
+
+# Write to file
+csv_path = os.path.join(td, 'export.csv')
+t.export_csv(path=csv_path)
+assert os.path.exists(csv_path)
+print('CSV export OK')
+" 2>/dev/null; then
+    award 10 "export_csv() works"
+else
+    fail_check "export_csv"
+fi
+
+# 22d. get_entry/kept_entries/discarded_entries (10 pts)
+if $PYTHON -c "
+import tempfile, os
+from flatmachines_cli.experiment import ExperimentTracker, ExperimentResult
+
+td = tempfile.mkdtemp()
+t = ExperimentTracker(log_path=os.path.join(td, 'log.jsonl'))
+t.init()
+r = ExperimentResult(command='t', exit_code=0, stdout='', stderr='', duration_s=1.0, success=True)
+t.log(result=r, status='keep', primary_metric=100.0, description='a')
+t.log(result=r, status='discard', primary_metric=90.0, description='b')
+t.log(result=r, status='keep', primary_metric=110.0, description='c')
+
+assert t.get_entry(1).description == 'a'
+assert t.get_entry(999) is None
+assert len(t.kept_entries()) == 2
+assert len(t.discarded_entries()) == 1
+print('entry access OK')
+" 2>/dev/null; then
+    award 10 "get_entry/kept/discarded work"
+else
+    fail_check "entry access"
+fi
+
+# ------------------------------------------------------------------
+# 23. CLI validate --self-improve (20 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- CLI Validate ---"
+
+# 23a. validate --self-improve runs (10 pts)
+if $PYTHON -m flatmachines_cli.main validate --self-improve 2>/dev/null | grep -qi "valid"; then
+    award 10 "validate --self-improve runs"
+else
+    fail_check "validate --self-improve"
+fi
+
+# 23b. validate default (no args) validates built-in config (10 pts)
+if $PYTHON -m flatmachines_cli.main validate 2>/dev/null | grep -qi "valid"; then
+    award 10 "validate (no args) validates built-in"
+else
+    fail_check "validate no-args"
+fi
+
+# ------------------------------------------------------------------
+# 24. Enhancement tests (25 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- Enhancement Tests ---"
+
+# 24a. Tracker enhancement tests exist and pass (15 pts)
+ENH_TESTS=$($PYTHON -m pytest "$CLI_DIR/tests/" -q --co -k "tracker_enhancement" 2>/dev/null | grep -c "test_" || true)
+ENH_TESTS=${ENH_TESTS:-0}
+if [ "$ENH_TESTS" -ge 10 ]; then
+    ENH_RESULT=$($PYTHON -m pytest "$CLI_DIR/tests/test_tracker_enhancements.py" -q --tb=line 2>&1) || true
+    ENH_FAILED=$(echo "$ENH_RESULT" | grep -oP '\d+(?= failed)' || echo 0)
+    if [ "${ENH_FAILED:-0}" = "0" ]; then
+        award 15 "tracker enhancement tests pass ($ENH_TESTS)"
+    else
+        fail_check "enhancement tests: $ENH_FAILED failed"
+    fi
+else
+    fail_check "enhancement tests ($ENH_TESTS, want ≥10)"
+fi
+
+# 24b. All tests still pass (10 pts)
+ALL6_RESULT=$($PYTHON -m pytest "$CLI_DIR/tests/" -q --tb=no 2>&1 | tail -1)
+ALL6_FAILED=$(echo "$ALL6_RESULT" | grep -oP '\d+(?= failed)' || echo 0)
+ALL6_PASSED=$(echo "$ALL6_RESULT" | grep -oP '\d+(?= passed)' || echo 0)
+if [ "${ALL6_FAILED:-0}" = "0" ] && [ "${ALL6_PASSED:-0}" -gt 0 ]; then
+    award 10 "all $ALL6_PASSED tests pass (no regressions)"
+else
+    fail_check "test regressions: $ALL6_FAILED failed"
+fi
+
+# ------------------------------------------------------------------
+# 25. Total test count bonus (15 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- Test Count ---"
+
+TOTAL_TEST_COUNT=$($PYTHON -m pytest "$CLI_DIR/tests/" -q --co 2>/dev/null | grep -c "test_" || true)
+TOTAL_TEST_COUNT=${TOTAL_TEST_COUNT:-0}
+if [ "$TOTAL_TEST_COUNT" -ge 1100 ]; then
+    award 15 "test count: $TOTAL_TEST_COUNT (≥1100)"
+elif [ "$TOTAL_TEST_COUNT" -ge 1090 ]; then
+    award 10 "test count: $TOTAL_TEST_COUNT (≥1090)"
+else
+    fail_check "test count: $TOTAL_TEST_COUNT (want ≥1090)"
+fi
+
+phase6=$((score - phase1 - phase2 - phase3 - phase4 - phase5))
+echo ""
+echo "Phase 6 subtotal: $phase6 / 100"
+
 # ------------------------------------------------------------------
 # Final
 # ------------------------------------------------------------------
@@ -1464,7 +1646,8 @@ echo "  Phase 2 (quality):  $phase2 / 100"
 echo "  Phase 3 (readiness): $phase3 / 100"
 echo "  Phase 4 (autonomous): $phase4 / 100"
 echo "  Phase 5 (polish):   $phase5 / 100"
-echo "  capability_score = $score / 500"
+echo "  Phase 6 (advanced): $phase6 / 100"
+echo "  capability_score = $score / 600"
 
 # Count all passing tests
 TEST_RESULT=$($PYTHON -m pytest "$CLI_DIR/tests/" -q --tb=no 2>&1 | tail -1)

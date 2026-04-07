@@ -1,8 +1,8 @@
 # Autoresearch Ideas — Self-Improving flatmachines_cli
 
-## Status: 400/400, 4 phases complete, 1062 tests, 0 failures
+## Status: 500/500, 5 phases complete, 1084 tests, 0 failures
 
-## Completed (Runs 1-4)
+## Completed (Runs 1-6)
 - [x] experiment.py — ExperimentTracker with run/log/metrics/archive/persist/noise_floor
 - [x] improve.py — SelfImprover + SelfImproveHooks action handlers
 - [x] config/self_improve.yml — 8-state FlatMachine improvement loop
@@ -13,18 +13,12 @@
 - [x] Integration tests (24) + unit tests (86) = 110 new tests
 - [x] Self-benchmark on own codebase works
 - [x] todos.txt upstream notes
+- [x] profiles.yml — 3 profiles (default, fast, smart) for adapter flexibility
+- [x] validate_self_improve_config() — config validation API with error/warning detection
+- [x] Stress persistence tests — 100 entries roundtrip, file size checks
+- [x] 22 validation/profiles tests
 
-## High Priority — Deepen Quality
-
-### Profiles.yml for self-improvement
-- Create a default profiles.yml in config/ with multiple provider options
-- Users can swap adapters by changing one file
-- Test: load profile, verify model resolution
-
-### validate_self_improve_config() API
-- Standalone function to validate machine+agent configs before running
-- Check: agent refs resolve, states reachable, transitions valid, tools present
-- Would be useful as `flatmachines validate config/self_improve.yml`
+## High Priority — Next Phase
 
 ### `improve --run` end-to-end execution
 - Currently improve subcommand only runs baseline and prints summary
@@ -32,28 +26,39 @@
 - Wire SelfImproveHooks into CLIHooks for action dispatch
 - This is the "can it actually self-improve?" test
 
-### Benchmark Phase 5
-- profiles.yml exists and is valid
-- validate_self_improve_config() works as API
-- Machine config loads with FlatMachine (not just YAML parse)
-- Stress-test persistence (100+ entries)
-
-## Medium Priority — Polish
-
-### Error message improvements
-- When benchmark fails: show truncated output in improve command
-- When agent config not found: suggest creating one
-- When profile not found: list available profiles
-
-### improve REPL command enhancements  
-- `improve status` — show current session stats
-- `improve history` — show experiment history
-- `improve run` — start improvement loop from REPL
-
 ### ExperimentTracker enhancements
 - `tracker.diff(entry1, entry2)` — compare two experiment results
 - `tracker.rollback_to(experiment_id)` — git reset to specific experiment
 - `tracker.export_csv()` — export history for analysis
+- `tracker.best()` — convenience to get the best result
+
+### Error message quality
+- When benchmark fails: show truncated output in improve command
+- When agent config not found: suggest creating one
+- When profile not found: list available profiles
+- Helpful messages when validate catches errors
+
+### improve REPL command enhancements  
+- `improve status` — show current session stats
+- `improve history` — show experiment history table
+- `improve run` — start improvement loop from REPL
+
+## Medium Priority — Polish
+
+### CLI validate subcommand
+- `flatmachines validate config/self_improve.yml` using validate_self_improve_config()
+- Pretty-print errors/warnings/info
+- Exit code 1 on errors, 0 on valid (even with warnings)
+
+### Config hot-reload for profiles
+- Watch profiles.yml for changes
+- Update model config without restarting machine
+- Useful during interactive improvement sessions
+
+### Documentation
+- README section for self-improvement feature
+- Quick-start guide: "set up profiles.yml → run improve"
+- Architecture diagram in context doc
 
 ## Low Priority — Future
 

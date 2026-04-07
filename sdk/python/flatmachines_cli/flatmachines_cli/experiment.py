@@ -435,6 +435,185 @@ class ExperimentTracker:
     # Alias
     confidence = confidence_score
 
+    # --- Convenience accessors ---
+
+    def best(self) -> Optional[ExperimentEntry]:
+        """Convenience alias for best_result()."""
+        return self.best_result()
+
+    def worst_result(self) -> Optional[ExperimentEntry]:
+        """Return the worst kept experiment entry (by primary metric)."""
+        kept = [e for e in self._history if e.status == "keep"]
+        if not kept:
+            return None
+        if self._direction == "higher":
+            return min(kept, key=lambda e: e.primary_metric)
+        else:
+            return max(kept, key=lambda e: e.primary_metric)
+
+    def diff(
+        self,
+        entry1: ExperimentEntry,
+        entry2: ExperimentEntry,
+    ) -> Dict[str, Any]:
+        """Compare two experiment entries and return differences.
+
+        Returns dict with:
+            metric_delta: change in primary metric
+            metric_pct: percentage change
+            duration_delta: change in duration
+            status_change: (status1, status2)
+            improved: bool — whether entry2 is better than entry1
+        """
+        delta = entry2.primary_metric - entry1.primary_metric
+        if entry1.primary_metric != 0:
+            pct = (delta / abs(entry1.primary_metric)) * 100
+        else:
+            pct = float("inf") if delta != 0 else 0.0
+
+        dur_delta = entry2.result.duration_s - entry1.result.duration_s
+
+        if self._direction == "higher":
+            improved = entry2.primary_metric > entry1.primary_metric
+        else:
+            improved = entry2.primary_metric < entry1.primary_metric
+
+        # Compare all metrics
+        all_metrics_1 = entry1.result.metrics
+        all_metrics_2 = entry2.result.metrics
+        metric_diffs = {}
+        for key in set(all_metrics_1) | set(all_metrics_2):
+            v1 = all_metrics_1.get(key, 0)
+            v2 = all_metrics_2.get(key, 0)
+            if v1 != v2:
+                metric_diffs[key] = {"from": v1, "to": v2, "delta": v2 - v1}
+
+        return {
+            "metric_delta": delta,
+            "metric_pct": round(pct, 2),
+            "duration_delta": round(dur_delta, 3),
+            "status_change": (entry1.status, entry2.status),
+            "improved": improved,
+            "metric_diffs": metric_diffs,
+            "entry1_id": entry1.experiment_id,
+            "entry2_id": entry2.experiment_id,
+        }
+
+    def export_csv(self, path: Optional[str] = None) -> str:
+        """Export experiment history to CSV format.
+
+        Args:
+            path: If provided, write CSV to this file.
+
+        Returns:
+            CSV string.
+        """
+        import csv
+        import io
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+
+        # Header
+        writer.writerow([
+            "id", "description", "status", "primary_metric",
+            "duration_s", "success", "tags", "timestamp",
+        ])
+
+        for entry in self._history:
+            writer.writerow([
+                entry.experiment_id,
+                entry.description,
+                entry.status,
+                entry.primary_metric,
+                entry.result.duration_s,
+                entry.result.success,
+                ";".join(entry.tags),
+                entry.timestamp,
+            ])
+
+        csv_str = buf.getvalue()
+
+        if path:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_text(csv_str)
+
+        return csv_str
+
+    def rollback_to(self, experiment_id: int) -> bool:
+        """Attempt to rollback to the state after a specific experiment.
+
+        Uses git log to find the commit for the given experiment_id,
+        then resets to that commit.
+
+        Args:
+            experiment_id: The experiment ID to rollback to.
+
+        Returns:
+            True if rollback succeeded, False otherwise.
+        """
+        # Find the entry
+        target = None
+        for e in self._history:
+            if e.experiment_id == experiment_id:
+                target = e
+                break
+
+        if target is None:
+            return False
+
+        if not self._git_enabled:
+            return False
+
+        # Find the commit for this experiment by searching git log
+        # Convention: commit message contains "Experiment #N" or the description
+        try:
+            result = subprocess.run(
+                ["git", "log", "--oneline", "--all"],
+                cwd=self._working_dir,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                return False
+
+            # Look for a commit mentioning this experiment
+            target_hash = None
+            for line in result.stdout.strip().split("\n"):
+                if f"#{experiment_id}" in line or (
+                    target.description and target.description[:40] in line
+                ):
+                    target_hash = line.split()[0]
+                    break
+
+            if target_hash is None:
+                return False
+
+            # Hard reset to that commit
+            reset = subprocess.run(
+                ["git", "reset", "--hard", target_hash],
+                cwd=self._working_dir,
+                capture_output=True,
+            )
+            return reset.returncode == 0
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return False
+
+    def get_entry(self, experiment_id: int) -> Optional[ExperimentEntry]:
+        """Get an experiment entry by ID."""
+        for e in self._history:
+            if e.experiment_id == experiment_id:
+                return e
+        return None
+
+    def kept_entries(self) -> List[ExperimentEntry]:
+        """Return all kept experiments."""
+        return [e for e in self._history if e.status == "keep"]
+
+    def discarded_entries(self) -> List[ExperimentEntry]:
+        """Return all discarded experiments."""
+        return [e for e in self._history if e.status == "discard"]
+
     # --- Git operations ---
 
     def git_commit(self, message: str = "experiment") -> bool:
