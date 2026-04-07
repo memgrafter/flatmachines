@@ -46,7 +46,7 @@ class InterpreterHooks(MachineHooks):
         if state_name == "interpret":
             stmt = context.get("statement", "")
             print(f"\n{'─' * 60}")
-            print(f"  {_cyan('Interpreting')}: {_bold(stmt[:80])}")
+            print(f"  {_cyan('Interpreting')}: {_bold(stmt)}")
             print(f"{'─' * 60}")
         return context
 

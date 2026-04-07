@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Let Ctrl-C propagate cleanly
+trap 'echo ""; echo "Cancelled."; exit 130' INT
+
 # --- Configuration ---
 VENV_PATH=".venv"
 
@@ -114,9 +117,11 @@ uv pip install --python "$VENV_PATH/bin/python" -e "$PYTHON_DIR"
 # 4. Build run arguments
 RUN_ARGS=("$STATEMENT")
 
-if [ -n "$WORKING_DIR" ]; then
-    RUN_ARGS+=("-w" "$WORKING_DIR")
+# Default working dir to the script's directory, not cwd (which is python/ after cd)
+if [ -z "$WORKING_DIR" ]; then
+    WORKING_DIR="$SCRIPT_DIR"
 fi
+RUN_ARGS+=("-w" "$WORKING_DIR")
 
 # 5. Run
 echo "🚀 Interpreting..."
