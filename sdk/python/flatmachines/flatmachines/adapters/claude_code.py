@@ -598,6 +598,13 @@ class ClaudeCodeExecutor(AgentExecutor):
                 stderr=asyncio.subprocess.PIPE,
                 cwd=working_dir,
                 env=os.environ.copy(),
+                # asyncio's default StreamReader limit is 64KiB — designed to
+                # guard against untrusted network peers sending endless lines.
+                # For a subprocess we spawned ourselves it's just a footgun;
+                # a single NDJSON event with a large tool result easily exceeds
+                # 64KiB and triggers LimitOverrunError. No pre-alloc cost:
+                # the internal bytearray grows dynamically, limit is just a cap.
+                limit=1024 * 1024 * 1024,
             )
             self._process = proc
 
