@@ -633,6 +633,26 @@ As users gain confidence, they can:
 - [ ] **11. Multi-domain evaluation** — `EvaluationSpec.benchmark_commands: List[str]` with aggregated scoring. Most users have one benchmark today.
 - [ ] **12. Ensemble of archive** — Best-per-task from all surviving variants. Requires stored predictions, not just scores.
 
+#### Phase 3 Attainability Assessment
+
+**Item 9 — Agent edits improve.py / self_improve.yml** · *Trivially attainable*
+
+Just add those paths to `editable_patterns`. The infrastructure already supports it — worktree isolation protects the main tree, archive preserves all variants, and the evaluation firewall prevents the agent from touching the benchmark. The risk is the agent breaking the loop mid-run. Mitigation: run the modified loop in the *next* generation (not the current one), which the worktree+archive design already does naturally. Could ship in a day.
+
+**Item 10 — Agent edits parent selection** · *Attainable with guardrail*
+
+`archive.py`'s `select_parent()` is ~30 lines of Python. The agent could edit it, and the next generation would use the modified selector. The danger: the agent writes a selector that always picks itself (fixed point). Mitigation: validate that the selector touches at least 2 candidates, or keep a "fallback random" that fires 10% of the time regardless. Medium effort — needs the safety check, not the plumbing.
+
+**Item 11 — Multi-domain evaluation** · *Attainable, unclear ROI*
+
+`EvaluationSpec` already has `benchmark_command` as a string — making it `benchmark_commands: List[str]` with averaged scores is straightforward. The harder part: what's the aggregation? Weighted average? All-must-improve? Pareto? That's a design decision, not an engineering one. Could prototype with simple average in a day.
+
+**Item 12 — Ensemble of archive** · *Research-grade, weeks of work*
+
+Requires storing per-task predictions (not just aggregate scores), a routing mechanism to pick best-agent-per-task at inference time, and evaluation of the ensemble separately from individual agents. HyperAgents stores full prediction CSVs per domain. For flatmachines_cli, the equivalent would be storing benchmark outputs (not just METRIC lines) in the archive. Meaningful but weeks of work, and the use case is narrow until the archive has 10+ diverse variants to ensemble over.
+
+**Recommended sequence:** 9 → 10 → 11 → 12. Items 9 and 10 close the self-referential loop with minimal effort. Item 11 is easy but niche. Item 12 is real research — defer until someone has a multi-generation archive worth ensembling.
+
 Each phase is independently valuable. Phase 1 alone makes the current loop significantly more robust. Phase 2 transforms it from a hill-climber into an evolutionary search. Phase 3 makes it truly self-referential.
 
 ---
