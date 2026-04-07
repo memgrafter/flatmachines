@@ -1,0 +1,50 @@
+spec: flatprofiles
+spec_version: "2.5.0"
+
+data:
+  model_profiles:
+    # Default profile — used by all self-improvement agents.
+    # Change this to swap providers without modifying agent configs.
+    #
+    # Examples for different adapters:
+    #
+    #   OpenAI API:
+    #     default: { provider: openai, name: gpt-5-mini }
+    #
+    #   Anthropic API:
+    #     default: { provider: anthropic, name: claude-sonnet-4-20250514 }
+    #
+    #   OpenAI Codex (subscription):
+    #     default:
+    #       provider: openai-codex
+    #       name: codex
+    #       backend: codex
+    #       base_url: https://chatgpt.com/backend-api
+    #       oauth:
+    #         provider: openai-codex
+    #         auth_file: ~/.pi/agent/auth.json
+    #
+    #   Local / ollama:
+    #     default: { provider: ollama, name: llama3 }
+    #
+    default:
+      provider: openai
+      name: gpt-5-mini
+
+    # Fast profile — for analysis tasks that need quick turnaround
+    fast:
+      provider: openai
+      name: gpt-5-mini
+      temperature: 0.3
+
+    # Smart profile — for complex implementation tasks
+    smart:
+      provider: anthropic
+      name: claude-sonnet-4-20250514
+      temperature: 0.5
+
+  # Which profile to use when an agent says "default"
+  default: default
+
+  # Uncomment to force all agents to use one profile (overrides per-agent model)
+  # override: smart

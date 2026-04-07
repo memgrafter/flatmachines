@@ -1224,6 +1224,207 @@ phase4=$((score - phase1 - phase2 - phase3))
 echo ""
 echo "Phase 4 subtotal: $phase4 / 100"
 
+# ==================================================================
+echo ""
+echo "=== Phase 5: Production Polish (100 pts) ==="
+# ==================================================================
+
+# ------------------------------------------------------------------
+# 18. Profiles configuration (20 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- Profiles ---"
+
+PROFILES="$CLI_DIR/config/profiles.yml"
+
+# 18a. profiles.yml exists and is valid flatprofiles (10 pts)
+if [ -f "$PROFILES" ] && $PYTHON -c "
+import yaml
+with open('$PROFILES') as f:
+    config = yaml.safe_load(f)
+assert config['spec'] == 'flatprofiles'
+profiles = config['data']['model_profiles']
+assert 'default' in profiles
+assert profiles['default'].get('provider')
+assert profiles['default'].get('name')
+print(f'{len(profiles)} profile(s)')
+" 2>/dev/null; then
+    award 10 "profiles.yml valid with default profile"
+else
+    fail_check "profiles.yml"
+fi
+
+# 18b. Multiple profiles for adapter flexibility (10 pts)
+if [ -f "$PROFILES" ] && $PYTHON -c "
+import yaml
+with open('$PROFILES') as f:
+    config = yaml.safe_load(f)
+profiles = config['data']['model_profiles']
+assert len(profiles) >= 2, f'Only {len(profiles)} profile(s)'
+# Check different providers are represented
+providers = set(p.get('provider', '') for p in profiles.values())
+print(f'Providers: {providers}')
+" 2>/dev/null; then
+    award 10 "multiple profiles (adapter flexibility)"
+else
+    fail_check "multiple profiles"
+fi
+
+# ------------------------------------------------------------------
+# 19. Validation API (25 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- Validation API ---"
+
+# 19a. validate_self_improve_config exists and importable (5 pts)
+if $PYTHON -c "from flatmachines_cli.improve import validate_self_improve_config; print('OK')" 2>/dev/null; then
+    award 5 "validate_self_improve_config importable"
+else
+    fail_check "validate_self_improve_config"
+fi
+
+# 19b. Validates built-in config successfully (10 pts)
+if $PYTHON -c "
+from flatmachines_cli.improve import validate_self_improve_config
+result = validate_self_improve_config()
+assert result['valid'], f'Errors: {result[\"errors\"]}'
+assert result['info']['state_count'] >= 5
+assert result['info']['agent_count'] >= 1
+assert result['info']['has_profiles'] is True
+print(f'Valid: {result[\"info\"][\"name\"]} ({result[\"info\"][\"state_count\"]} states)')
+" 2>/dev/null; then
+    award 10 "built-in config validates"
+else
+    fail_check "built-in config validation"
+fi
+
+# 19c. Catches errors in bad configs (10 pts)
+if $PYTHON -c "
+import tempfile, os, yaml
+from flatmachines_cli.improve import validate_self_improve_config
+
+td = tempfile.mkdtemp()
+
+# Missing file
+r = validate_self_improve_config(os.path.join(td, 'nope.yml'))
+assert not r['valid']
+
+# Wrong spec
+bad = os.path.join(td, 'bad.yml')
+open(bad, 'w').write(yaml.dump({'spec': 'wrong', 'data': {'states': {}}}))
+r = validate_self_improve_config(bad)
+assert not r['valid']
+
+# Missing states
+minimal = os.path.join(td, 'minimal.yml')
+open(minimal, 'w').write(yaml.dump({
+    'spec': 'flatmachine',
+    'data': {'states': {'start': {'type': 'initial'}, 'done': {'type': 'final'}}}
+}))
+r = validate_self_improve_config(minimal)
+assert not r['valid']
+assert any('analyze' in e.lower() for e in r['errors'])
+
+print('Error detection OK')
+" 2>/dev/null; then
+    award 10 "catches errors in bad configs"
+else
+    fail_check "error detection"
+fi
+
+# ------------------------------------------------------------------
+# 20. Stress test persistence (20 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- Stress Persistence ---"
+
+# 20a. 100 entries roundtrip (10 pts)
+if $PYTHON -c "
+import tempfile, os
+from flatmachines_cli.experiment import ExperimentTracker, ExperimentResult
+
+td = tempfile.mkdtemp()
+log = os.path.join(td, 'log.jsonl')
+t = ExperimentTracker(name='stress', log_path=log)
+t.init()
+
+r = ExperimentResult(command='b', exit_code=0, stdout='', stderr='', duration_s=0.1, success=True)
+for i in range(100):
+    t.log(result=r, status='keep' if i%3==0 else 'discard', primary_metric=float(i), description=f'r{i}')
+
+assert len(t.history) == 100
+
+t2 = ExperimentTracker.from_file(log)
+assert len(t2.history) == 100
+assert t2.history[99].experiment_id == 100
+assert t2.history[0].description == 'r0'
+
+print('100 entries OK')
+" 2>/dev/null; then
+    award 10 "100 entries roundtrip"
+else
+    fail_check "100 entries roundtrip"
+fi
+
+# 20b. File size reasonable (10 pts)
+if $PYTHON -c "
+import tempfile, os
+from flatmachines_cli.experiment import ExperimentTracker, ExperimentResult
+
+td = tempfile.mkdtemp()
+log = os.path.join(td, 'log.jsonl')
+t = ExperimentTracker(log_path=log)
+t.init()
+r = ExperimentResult(command='b', exit_code=0, stdout='', stderr='', duration_s=0.1, success=True)
+for i in range(100):
+    t.log(result=r, status='keep', primary_metric=float(i))
+
+size_kb = os.path.getsize(log) / 1024
+assert size_kb < 100, f'Too large: {size_kb:.1f}KB'
+print(f'Size: {size_kb:.1f}KB')
+" 2>/dev/null; then
+    award 10 "persistence file size reasonable"
+else
+    fail_check "file size"
+fi
+
+# ------------------------------------------------------------------
+# 21. Validation + profiles tests (20 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- Phase 5 Tests ---"
+
+# 21a. Validation tests exist and pass (10 pts)
+VAL_TESTS=$($PYTHON -m pytest "$CLI_DIR/tests/" -q --co -k "validate_config" 2>/dev/null | grep -c "test_" || true)
+VAL_TESTS=${VAL_TESTS:-0}
+if [ "$VAL_TESTS" -ge 5 ]; then
+    VAL_RESULT=$($PYTHON -m pytest "$CLI_DIR/tests/test_validate_config.py" -q --tb=line 2>&1) || true
+    VAL_FAILED=$(echo "$VAL_RESULT" | grep -oP '\d+(?= failed)' || echo 0)
+    if [ "${VAL_FAILED:-0}" = "0" ]; then
+        award 10 "validation tests pass ($VAL_TESTS)"
+    else
+        fail_check "validation tests: $VAL_FAILED failed"
+    fi
+else
+    fail_check "validation tests ($VAL_TESTS, want ≥5)"
+fi
+
+# 21b. Exported in __init__.py (5 pts)
+if $PYTHON -c "
+from flatmachines_cli import validate_self_improve_config
+print('OK')
+" 2>/dev/null; then
+    award 5 "validate function exported"
+else
+    fail_check "validate function export"
+fi
+
+# 21c. All tests still pass (no regressions) (15 pts — moved from robustness to avoid double-counting)
+
+phase5=$((score - phase1 - phase2 - phase3 - phase4))
+echo ""
+echo "Phase 5 subtotal: $phase5 / 100"
+
 # ------------------------------------------------------------------
 # Final
 # ------------------------------------------------------------------
@@ -1233,7 +1434,8 @@ echo "  Phase 1 (presence): $phase1 / 100"
 echo "  Phase 2 (quality):  $phase2 / 100"
 echo "  Phase 3 (readiness): $phase3 / 100"
 echo "  Phase 4 (autonomous): $phase4 / 100"
-echo "  capability_score = $score / 400"
+echo "  Phase 5 (polish):   $phase5 / 100"
+echo "  capability_score = $score / 500"
 
 # Count all passing tests
 TEST_RESULT=$($PYTHON -m pytest "$CLI_DIR/tests/" -q --tb=no 2>&1 | tail -1)

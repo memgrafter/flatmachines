@@ -280,3 +280,173 @@ class SelfImproveHooks:
         context["improvement_history"] = history
 
         return context
+
+
+def validate_self_improve_config(
+    config_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Validate a self-improvement machine config and its agent references.
+
+    Checks:
+    - Machine config is valid flatmachine YAML
+    - Has required states (analyze, implement, evaluate)
+    - Has initial and final states
+    - All transitions target existing states
+    - Agent references resolve to existing files
+    - Agent configs are valid flatagent YAML
+    - Agents use profile-based model (adapter-agnostic)
+    - Profiles.yml exists (optional warning)
+
+    Args:
+        config_path: Path to the machine YAML. If None, uses the
+                     built-in self_improve.yml.
+
+    Returns:
+        Dict with:
+            valid: bool
+            errors: list of error strings
+            warnings: list of warning strings
+            info: dict of parsed config summary
+    """
+    import yaml
+
+    errors: List[str] = []
+    warnings: List[str] = []
+    info: Dict[str, Any] = {}
+
+    # Resolve config path
+    if config_path is None:
+        config_path = str(
+            Path(__file__).parent.parent / "config" / "self_improve.yml"
+        )
+
+    config_dir = Path(config_path).parent
+
+    # Load machine config
+    try:
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+    except FileNotFoundError:
+        errors.append(f"Config file not found: {config_path}")
+        return {"valid": False, "errors": errors, "warnings": warnings, "info": info}
+    except yaml.YAMLError as e:
+        errors.append(f"Invalid YAML: {e}")
+        return {"valid": False, "errors": errors, "warnings": warnings, "info": info}
+
+    # Check spec
+    if config.get("spec") != "flatmachine":
+        errors.append(f"Expected spec: flatmachine, got: {config.get('spec')}")
+
+    data = config.get("data", {})
+    info["name"] = data.get("name", "unnamed")
+    info["spec_version"] = config.get("spec_version", "?")
+
+    # Check states
+    states = data.get("states", {})
+    info["state_count"] = len(states)
+    state_names = set(states.keys())
+
+    # Required state types
+    initial_states = [s for s, d in states.items() if d.get("type") == "initial"]
+    final_states = [s for s, d in states.items() if d.get("type") == "final"]
+    if not initial_states:
+        errors.append("No initial state found")
+    if not final_states:
+        errors.append("No final state found")
+    if len(initial_states) > 1:
+        warnings.append(f"Multiple initial states: {initial_states}")
+
+    # Required state patterns
+    has_analyze = any(
+        "analy" in s.lower() or "assess" in s.lower() or "benchmark" in s.lower()
+        for s in state_names
+    )
+    has_implement = any(
+        "implement" in s.lower() or "work" in s.lower() or "code" in s.lower()
+        for s in state_names
+    )
+    has_evaluate = any(
+        "eval" in s.lower() or "check" in s.lower() or "test" in s.lower()
+        for s in state_names
+    )
+
+    if not has_analyze:
+        errors.append("No analyze/benchmark state found")
+    if not has_implement:
+        errors.append("No implement/work state found")
+    if not has_evaluate:
+        errors.append("No evaluate/check state found")
+
+    # Transition validation
+    for sname, sdata in states.items():
+        for t in sdata.get("transitions", []):
+            target = t.get("to", "")
+            if target and target not in state_names:
+                errors.append(
+                    f"State '{sname}' transitions to '{target}' which doesn't exist"
+                )
+
+    # Agent references
+    agents = data.get("agents", {})
+    info["agent_count"] = len(agents)
+
+    for aname, aref in agents.items():
+        if isinstance(aref, str):
+            agent_path = config_dir / aref
+            if not agent_path.exists():
+                errors.append(f"Agent '{aname}' references '{aref}' — file not found")
+            else:
+                # Validate agent config
+                try:
+                    with open(agent_path) as f:
+                        agent_config = yaml.safe_load(f)
+                    if agent_config.get("spec") != "flatagent":
+                        errors.append(
+                            f"Agent '{aname}' has spec={agent_config.get('spec')}, expected flatagent"
+                        )
+                    # Check model is profile-based
+                    model = agent_config.get("data", {}).get("model")
+                    if isinstance(model, dict):
+                        warnings.append(
+                            f"Agent '{aname}' uses hardcoded model config — "
+                            "consider using a profile name for adapter flexibility"
+                        )
+                except Exception as e:
+                    errors.append(f"Agent '{aname}' config error: {e}")
+
+    # Used agents are declared
+    used_agents = set()
+    for sdata in states.values():
+        a = sdata.get("agent")
+        if a:
+            used_agents.add(a)
+    undeclared = used_agents - set(agents.keys())
+    if undeclared:
+        errors.append(f"States reference undeclared agents: {undeclared}")
+
+    # Profiles.yml check (optional)
+    profiles_path = config_dir / "profiles.yml"
+    if profiles_path.exists():
+        info["has_profiles"] = True
+    else:
+        warnings.append("No profiles.yml found — agents will use litellm defaults")
+        info["has_profiles"] = False
+
+    # Budget control
+    has_budget = (
+        data.get("max_steps") is not None
+        or "max_iterations" in data.get("context", {})
+        or any("budget" in s.lower() for s in state_names)
+    )
+    if not has_budget:
+        warnings.append("No budget control (max_steps, max_iterations, or check_budget state)")
+
+    info["errors"] = len(errors)
+    info["warnings"] = len(warnings)
+
+    return {
+        "valid": len(errors) == 0,
+        "errors": errors,
+        "warnings": warnings,
+        "info": info,
+    }
