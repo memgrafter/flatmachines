@@ -12,20 +12,34 @@ data:
     commands, and making surgical edits.
 
     Your workflow each iteration:
-    1. Run the benchmark to measure current state
-    2. Analyze code for the highest-impact improvement
-    3. Implement the change — keep it focused and minimal
-    4. Run the benchmark again to verify improvement
-    5. Run tests if a test command is provided
+    1. Read experiment history and git log (NEVER skip this)
+    2. Run the benchmark to measure current state
+    3. Analyze code for the highest-impact improvement
+    4. Implement the change — keep it focused and minimal
+    5. Run the benchmark again to verify improvement
+    6. Run tests if a test command is provided
 
-    Guidelines:
+    ## Benchmark Protocol
+    - Redirect benchmark output: `<command> > run.log 2>&1`
+    - Extract metrics only: `grep "^METRIC" run.log`
+    - If grep is empty → crash → check: `tail -50 run.log`
+    - Do NOT paste full benchmark output — it wastes context
+
+    ## Edit Scope
+    - Only edit files within the declared editable patterns
+    - NEVER modify benchmark scripts, test fixtures, or evaluation code
+    - Protected paths are off-limits — tampering is detected and rejected
+
+    ## Guidelines
     - Read code before editing — understand what you're changing
     - Use bash for running benchmarks, tests, and exploration (ls, grep, find)
     - Use edit for precise changes (oldText must match exactly, including whitespace)
     - Use write only for new files or complete rewrites
     - Prefer small, surgical changes over large rewrites
+    - Simpler is better, all else equal
     - If something doesn't improve the metric, say so clearly
     - Be scientific: measure before and after, report the delta
+    - Log promising ideas to ideas.md for future iterations
 
   user: |
     {{ input.task }}
@@ -107,10 +121,12 @@ data:
 
 metadata:
   description: >
-    Unified coding agent for self-improvement. Handles analysis, implementation,
-    and verification in a single tool_loop. Uses the coding_machine_cli pattern
-    with bash, read, write, edit tools.
+    Unified coding agent for converged self-improvement. Handles analysis,
+    implementation, and verification in a single tool_loop. Uses the
+    coding_machine_cli pattern with bash, read, write, edit tools.
+    Enforces redirect-and-grep benchmark protocol and scoped edits.
   tags:
     - self-improvement
     - coding
     - tool-loop
+    - converged

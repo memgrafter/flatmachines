@@ -4,28 +4,21 @@ Self-improvement orchestration for flatmachines_cli.
 Provides the SelfImprover class that coordinates the self-improvement loop,
 and action handlers for the self_improve.yml FlatMachine config.
 
-The self-improvement pattern:
-1. Analyze: Run benchmarks, identify improvement opportunities
-2. Implement: Make changes using a coding agent (any adapter)
-3. Evaluate: Run benchmarks again, compare to baseline
-4. Archive: Keep improvements, revert regressions
-
-This module is the "brain" that connects experiment tracking
-(experiment.py) with the FlatMachine execution engine.
+Converged design (autoresearch inner loop + HyperAgents outer loop):
+- Inner loop: evaluation firewall, scoped edits, fail-fast checks, log-redirect
+- Outer loop: archive of all variants, worktree isolation, staged eval, parent selection
 
 Usage:
+    # Simple (backward-compatible):
     improver = SelfImprover(
         target_dir="./my_project",
         benchmark_command="pytest tests/ -q",
-        metric_name="test_count",
-        direction="higher",
     )
 
-    # Run a single improvement iteration
-    result = await improver.run_iteration()
-
-    # Run the full improvement loop via FlatMachine
-    await improver.run_loop(max_iterations=10)
+    # Converged (with EvaluationSpec + Archive):
+    from flatmachines_cli.evaluation import EvaluationSpec
+    spec = EvaluationSpec(benchmark_command="bash bench.sh", protected_paths=("bench.sh",))
+    improver = SelfImprover(target_dir="./my_project", eval_spec=spec)
 """
 
 from __future__ import annotations
@@ -37,6 +30,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from .experiment import ExperimentTracker, ExperimentResult, parse_metrics
+from .evaluation import EvaluationSpec, EvaluationRunner, EvalResult
+from .archive import Archive, ArchiveEntry
+from .isolation import WorktreeIsolation
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +41,14 @@ class SelfImprover:
     """
     Coordinates self-improvement using experiment tracking.
 
-    Designed to be used standalone or as the backing logic for
-    the self_improve.yml FlatMachine states.
+    Supports two modes:
+    1. Simple (backward-compatible): pass benchmark_command, metric_name, etc.
+    2. Converged: pass an EvaluationSpec for full inner/outer loop support.
+
+    When eval_spec is provided, the converged features activate:
+    - EvaluationRunner handles checks, staged eval, log-redirect
+    - Archive tracks all generations (not just the best)
+    - WorktreeIsolation provides per-generation isolation
     """
 
     def __init__(
@@ -59,6 +61,9 @@ class SelfImprover:
         log_path: Optional[str] = None,
         working_dir: Optional[str] = None,
         git_enabled: bool = False,
+        eval_spec: Optional[EvaluationSpec] = None,
+        archive_path: Optional[str] = None,
+        enable_isolation: bool = False,
     ):
         self._target_dir = os.path.abspath(target_dir)
         self._benchmark_command = benchmark_command
@@ -66,10 +71,20 @@ class SelfImprover:
         self._working_dir = working_dir or os.getcwd()
         self._git_enabled = git_enabled
 
+        # Converged: EvaluationSpec (if not provided, build from simple params)
+        if eval_spec is not None:
+            self._eval_spec = eval_spec
+        else:
+            self._eval_spec = EvaluationSpec(
+                benchmark_command=benchmark_command,
+                metric_name=metric_name,
+                direction=direction,
+            )
+
         self._tracker = ExperimentTracker(
             name=f"self-improve-{Path(target_dir).name}",
-            metric_name=metric_name,
-            direction=direction,
+            metric_name=self._eval_spec.metric_name,
+            direction=self._eval_spec.direction,
             log_path=log_path or str(
                 Path(self._target_dir) / ".self_improve" / "experiments.jsonl"
             ),
@@ -77,6 +92,23 @@ class SelfImprover:
             git_enabled=git_enabled,
         )
         self._tracker.initialize()
+
+        # Converged: Archive
+        _archive_path = archive_path or str(
+            Path(self._target_dir) / ".self_improve" / "archive.jsonl"
+        )
+        self._archive = Archive(path=_archive_path)
+
+        # Converged: Evaluation runner
+        self._eval_runner = EvaluationRunner(
+            spec=self._eval_spec,
+            working_dir=self._working_dir,
+        )
+
+        # Converged: Worktree isolation (opt-in)
+        self._isolation: Optional[WorktreeIsolation] = None
+        if enable_isolation:
+            self._isolation = WorktreeIsolation(repo_dir=self._target_dir)
 
     @property
     def tracker(self) -> ExperimentTracker:
@@ -91,11 +123,27 @@ class SelfImprover:
     def benchmark_command(self) -> str:
         return self._benchmark_command
 
+    @property
+    def eval_spec(self) -> EvaluationSpec:
+        return self._eval_spec
+
+    @property
+    def archive(self) -> Archive:
+        return self._archive
+
+    @property
+    def eval_runner(self) -> EvaluationRunner:
+        return self._eval_runner
+
+    @property
+    def isolation(self) -> Optional[WorktreeIsolation]:
+        return self._isolation
+
     def run_benchmark(self) -> ExperimentResult:
         """Run the benchmark command and return results with parsed metrics."""
         return self._tracker.run_command(
             self._benchmark_command,
-            timeout=300.0,
+            timeout=self._eval_spec.timeout_s,
         )
 
     def run_tests(self) -> ExperimentResult:
@@ -278,6 +326,307 @@ class SelfImproveHooks:
             "hypothesis": context.get("last_hypothesis", "")[:200],
         })
         context["improvement_history"] = history
+
+        return context
+
+
+class ConvergedSelfImproveHooks:
+    """Action handlers for the converged two-loop self_improve.yml.
+
+    Handles both outer loop (archive, worktree, parent selection) and
+    inner loop (evaluation firewall, checks, staged eval) actions.
+
+    Actions handled:
+    - select_parent_from_archive: pick next parent generation
+    - create_isolated_worktree: set up worktree from parent
+    - run_checks: fail-fast compilation/lint check
+    - evaluate_with_staging: staged eval (checks → quick → full)
+    - commit_inner_improvement: commit changes in worktree
+    - revert_inner_changes: reset worktree to clean state
+    - extract_diff_and_archive: save diff and add to archive
+    - cleanup_isolated_worktree: remove worktree
+    - write_archive_summary: write TSV summary for agent context
+
+    Backward-compatible: also handles the original simple actions
+    (evaluate_improvement, archive_result, revert_changes).
+    """
+
+    def __init__(self, improver: SelfImprover):
+        self._improver = improver
+        self._last_eval_result: Optional[EvalResult] = None
+        self._simple_hooks = SelfImproveHooks(improver)
+
+    def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Dispatch to the appropriate handler."""
+        handlers = {
+            # Outer loop actions
+            "select_parent_from_archive": self._select_parent,
+            "create_isolated_worktree": self._create_worktree,
+            "extract_diff_and_archive": self._extract_and_archive,
+            "cleanup_isolated_worktree": self._cleanup_worktree,
+            "write_archive_summary": self._write_summary,
+            # Inner loop actions
+            "run_checks": self._run_checks,
+            "evaluate_with_staging": self._evaluate_staged,
+            "commit_inner_improvement": self._commit_inner,
+            "revert_inner_changes": self._revert_inner,
+            # Backward-compatible simple actions
+            "evaluate_improvement": self._simple_hooks._evaluate,
+            "archive_result": self._simple_hooks._archive,
+            "revert_changes": self._simple_hooks._revert,
+        }
+
+        handler = handlers.get(action_name)
+        if handler:
+            return handler(context)
+        return context
+
+    # --- Outer Loop Actions ---
+
+    def _select_parent(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Select next parent from archive using configured strategy."""
+        archive = self._improver.archive
+        method = context.get("parent_selection", "best")
+
+        if archive.size == 0:
+            # No archive yet → this is generation 0 (baseline)
+            context["parent_id"] = None
+            context["parent_commit"] = None
+            return context
+
+        parent = archive.select_parent(method=method)
+        if parent is None:
+            context["parent_id"] = None
+            context["parent_commit"] = None
+        else:
+            context["parent_id"] = parent.generation_id
+            context["parent_commit"] = parent.metadata.get("commit")
+
+        return context
+
+    def _create_worktree(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Create an isolated worktree for this generation."""
+        isolation = self._improver.isolation
+        generation = context.get("generation", 0)
+
+        if isolation is None:
+            # No isolation → work in-place (backward-compatible)
+            context["worktree_path"] = self._improver.target_dir
+            return context
+
+        parent_commit = context.get("parent_commit")
+        try:
+            wt_path = isolation.create_worktree(generation, parent_commit)
+
+            # Apply ancestor patches if parent has lineage
+            parent_id = context.get("parent_id")
+            if parent_id is not None:
+                patches = self._improver.archive.get_patch_chain(parent_id)
+                if patches:
+                    ok, err = isolation.apply_patches(wt_path, patches)
+                    if not ok:
+                        logger.warning("Failed to apply patches: %s", err)
+
+            context["worktree_path"] = wt_path
+        except RuntimeError as e:
+            logger.error("Failed to create worktree: %s", e)
+            context["worktree_path"] = self._improver.target_dir
+            context["worktree_error"] = str(e)
+
+        return context
+
+    def _extract_and_archive(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract diff from worktree and add generation to archive."""
+        generation = context.get("generation", 0)
+        isolation = self._improver.isolation
+        wt_path = context.get("worktree_path", self._improver.target_dir)
+
+        # Extract diff
+        patch_file = ""
+        if isolation is not None:
+            try:
+                patch_file = isolation.extract_diff(wt_path, generation)
+            except Exception as e:
+                logger.warning("Failed to extract diff: %s", e)
+
+        # Add to archive (ALL generations, not just winners)
+        score = context.get("best_score")
+        scores = {}
+        if self._last_eval_result and self._last_eval_result.metrics:
+            scores = self._last_eval_result.metrics
+
+        entry = self._improver.archive.add(
+            parent_id=context.get("parent_id"),
+            patch_file=patch_file,
+            score=score,
+            scores=scores,
+            status="evaluated" if score is not None else "failed",
+            metadata={
+                "description": context.get("last_hypothesis", ""),
+                "inner_iterations": context.get("inner_iteration", 0),
+                "commit": context.get("last_commit"),
+            },
+            inner_iterations=context.get("inner_iteration", 0),
+        )
+
+        # Update context
+        context["generation"] = generation + 1
+        context["archive_size"] = self._improver.archive.size
+        context["inner_iteration"] = 0
+        context["consecutive_failures"] = 0
+
+        # Track best across all generations
+        archive_best = self._improver.archive.best_score()
+        if archive_best is not None:
+            context["best_generation"] = self._improver.archive.best_entry().generation_id  # type: ignore
+
+        # Write summary for agent context
+        self._write_summary(context)
+
+        return context
+
+    def _cleanup_worktree(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Remove the worktree for the finished generation."""
+        isolation = self._improver.isolation
+        generation = context.get("generation", 1) - 1  # Just finished this gen
+
+        if isolation is not None:
+            isolation.cleanup_worktree(generation)
+
+        context["worktree_path"] = None
+        return context
+
+    def _write_summary(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Write archive summary TSV for agent to read."""
+        archive = self._improver.archive
+        summary = archive.summary_tsv()
+        summary_path = Path(self._improver.target_dir) / ".self_improve" / "archive_summary.tsv"
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(summary)
+        return context
+
+    # --- Inner Loop Actions ---
+
+    def _run_checks(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Run fail-fast compilation/lint checks."""
+        wt_path = context.get("worktree_path", self._improver.target_dir)
+
+        # Use a runner pointed at the worktree
+        runner = EvaluationRunner(
+            spec=self._improver.eval_spec,
+            working_dir=wt_path,
+        )
+
+        # Tampering check first
+        clean, violated = runner.validate_no_tampering()
+        if not clean:
+            context["last_status"] = "tampering_detected"
+            context["violated_paths"] = violated
+            context["consecutive_failures"] = context.get("consecutive_failures", 0) + 1
+            return context
+
+        # Run checks
+        result = runner.run_checks()
+        if result.success:
+            context["last_status"] = "checks_passed"
+        else:
+            context["last_status"] = "checks_failed"
+            context["checks_error"] = result.error or result.output_tail[-200:]
+            context["consecutive_failures"] = context.get("consecutive_failures", 0) + 1
+
+        return context
+
+    def _evaluate_staged(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Run staged evaluation (checks → quick → full)."""
+        wt_path = context.get("worktree_path", self._improver.target_dir)
+        runner = EvaluationRunner(
+            spec=self._improver.eval_spec,
+            working_dir=wt_path,
+        )
+
+        stage, result = runner.run_staged(
+            best_score=context.get("best_score"),
+        )
+        self._last_eval_result = result
+
+        context["eval_stage"] = stage
+        context["inner_iteration"] = context.get("inner_iteration", 0) + 1
+
+        if stage != "complete" or not result.success:
+            context["last_status"] = f"failed_{stage}"
+            context["consecutive_failures"] = context.get("consecutive_failures", 0) + 1
+            return context
+
+        # Extract primary metric and evaluate improvement
+        metric_name = self._improver.eval_spec.metric_name
+        metric_value = result.metrics.get(metric_name, 0.0)
+        context["current_score"] = metric_value
+
+        best = context.get("best_score")
+        if best is None:
+            # First evaluation → accept as baseline
+            context["last_status"] = "improved"
+            context["best_score"] = metric_value
+            context["consecutive_failures"] = 0
+        elif self._improver.eval_spec.is_better(metric_value, best):
+            context["last_status"] = "improved"
+            context["best_score"] = metric_value
+            context["consecutive_failures"] = 0
+        else:
+            context["last_status"] = "no_improvement"
+            context["consecutive_failures"] = context.get("consecutive_failures", 0) + 1
+
+        # Log to experiment tracker
+        self._improver.log_improvement(
+            result=ExperimentResult(
+                command=result.command,
+                exit_code=result.exit_code,
+                stdout="",
+                stderr="",
+                duration_s=result.duration_s,
+                metrics=result.metrics,
+                success=result.success,
+                error=result.error,
+            ),
+            status="keep" if context["last_status"] == "improved" else "discard",
+            description=context.get("last_hypothesis", ""),
+            notes={
+                "stage": stage,
+                "generation": context.get("generation", 0),
+                "inner_iteration": context.get("inner_iteration", 0),
+            },
+        )
+
+        return context
+
+    def _commit_inner(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Commit the inner improvement in the worktree."""
+        isolation = self._improver.isolation
+        wt_path = context.get("worktree_path", self._improver.target_dir)
+
+        if isolation is not None:
+            commit_hash = isolation.commit_worktree(
+                wt_path,
+                message=f"gen-{context.get('generation', 0)} iter-{context.get('inner_iteration', 0)}: "
+                        f"{context.get('last_hypothesis', 'improvement')[:80]}",
+            )
+            context["last_commit"] = commit_hash
+        elif self._improver._git_enabled:
+            self._improver.tracker.git_commit(
+                context.get("last_hypothesis", "improvement")
+            )
+
+        return context
+
+    def _revert_inner(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Revert inner changes (reset worktree to clean state)."""
+        isolation = self._improver.isolation
+        wt_path = context.get("worktree_path", self._improver.target_dir)
+
+        if isolation is not None:
+            isolation.reset_worktree(wt_path)
+        elif self._improver._git_enabled:
+            self._improver.tracker.git_revert()
 
         return context
 

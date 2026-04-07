@@ -3,26 +3,52 @@ spec_version: "2.5.0"
 
 data:
   name: self-improve
-  max_steps: 100
+  max_steps: 500
 
   context:
-    # Input
+    # Target
     target_dir: "{{ input.target_dir }}"
     benchmark_command: "{{ input.benchmark_command }}"
     test_command: "{{ input.test_command | default('') }}"
     metric_name: "{{ input.metric_name | default('score') }}"
     metric_direction: "{{ input.metric_direction | default('higher') }}"
-    max_iterations: 10
     working_dir: "{{ input.working_dir | default('.') }}"
 
-    # State tracked by the machine
-    iteration: 0
+    # Evaluation firewall — cannot be changed by the agent
+    eval_spec:
+      benchmark_command: "{{ input.benchmark_command }}"
+      metric_name: "{{ input.metric_name | default('score') }}"
+      direction: "{{ input.metric_direction | default('higher') }}"
+      timeout_s: "{{ input.timeout_s | default(300) }}"
+      checks_command: "{{ input.checks_command | default('') }}"
+      checks_timeout_s: "{{ input.checks_timeout_s | default(30) }}"
+      quick_benchmark_command: "{{ input.quick_benchmark_command | default('') }}"
+      quick_timeout_s: "{{ input.quick_timeout_s | default(60) }}"
+      quick_threshold: "{{ input.quick_threshold | default(0) }}"
+      protected_paths: "{{ input.protected_paths | default([]) }}"
+      editable_patterns: "{{ input.editable_patterns | default(['**/*.py']) }}"
+      log_file: "{{ input.log_file | default('run.log') }}"
+
+    # Outer loop state
+    max_generations: "{{ input.max_generations | default(50) }}"
+    generation: 0
+    parent_id: null
+    parent_selection: "{{ input.parent_selection | default('best') }}"
+
+    # Inner loop state (per generation)
+    inner_iterations: "{{ input.inner_iterations | default(3) }}"
+    inner_iteration: 0
+    max_iterations: 10
+
+    # Shared state
     baseline_score: null
     best_score: null
     current_score: null
     last_status: ""
+    last_hypothesis: ""
     improvement_history: []
     consecutive_failures: 0
+    archive_size: 0
 
   agents:
     coder: ./agents/coder.yml
@@ -31,7 +57,21 @@ data:
     start:
       type: initial
       transitions:
+        - to: select_parent
+
+    # ── Outer Loop: Generation Management ──
+
+    select_parent:
+      action: select_parent_from_archive
+      transitions:
+        - to: setup_worktree
+
+    setup_worktree:
+      action: create_isolated_worktree
+      transitions:
         - to: improve
+
+    # ── Inner Loop: Experiment Execution ──
 
     improve:
       agent: coder
@@ -43,92 +83,131 @@ data:
         total_timeout: 1200
       input:
         task: |
-          You are a self-improving coding agent. Your job is to improve the
-          codebase and verify the improvement via benchmarks.
+          You are a self-improving coding agent. Iteration {{ context.inner_iteration + 1 }}/{{ context.inner_iterations }}, generation {{ context.generation }}.
 
           ## Target
           Directory: {{ context.target_dir }}
-          Working directory: {{ context.working_dir }}
+          Working directory: {{ context.worktree_path | default(context.working_dir) }}
+
+          ## Scope
+          You may ONLY edit files matching: {{ context.eval_spec.editable_patterns | join(', ') }}
+          {% if context.eval_spec.protected_paths %}Do NOT modify: {{ context.eval_spec.protected_paths | join(', ') }}{% endif %}
 
           ## Benchmark
-          Command: {{ context.benchmark_command }}
-          Metric: {{ context.metric_name }} ({{ context.metric_direction }} is better)
-          {% if context.test_command %}Test command: {{ context.test_command }}{% endif %}
+          Command: {{ context.eval_spec.benchmark_command }}
+          Metric: {{ context.eval_spec.metric_name }} ({{ context.metric_direction }} is better)
+          Timeout: {{ context.eval_spec.timeout_s }}s (fixed budget)
+          {% if context.eval_spec.checks_command %}Checks: {{ context.eval_spec.checks_command }}{% endif %}
 
           ## Current State
-          Iteration: {{ context.iteration }} / {{ context.max_iterations }}
+          Generation: {{ context.generation }} (parent: {{ context.parent_id }})
           Best score: {{ context.best_score }}
           Last status: {{ context.last_status }}
 
           ## Context Recovery
           At the start of each iteration, read the FULL experiment history and git log.
           These are your only artifacts between sessions — never skip them:
-          1. Read the experiment log: `cat {{ context.working_dir }}/experiments.jsonl`
-          2. Read the git log: `git log --oneline -30`
-          3. Read any ideas backlog if it exists: `cat ideas.md 2>/dev/null`
+          1. Read the archive summary: `cat .self_improve/archive_summary.tsv 2>/dev/null`
+          2. Read the experiment log: `cat .self_improve/experiments.jsonl 2>/dev/null | tail -50`
+          3. Read the git log: `git log --oneline -20`
+          4. Read ideas if any: `cat ideas.md 2>/dev/null`
 
-          The experiment log contains EVERY past result — what was tried, the score,
-          keep/discard status. Read ALL of it. Do not skip entries. Past failures
-          are critical context to avoid repeating dead ends.
+          ## Benchmark Protocol
+          1. Run benchmark, redirect output: `{{ context.eval_spec.benchmark_command }} > run.log 2>&1`
+          2. See results: `grep "^METRIC" run.log`
+          3. If empty results, check errors: `tail -50 run.log`
 
           ## Instructions
-          1. Read experiment history and git log (see above)
-          2. Run the benchmark to see current performance
-          3. Analyze the code and identify the highest-impact improvement
-          4. Implement the change (keep it focused and reversible)
-          5. Run the benchmark again to measure the effect
-          {% if context.test_command %}6. Run the tests to verify nothing is broken{% endif %}
-          7. If you discover promising ideas you won't try now, append them to ideas.md
+          1. Read history (see above) — learn from ALL past experiments
+          2. Run benchmark to see current performance
+          3. Analyze code, identify highest-impact change within editable scope
+          4. Implement the change — small, focused, reversible
+          5. Run benchmark again, compare
+          {% if context.test_command %}6. Run tests: {{ context.test_command }}{% endif %}
+          7. Log promising future ideas to ideas.md
 
           Report what you changed and the before/after benchmark scores.
 
       output_to_context:
         analysis: "{{ output.content }}"
       transitions:
-        - to: evaluate
+        - to: check_compilation
+
+    check_compilation:
+      action: run_checks
+      transitions:
+        - condition: "context.last_status == 'checks_passed'"
+          to: evaluate
+        - condition: "context.last_status == 'tampering_detected'"
+          to: inner_discard
+        - to: inner_discard
 
     evaluate:
-      action: evaluate_improvement
+      action: evaluate_with_staging
       transitions:
         - condition: "context.last_status == 'improved'"
-          to: archive_keep
-        - to: archive_discard
+          to: inner_keep
+        - to: inner_discard
 
-    archive_keep:
-      action: archive_result
+    inner_keep:
+      action: commit_inner_improvement
       transitions:
-        - to: check_budget
+        - to: inner_budget_check
 
-    archive_discard:
-      action: revert_changes
+    inner_discard:
+      action: revert_inner_changes
       transitions:
-        - to: check_budget
+        - to: inner_budget_check
 
-    check_budget:
+    inner_budget_check:
       transitions:
-        - condition: "context.iteration >= context.max_iterations"
-          to: done
-        - condition: "context.consecutive_failures >= 5"
-          to: done
+        - condition: "context.inner_iteration >= context.inner_iterations"
+          to: finalize_generation
+        - condition: "context.consecutive_failures >= 3"
+          to: finalize_generation
         - to: improve
+
+    # ── Back to Outer Loop ──
+
+    finalize_generation:
+      action: extract_diff_and_archive
+      transitions:
+        - to: cleanup_worktree
+
+    cleanup_worktree:
+      action: cleanup_isolated_worktree
+      transitions:
+        - to: outer_budget_check
+
+    outer_budget_check:
+      transitions:
+        - condition: "context.generation >= context.max_generations"
+          to: done
+        - to: select_parent
 
     done:
       type: final
       output:
+        generations: "{{ context.generation }}"
+        archive_size: "{{ context.archive_size }}"
         best_score: "{{ context.best_score }}"
-        iterations: "{{ context.iteration }}"
-        history: "{{ context.improvement_history }}"
-        summary: "Self-improvement complete. Best {{ context.metric_name }}: {{ context.best_score }} over {{ context.iteration }} iterations."
+        best_generation: "{{ context.best_generation | default(0) }}"
+        summary: >
+          Self-improvement complete. {{ context.generation }} generations,
+          {{ context.archive_size }} variants in archive.
+          Best {{ context.eval_spec.metric_name }}: {{ context.best_score }}
+          from generation {{ context.best_generation | default(0) }}.
 
 metadata:
   description: >
-    Self-improvement loop using the coding machine pattern.
-    One agent state with full tool_loop (bash, read, write, edit) — the agent
-    decides what to analyze, implement, and test within its turns.
-    The machine handles the outer loop: evaluate benchmark, keep/discard,
-    git commit/revert, budget tracking.
-    Works with any coding agent adapter via profiles.yml.
+    Converged self-improvement loop with autoresearch inner loop discipline
+    and HyperAgents outer loop search. Two-loop architecture:
+    outer loop manages generations (archive, parent selection, worktree isolation);
+    inner loop runs focused experiments (evaluation firewall, scoped edits,
+    fail-fast checks, staged evaluation, log-redirect).
+    Backward-compatible: set max_generations=1 for linear hill-climbing.
   tags:
     - self-improvement
     - coding-machine
     - experiment-loop
+    - converged
