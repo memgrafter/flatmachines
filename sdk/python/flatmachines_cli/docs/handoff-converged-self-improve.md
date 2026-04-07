@@ -634,3 +634,68 @@ As users gain confidence, they can:
 - [ ] **12. Ensemble of archive** — Best-per-task from all surviving variants. Requires stored predictions, not just scores.
 
 Each phase is independently valuable. Phase 1 alone makes the current loop significantly more robust. Phase 2 transforms it from a hill-climber into an evolutionary search. Phase 3 makes it truly self-referential.
+
+---
+
+## Validation Record
+
+### Unit Tests
+
+74 tests pass (24 original backward-compat + 50 new converged):
+
+| Module | Tests | What's covered |
+|--------|-------|----------------|
+| `EvaluationSpec` | 6 | frozen, from_dict, is_better, direction, defaults |
+| `EvaluationRunner` | 8 | log-redirect, checks pass/fail/skip, staged pipeline, timeout, edit scope, tampering |
+| `Archive` | 10 | add/retrieve, best, select_parent (best + score_child_prop), lineage, patch_chain, persistence, summary_tsv, failed kept |
+| `WorktreeIsolation` | 4 | create/cleanup, extract_diff, commit/reset, head_commit |
+| `ConvergedSelfImproveHooks` | 8 | select_parent (empty + populated), checks pass/fail, staged eval improve/no_improvement, extract_and_archive, full inner loop cycle, backward-compat simple actions |
+| `SelfImprover` (converged) | 4 | eval_spec from simple params, explicit eval_spec, archive created, isolation opt-in |
+| `MachineConfig` (converged) | 10 | two-loop states, eval_spec in context, transitions valid, initial/final, output, outer/inner context fields, agent prompt scope |
+
+### End-to-End Run (Codex, 2026-04-07)
+
+**Test project:** `/tmp/converged-test` — intentionally slow `app.py` with repeated-addition `multiply()` and recursive `fibonacci()`.
+
+**Run command:**
+```
+flatmachines improve /tmp/converged-test --benchmark "bash benchmark.sh" --metric speed_ms --direction lower --git --run
+```
+
+**Result:** Completed in 40.8s, clean exit at final state.
+
+| Step | What happened |
+|------|--------------|
+| `select_parent` | Empty archive → `parent_id=None` |
+| `setup_worktree` | No isolation enabled → work in-place |
+| `improve` (iter 1) | Agent: read code → identified fibonacci bottleneck → rewrote as iterative DP → ran benchmark → logged ideas.md |
+| `check_compilation` | `checks_passed` (no checks_command configured in this run) |
+| `evaluate` (iter 1) | Staged eval complete: `speed_ms=7` → improved (first baseline) |
+| `inner_keep` | Committed |
+| `improve` (iter 2) | Agent: re-ran benchmark → `speed_ms=6` → improved |
+| `inner_keep` | Committed |
+| `improve` (iter 3) | Agent: re-ran benchmark → `speed_ms=6` → no improvement (equal) |
+| `inner_discard` | Reverted |
+| `finalize_generation` | Extracted diff, archived: gen_id=0, score=6.0, status=evaluated |
+| `cleanup_worktree` | No-op (no isolation) |
+| `outer_budget_check` | `1 >= 1` → done |
+| `done` | Output: `best_score=6.0, archive_size=1, generations=1` |
+
+**Artifacts produced:**
+- `.self_improve/experiments.jsonl` — 3 experiment entries with stage/generation/iteration metadata
+- `.self_improve/archive.jsonl` — 1 generation entry with score, scores, metadata
+- `.self_improve/archive_summary.tsv` — TSV for agent context recovery
+- `ideas.md` — agent-logged future optimization ideas
+- `run.log` — last benchmark output (log-redirect pattern)
+
+**Performance:** baseline 62ms → final 6ms (10.3× speedup). Agent correctly identified fibonacci as the bottleneck and replaced O(2^n) recursive with O(n) iterative.
+
+### Runtime Notes
+
+1. **Jinja2 + int context fields:** FlatMachine's `_render_template` always returns strings for Jinja2 templates, even with `| int` filter. Numeric context fields used in conditions (`>=`, `<`) must be plain YAML ints, not Jinja2 templates. The expression engine does not coerce types.
+
+2. **Tool loop behavior:** The tool_loop correctly breaks on `finish_reason != "tool_use"`. However, the chain is preserved across improve invocations via `saved_chain` (keyed by state name + agent name). This means the agent retains full context across inner loop iterations within a generation — useful for learning from previous attempts.
+
+3. **CLI wiring:** `main.py` `_make_self_improve_handler` uses `ConvergedSelfImproveHooks` (not `SelfImproveHooks`), and registers all converged actions. `_SELF_IMPROVE_ACTIONS` set contains both original simple actions and new converged actions for backward compatibility.
+
+4. **Default `max_generations: 1`:** Defaults to single-generation linear mode for safety. Users opt into multi-generation evolutionary search by increasing this value.
