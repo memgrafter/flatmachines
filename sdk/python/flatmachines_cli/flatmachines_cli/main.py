@@ -355,6 +355,12 @@ def main():
         default=False,
         help="Enable git integration (auto-commit on keep, auto-revert on discard)",
     )
+    improve_parser.add_argument(
+        "--init",
+        action="store_true",
+        default=False,
+        help="Initialize self-improvement configs in target directory",
+    )
 
     # --- run command ---
     run_parser = subparsers.add_parser(
@@ -509,6 +515,24 @@ def main():
                 sys.exit(1)
             print(validate_machine(resolved))
             return
+
+    if args.command == "improve" and getattr(args, 'init', False):
+        from .improve import scaffold_self_improve
+
+        target = os.path.abspath(args.target_dir)
+        created = scaffold_self_improve(target)
+        if created:
+            print("Self-improvement configs initialized:")
+            for f in created:
+                print(f"  ✓ {f}")
+            print()
+            print("Next steps:")
+            print(f"  1. Edit profiles.yml to set your LLM provider")
+            print(f"  2. Edit benchmark.sh to define your optimization metric")
+            print(f"  3. Run: flatmachines improve {args.target_dir} --run")
+        else:
+            print("  All configs already exist — nothing to create.")
+        return
 
     if args.command == "improve":
         from .improve import SelfImprover, ImprovementRunner

@@ -299,17 +299,24 @@ class ImprovementRunner:
         improver: SelfImprover,
         max_iterations: int = 10,
         on_iteration: Optional[Callable[[int, Dict[str, Any]], None]] = None,
+        on_before_eval: Optional[Callable[[int, Dict[str, Any]], Dict[str, Any]]] = None,
     ):
         """
         Args:
             improver: The SelfImprover instance.
             max_iterations: Maximum number of evaluate cycles to run.
             on_iteration: Optional callback(iteration, context) after each cycle.
+            on_before_eval: Optional callback(iteration, context) before each evaluation.
+                           Can modify context (e.g., record what changes were made).
+                           Return the (possibly modified) context.
+                           Use this to integrate an external agent that makes code
+                           changes between evaluation cycles.
         """
         self._improver = improver
         self._hooks = SelfImproveHooks(improver)
         self._max_iterations = max_iterations
         self._on_iteration = on_iteration
+        self._on_before_eval = on_before_eval
 
     @property
     def improver(self) -> SelfImprover:
@@ -393,6 +400,11 @@ class ImprovementRunner:
                 context["stop_reason"] = "3 consecutive failures"
                 break
 
+            # Hook for external agent to make changes before evaluation
+            if self._on_before_eval:
+                iteration = context.get("iteration", 0) + 1
+                context = self._on_before_eval(iteration, context)
+
             context = self.run_evaluation(context)
 
             status = context.get("last_status")
@@ -445,6 +457,71 @@ class ImprovementRunner:
             lines.append(f"  {entry.experiment_id:3d}  {status_str:8s}  {metric_str}  {dur_str}  {desc}")
 
         return "\n".join(lines)
+
+
+def scaffold_self_improve(target_dir: str) -> List[str]:
+    """Initialize self-improvement config files in target directory.
+
+    Creates:
+    - profiles.yml (if not exists)
+    - benchmark.sh (if not exists)
+
+    Args:
+        target_dir: Directory to initialize.
+
+    Returns:
+        List of created file paths (empty if all already exist).
+    """
+    target = Path(target_dir)
+    created = []
+
+    # profiles.yml
+    profiles_path = target / "profiles.yml"
+    if not profiles_path.exists():
+        profiles_path.write_text(
+            '# LLM provider profiles for self-improvement\n'
+            '# Edit this to match your provider and API key setup.\n'
+            'spec: flatprofiles\n'
+            'spec_version: "2.5.0"\n'
+            '\n'
+            'data:\n'
+            '  model_profiles:\n'
+            '    default:\n'
+            '      provider: openai\n'
+            '      name: gpt-5-mini\n'
+            '\n'
+            '  default: default\n'
+        )
+        created.append(str(profiles_path))
+
+    # benchmark.sh
+    bench_path = target / "benchmark.sh"
+    if not bench_path.exists():
+        bench_path.write_text(
+            '#!/bin/bash\n'
+            'set -euo pipefail\n'
+            '\n'
+            '# Self-improvement benchmark.\n'
+            '# Output METRIC lines for the tracker to parse.\n'
+            '# Example:\n'
+            '#   echo "METRIC score=100"\n'
+            '#   echo "METRIC test_count=42"\n'
+            '\n'
+            '# Run tests and count passing\n'
+            'RESULT=$(python -m pytest tests/ -q --tb=no 2>&1 | tail -1)\n'
+            'PASSED=$(echo "$RESULT" | grep -oP \'\\d+(?= passed)\' || echo 0)\n'
+            'FAILED=$(echo "$RESULT" | grep -oP \'\\d+(?= failed)\' || echo 0)\n'
+            '\n'
+            'echo "METRIC test_count=$PASSED"\n'
+            'echo "METRIC failures=$FAILED"\n'
+            '\n'
+            '# Exit non-zero if any tests failed\n'
+            '[ "${FAILED:-0}" = "0" ]\n'
+        )
+        bench_path.chmod(0o755)
+        created.append(str(bench_path))
+
+    return created
 
 
 def validate_self_improve_config(

@@ -1851,6 +1851,238 @@ phase7=$((score - phase1 - phase2 - phase3 - phase4 - phase5 - phase6))
 echo ""
 echo "Phase 7 subtotal: $phase7 / 100"
 
+# ==================================================================
+echo ""
+echo "=== Phase 8: Resilience & Scaffolding (100 pts) ==="
+# ==================================================================
+
+# ------------------------------------------------------------------
+# 30. Corrupted JSONL recovery (20 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- JSONL Recovery ---"
+
+# 30a. Tracker survives corrupted lines (10 pts)
+if $PYTHON -c "
+import tempfile, json, os
+from flatmachines_cli.experiment import ExperimentTracker
+
+td = tempfile.mkdtemp()
+log = os.path.join(td, 'log.jsonl')
+
+# Write valid config + one good entry + one corrupt + one good
+lines = [
+    json.dumps({'type':'config','name':'x','metric_name':'s','direction':'higher'}),
+    json.dumps({'type':'experiment','experiment_id':1,'description':'ok',
+                'status':'keep','primary_metric':100.0,'tags':[],'notes':{},
+                'timestamp':'t','result':{'command':'c','exit_code':0,
+                'duration_s':1.0,'metrics':{},'success':True,'error':None,'timestamp':'t'}}),
+    'THIS IS NOT JSON',
+    json.dumps({'type':'experiment','experiment_id':2,'description':'ok2',
+                'status':'keep','primary_metric':200.0,'tags':[],'notes':{},
+                'timestamp':'t','result':{'command':'c','exit_code':0,
+                'duration_s':1.0,'metrics':{},'success':True,'error':None,'timestamp':'t'}}),
+]
+open(log,'w').write('\n'.join(lines))
+
+t = ExperimentTracker.from_file(log)
+assert len(t.history) == 2
+assert t.load_errors >= 1
+print(f'Recovery OK: {len(t.history)} entries, {t.load_errors} errors')
+" 2>/dev/null; then
+    award 10 "survives corrupted JSONL lines"
+else
+    fail_check "corrupted JSONL recovery"
+fi
+
+# 30b. load_errors property works (10 pts)
+if $PYTHON -c "
+import tempfile, os
+from flatmachines_cli.experiment import ExperimentTracker
+td = tempfile.mkdtemp()
+t = ExperimentTracker(log_path=os.path.join(td, 'log.jsonl'))
+t.init()
+assert t.load_errors == 0
+assert hasattr(t, 'git_enabled')
+print('Properties OK')
+" 2>/dev/null; then
+    award 10 "load_errors/git_enabled properties"
+else
+    fail_check "tracker properties"
+fi
+
+# ------------------------------------------------------------------
+# 31. Export markdown (20 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- Export Markdown ---"
+
+# 31a. export_markdown() works (10 pts)
+if $PYTHON -c "
+import tempfile, os
+from flatmachines_cli.experiment import ExperimentTracker, ExperimentResult
+
+td = tempfile.mkdtemp()
+t = ExperimentTracker(name='test-session', log_path=os.path.join(td, 'log.jsonl'))
+t.init()
+r = ExperimentResult(command='t', exit_code=0, stdout='', stderr='', duration_s=1.0, success=True)
+t.log(result=r, status='keep', primary_metric=100.0, description='first')
+
+md = t.export_markdown()
+assert '# test-session' in md
+assert '**Metric**' in md
+assert 'first' in md
+print('Markdown OK')
+" 2>/dev/null; then
+    award 10 "export_markdown() works"
+else
+    fail_check "export_markdown"
+fi
+
+# 31b. export_markdown() writes to file (10 pts)
+if $PYTHON -c "
+import tempfile, os
+from flatmachines_cli.experiment import ExperimentTracker, ExperimentResult
+
+td = tempfile.mkdtemp()
+t = ExperimentTracker(log_path=os.path.join(td, 'log.jsonl'))
+t.init()
+r = ExperimentResult(command='t', exit_code=0, stdout='', stderr='', duration_s=1.0, success=True)
+t.log(result=r, status='keep', primary_metric=100.0)
+
+md_path = os.path.join(td, 'report.md')
+t.export_markdown(path=md_path)
+assert os.path.exists(md_path)
+content = open(md_path).read()
+assert '# ' in content
+print('File write OK')
+" 2>/dev/null; then
+    award 10 "export_markdown() writes file"
+else
+    fail_check "markdown file write"
+fi
+
+# ------------------------------------------------------------------
+# 32. Scaffold (improve --init) (20 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- Scaffold ---"
+
+# 32a. scaffold_self_improve creates files (10 pts)
+if $PYTHON -c "
+import tempfile
+from flatmachines_cli.improve import scaffold_self_improve
+
+td = tempfile.mkdtemp()
+created = scaffold_self_improve(td)
+assert len(created) == 2
+import os
+assert os.path.exists(os.path.join(td, 'profiles.yml'))
+assert os.path.exists(os.path.join(td, 'benchmark.sh'))
+print('Scaffold OK')
+" 2>/dev/null; then
+    award 10 "scaffold creates files"
+else
+    fail_check "scaffold"
+fi
+
+# 32b. scaffold doesn't overwrite (10 pts)
+if $PYTHON -c "
+import tempfile, os
+from flatmachines_cli.improve import scaffold_self_improve
+
+td = tempfile.mkdtemp()
+# Pre-create files
+open(os.path.join(td, 'profiles.yml'), 'w').write('existing')
+open(os.path.join(td, 'benchmark.sh'), 'w').write('existing')
+
+created = scaffold_self_improve(td)
+assert len(created) == 0
+assert open(os.path.join(td, 'profiles.yml')).read() == 'existing'
+print('No-overwrite OK')
+" 2>/dev/null; then
+    award 10 "scaffold no-overwrite"
+else
+    fail_check "scaffold no-overwrite"
+fi
+
+# ------------------------------------------------------------------
+# 33. on_before_eval callback (15 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- Agent Callback ---"
+
+# 33a. on_before_eval is called (10 pts)
+if $PYTHON -c "
+import tempfile, os
+from flatmachines_cli.improve import SelfImprover, ImprovementRunner
+
+calls = []
+def hook(iteration, ctx):
+    calls.append(iteration)
+    return ctx
+
+td = tempfile.mkdtemp()
+imp = SelfImprover(
+    target_dir=td,
+    benchmark_command=\"echo 'METRIC score=100'\",
+    metric_name='score',
+    direction='higher',
+    log_path=os.path.join(td, 'log.jsonl'),
+    working_dir=td,
+)
+runner = ImprovementRunner(imp, max_iterations=2, on_before_eval=hook)
+runner.run()
+assert len(calls) == 2
+print(f'Callback OK: {len(calls)} calls')
+" 2>/dev/null; then
+    award 10 "on_before_eval callback works"
+else
+    fail_check "on_before_eval"
+fi
+
+# 33b. --init flag in CLI help (5 pts)
+if $PYTHON -m flatmachines_cli.main improve --help 2>/dev/null | grep -q "\-\-init"; then
+    award 5 "--init flag in help"
+else
+    fail_check "--init flag"
+fi
+
+# ------------------------------------------------------------------
+# 34. Phase 8 tests (25 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- Phase 8 Tests ---"
+
+# 34a. Resilience tests pass (15 pts)
+RES_TESTS=$($PYTHON -m pytest "$CLI_DIR/tests/" -q --co -k "resilience" 2>/dev/null | grep -c "test_" || true)
+RES_TESTS=${RES_TESTS:-0}
+if [ "$RES_TESTS" -ge 10 ]; then
+    RES_RESULT=$($PYTHON -m pytest "$CLI_DIR/tests/test_resilience.py" -q --tb=line 2>&1) || true
+    RES_FAILED=$(echo "$RES_RESULT" | grep -oP '\d+(?= failed)' || echo 0)
+    if [ "${RES_FAILED:-0}" = "0" ]; then
+        award 15 "resilience tests pass ($RES_TESTS)"
+    else
+        fail_check "resilience tests: $RES_FAILED failed"
+    fi
+else
+    fail_check "resilience tests ($RES_TESTS, want ≥10)"
+fi
+
+# 34b. All tests pass (10 pts)
+ALL8_RESULT=$($PYTHON -m pytest "$CLI_DIR/tests/" -q --tb=no 2>&1 | tail -1)
+ALL8_FAILED=$(echo "$ALL8_RESULT" | grep -oP '\d+(?= failed)' || echo 0)
+ALL8_PASSED=$(echo "$ALL8_RESULT" | grep -oP '\d+(?= passed)' || echo 0)
+if [ "${ALL8_FAILED:-0}" = "0" ] && [ "${ALL8_PASSED:-0}" -gt 0 ]; then
+    award 10 "all $ALL8_PASSED tests pass"
+else
+    fail_check "test regressions: $ALL8_FAILED failed"
+fi
+
+phase8=$((score - phase1 - phase2 - phase3 - phase4 - phase5 - phase6 - phase7))
+echo ""
+echo "Phase 8 subtotal: $phase8 / 100"
+
 # ------------------------------------------------------------------
 # Final
 # ------------------------------------------------------------------
@@ -1863,7 +2095,8 @@ echo "  Phase 4 (autonomous): $phase4 / 100"
 echo "  Phase 5 (polish):   $phase5 / 100"
 echo "  Phase 6 (advanced): $phase6 / 100"
 echo "  Phase 7 (e2e loop): $phase7 / 100"
-echo "  capability_score = $score / 700"
+echo "  Phase 8 (resilience): $phase8 / 100"
+echo "  capability_score = $score / 800"
 
 # Count all passing tests
 TEST_RESULT=$($PYTHON -m pytest "$CLI_DIR/tests/" -q --tb=no 2>&1 | tail -1)

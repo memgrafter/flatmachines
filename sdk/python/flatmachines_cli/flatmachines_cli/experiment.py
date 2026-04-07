@@ -145,6 +145,7 @@ class ExperimentTracker:
         self._initialized = False
         self._baseline: Optional[float] = None
         self._git_enabled = git_enabled
+        self._load_errors: int = 0
 
     def initialize(self) -> None:
         """Initialize the experiment session.
@@ -540,6 +541,59 @@ class ExperimentTracker:
 
         return csv_str
 
+    def export_markdown(self, path: Optional[str] = None) -> str:
+        """Export experiment history as a Markdown summary.
+
+        Args:
+            path: If provided, write markdown to this file.
+
+        Returns:
+            Markdown string.
+        """
+        s = self.summary()
+        lines = []
+        lines.append(f"# {s['name']}")
+        lines.append("")
+        lines.append(f"**Metric**: {s['metric_name']} ({s['direction']} is better)")
+        lines.append(f"**Total experiments**: {s['total_experiments']}")
+        lines.append(f"**Kept**: {s['kept']} | **Discarded**: {s['discarded']} | **Crashed**: {s['crashed']}")
+        if s['best_metric'] is not None:
+            lines.append(f"**Best**: {s['best_metric']}")
+        if s.get('baseline') is not None:
+            lines.append(f"**Baseline**: {s['baseline']}")
+        lines.append("")
+
+        # Confidence
+        conf = self.confidence_score()
+        if conf is not None:
+            lines.append(f"**Confidence**: {conf:.1f}× noise floor")
+            lines.append("")
+
+        # History table
+        if self._history:
+            lines.append("## Experiment History")
+            lines.append("")
+            lines.append("| # | Status | Metric | Duration | Description |")
+            lines.append("|---|--------|--------|----------|-------------|")
+            for entry in self._history:
+                desc = entry.description[:50] if entry.description else ""
+                lines.append(
+                    f"| {entry.experiment_id} "
+                    f"| {entry.status} "
+                    f"| {entry.primary_metric:.1f} "
+                    f"| {entry.result.duration_s:.1f}s "
+                    f"| {desc} |"
+                )
+            lines.append("")
+
+        md = "\n".join(lines)
+
+        if path:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_text(md)
+
+        return md
+
     def rollback_to(self, experiment_id: int) -> bool:
         """Attempt to rollback to the state after a specific experiment.
 
@@ -687,11 +741,26 @@ class ExperimentTracker:
         with open(self._log_path, "a") as f:
             f.write(json.dumps(data, default=str) + "\n")
 
+    @property
+    def load_errors(self) -> int:
+        """Number of corrupted/skipped lines during last load."""
+        return self._load_errors
+
+    @property
+    def git_enabled(self) -> bool:
+        """Whether git integration is active."""
+        return self._git_enabled
+
     def _load_history(self) -> None:
-        """Load experiment history from the JSONL log file."""
+        """Load experiment history from the JSONL log file.
+
+        Gracefully handles corrupted lines — they are skipped and
+        counted in load_errors for diagnostics.
+        """
         if not self._log_path.exists():
             return
 
+        self._load_errors = 0
         max_id = 0
         for line in self._log_path.read_text().strip().split("\n"):
             if not line.strip():
@@ -699,6 +768,7 @@ class ExperimentTracker:
             try:
                 data = json.loads(line)
             except json.JSONDecodeError:
+                self._load_errors += 1
                 continue
 
             if data.get("type") == "config":
@@ -709,6 +779,8 @@ class ExperimentTracker:
                 if entry:
                     self._history.append(entry)
                     max_id = max(max_id, entry.experiment_id)
+                else:
+                    self._load_errors += 1
 
         self._next_id = max_id + 1
 
