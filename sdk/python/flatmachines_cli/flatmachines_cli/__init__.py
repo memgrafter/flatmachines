@@ -48,6 +48,8 @@ from .frontend import TerminalFrontend
 from .discovery import MachineIndex, MachineInfo, discover_examples
 from .inspector import inspect_machine, validate_machine, show_context
 from .repl import FlatMachinesREPL, interactive_repl
+from .experiment import ExperimentTracker, ExperimentResult, ExperimentEntry, parse_metrics
+from .improve import SelfImprover, SelfImproveHooks
 
 __all__ = [
     "__version__",
@@ -91,4 +93,14 @@ __all__ = [
     # REPL
     "FlatMachinesREPL",
     "interactive_repl",
+    # Experiment tracking
+    "experiment",
+    "ExperimentTracker",
+    "ExperimentResult",
+    "ExperimentEntry",
+    "parse_metrics",
+    # Self-improvement
+    "improve",
+    "SelfImprover",
+    "SelfImproveHooks",
 ]

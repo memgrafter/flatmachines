@@ -104,6 +104,8 @@ class FlatMachinesREPL:
             "bus": self._cmd_bus,
             "stats": self._cmd_stats,
             "save": self._cmd_save,
+            "improve": self._cmd_improve,
+            "experiment": self._cmd_experiment,
             "help": self._cmd_help,
             "?": self._cmd_help,
         }
@@ -251,6 +253,8 @@ class FlatMachinesREPL:
     {_cyan('bus')}                        Dump last DataBus snapshot
     {_cyan('stats')}                      Show processor/hook performance stats
     {_cyan('save')} [path]                Save last bus snapshot to JSON file
+    {_cyan('improve')}                    Show self-improvement info
+    {_cyan('experiment')} [cmd] [path]    Experiment tracking (load, summary)
     {_cyan('help')}                       This message
     {_cyan('quit')}                       Exit""")
 
@@ -419,6 +423,48 @@ class FlatMachinesREPL:
                 print(f"    {'─' * 20} {'─' * 6} {'─' * 10} {'─' * 8}")
                 for name, st in sorted(timing.items()):
                     print(f"    {name:<20} {st['calls']:>6} {st['total_ms']:>10.3f} {st['avg_ms']:>8.3f}")
+
+    def _cmd_improve(self, args: List[str]) -> None:
+        """Show self-improvement status or start improvement loop."""
+        from .improve import SelfImprover
+        print(f"\n  {_bold('Self-Improvement')}")
+        print(f"  {_dim('Use the improve CLI subcommand for full functionality:')}")
+        print(f"    flatmachines improve [target_dir] --benchmark 'cmd' --metric name")
+        print(f"\n  {_dim('Or run the self-improvement machine directly:')}")
+        print(f"    fm> run self_improve.yml")
+
+    def _cmd_experiment(self, args: List[str]) -> None:
+        """Show experiment tracking status."""
+        from .experiment import ExperimentTracker
+        if not args:
+            print(f"\n  {_bold('Experiment Tracking')}")
+            print(f"  {_dim('Load an experiment log:')}")
+            print(f"    experiment load <path.jsonl>")
+            print(f"  {_dim('Show summary:')}")
+            print(f"    experiment summary <path.jsonl>")
+            return
+
+        subcmd = args[0]
+        if subcmd in ("load", "summary") and len(args) >= 2:
+            path = args[1]
+            try:
+                tracker = ExperimentTracker.from_file(path)
+                summary = tracker.summary()
+                print(f"\n  {_bold(summary['name'])}")
+                print(f"    Metric: {summary['metric_name']} ({summary['direction']})")
+                print(f"    Experiments: {summary['total_experiments']}")
+                print(f"    Kept: {_green(str(summary['kept']))}")
+                print(f"    Discarded: {summary['discarded']}")
+                print(f"    Crashed: {_red(str(summary['crashed']))}")
+                best = summary['best_metric']
+                if best is not None:
+                    print(f"    Best: {_bold(str(best))}")
+            except FileNotFoundError:
+                print(f"  {_red(f'File not found: {path}')}")
+            except Exception as e:
+                print(f"  {_red(f'Error: {e}')}")
+        else:
+            print(f"  Usage: experiment [load|summary] <path.jsonl>")
 
     def _cmd_save(self, args: List[str]) -> None:
         """Save last bus snapshot to a JSON file."""

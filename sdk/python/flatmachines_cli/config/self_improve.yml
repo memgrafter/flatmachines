@@ -1,0 +1,149 @@
+spec: flatmachine
+spec_version: "2.5.0"
+
+data:
+  name: self-improve
+  max_steps: 50
+
+  context:
+    # Input: what to improve and how to measure it
+    target_dir: "{{ input.target_dir }}"
+    benchmark_command: "{{ input.benchmark_command }}"
+    test_command: "{{ input.test_command | default('') }}"
+    metric_name: "{{ input.metric_name | default('score') }}"
+    metric_direction: "{{ input.metric_direction | default('higher') }}"
+    max_iterations: "{{ input.max_iterations | default(10) }}"
+    working_dir: "{{ input.working_dir | default('.') }}"
+
+    # Internal state
+    iteration: 0
+    baseline_score: null
+    best_score: null
+    current_score: null
+    last_hypothesis: ""
+    last_status: ""
+    improvement_history: []
+    files_modified: []
+    consecutive_failures: 0
+
+  agents:
+    analyzer: ./agents/analyzer.yml
+    implementer: ./agents/implementer.yml
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: analyze
+
+    analyze:
+      agent: analyzer
+      tool_loop:
+        max_turns: 15
+        max_tool_calls: 50
+        max_cost: 1.00
+        tool_timeout: 60
+        total_timeout: 300
+      input:
+        task: |
+          You are analyzing a codebase for improvement opportunities.
+
+          Target directory: {{ context.target_dir }}
+          Benchmark command: {{ context.benchmark_command }}
+          Metric: {{ context.metric_name }} ({{ context.metric_direction }} is better)
+          Current best score: {{ context.best_score }}
+          Iteration: {{ context.iteration }} / {{ context.max_iterations }}
+          Recent history: {{ context.improvement_history[-5:] }}
+
+          Run the benchmark command to establish current performance.
+          Then analyze the codebase to identify the highest-impact improvement opportunity.
+
+          Report your findings as:
+          1. Current score (from benchmark output)
+          2. Your hypothesis for improvement
+          3. Which files you'd modify
+          4. Expected impact
+
+      output_to_context:
+        analysis: "{{ output.content }}"
+      transitions:
+        - to: check_budget
+
+    check_budget:
+      transitions:
+        - condition: "context.iteration >= context.max_iterations"
+          to: done
+        - condition: "context.consecutive_failures >= 3"
+          to: done
+        - to: implement
+
+    implement:
+      agent: implementer
+      tool_loop:
+        max_turns: 30
+        max_tool_calls: 100
+        max_cost: 2.00
+        tool_timeout: 60
+        total_timeout: 600
+      input:
+        task: |
+          Based on the analysis below, implement the improvement.
+
+          Analysis:
+          {{ context.analysis }}
+
+          Target directory: {{ context.target_dir }}
+          Working directory: {{ context.working_dir }}
+
+          Guidelines:
+          - Make focused, surgical changes
+          - Keep changes minimal and reversible
+          - Don't break existing tests
+
+          After implementing, run the test command (if provided) to verify:
+          Test command: {{ context.test_command }}
+
+      output_to_context:
+        implementation: "{{ output.content }}"
+      transitions:
+        - to: evaluate
+
+    evaluate:
+      action: evaluate_improvement
+      transitions:
+        - condition: "context.last_status == 'improved'"
+          to: archive_keep
+        - to: archive_discard
+
+    archive_keep:
+      action: archive_result
+      output_to_context:
+        last_status: "'keep'"
+      transitions:
+        - to: analyze
+
+    archive_discard:
+      action: revert_changes
+      output_to_context:
+        last_status: "'discard'"
+      transitions:
+        - to: analyze
+
+    done:
+      type: final
+      output:
+        best_score: "{{ context.best_score }}"
+        iterations: "{{ context.iteration }}"
+        history: "{{ context.improvement_history }}"
+        summary: "Self-improvement complete. Best {{ context.metric_name }}: {{ context.best_score }} over {{ context.iteration }} iterations."
+
+metadata:
+  description: >
+    Self-improvement loop: analyze → implement → evaluate → archive.
+    Works with any coding agent adapter. Runs benchmark to measure improvements,
+    keeps changes that improve the metric, reverts changes that don't.
+  tags:
+    - self-improvement
+    - coding
+    - experiment-loop
+    - meta

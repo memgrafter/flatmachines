@@ -291,6 +291,51 @@ def main():
         help="Machine name or path to YAML config",
     )
 
+    # --- improve command ---
+    improve_parser = subparsers.add_parser(
+        "improve",
+        help="Run self-improvement loop on a target directory",
+    )
+    improve_parser.add_argument(
+        "target_dir",
+        nargs="?",
+        default=".",
+        help="Directory containing the code to improve (default: cwd)",
+    )
+    improve_parser.add_argument(
+        "--benchmark", "-b",
+        required=False,
+        default=None,
+        help="Benchmark command (must output METRIC lines)",
+    )
+    improve_parser.add_argument(
+        "--test", "-t",
+        default="",
+        help="Test command to verify changes don't break anything",
+    )
+    improve_parser.add_argument(
+        "--metric", "-m",
+        default="score",
+        help="Primary metric name to optimize (default: score)",
+    )
+    improve_parser.add_argument(
+        "--direction", "-d",
+        default="higher",
+        choices=["higher", "lower"],
+        help="Whether higher or lower metric values are better",
+    )
+    improve_parser.add_argument(
+        "--max-iterations", "-n",
+        type=int,
+        default=10,
+        help="Maximum improvement iterations (default: 10)",
+    )
+    improve_parser.add_argument(
+        "--config", "-c",
+        default=None,
+        help="Machine config for the improvement loop (default: built-in self_improve.yml)",
+    )
+
     # --- run command ---
     run_parser = subparsers.add_parser(
         "run",
@@ -400,6 +445,59 @@ def main():
             "context": show_context,
         }
         print(handlers[args.command](resolved))
+        return
+
+    if args.command == "improve":
+        from .improve import SelfImprover
+        from .experiment import ExperimentTracker
+
+        target = os.path.abspath(args.target_dir)
+        benchmark = args.benchmark
+        if not benchmark:
+            # Look for autoresearch.sh or benchmark.sh in target dir
+            for name in ["autoresearch.sh", "benchmark.sh", "improve.sh"]:
+                candidate = os.path.join(target, name)
+                if os.path.isfile(candidate):
+                    benchmark = f"bash {candidate}"
+                    break
+            if not benchmark:
+                improve_parser.error(
+                    "No benchmark command specified and no autoresearch.sh/benchmark.sh found in target dir"
+                )
+
+        improver = SelfImprover(
+            target_dir=target,
+            benchmark_command=benchmark,
+            test_command=args.test,
+            metric_name=args.metric,
+            direction=args.direction,
+            working_dir=working_dir,
+        )
+
+        # Show summary
+        print(f"Self-improvement loop")
+        print(f"  Target:    {target}")
+        print(f"  Benchmark: {benchmark}")
+        print(f"  Metric:    {args.metric} ({args.direction} is better)")
+        print(f"  Max iter:  {args.max_iterations}")
+        print()
+
+        # Run initial benchmark
+        print("Running baseline benchmark...")
+        baseline = improver.run_benchmark()
+        if baseline.success:
+            metric_val = baseline.metrics.get(args.metric, 0.0)
+            improver.log_improvement(baseline, "keep", "Baseline measurement")
+            print(f"  Baseline {args.metric} = {metric_val}")
+        else:
+            print(f"  Benchmark failed: {baseline.error or 'non-zero exit'}")
+            sys.exit(1)
+
+        print()
+        print(improver.summary())
+        print()
+        print("To run the full improvement loop, use a coding agent:")
+        print(f"  flatmachines run self_improve.yml")
         return
 
     if args.command == "run":
