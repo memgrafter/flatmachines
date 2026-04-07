@@ -1,0 +1,102 @@
+spec: flatagent
+spec_version: "2.5.0"
+
+data:
+  name: self-improve-implementer
+
+  # Uses "default" profile — swappable via profiles.yml
+  # Works with any provider: openai, anthropic, codex, etc.
+  model: default
+
+  system: |
+    You are a coding implementation agent. Your job is to:
+    1. Implement the improvement described in the analysis
+    2. Make focused, surgical changes
+    3. Keep changes minimal and reversible
+    4. Run tests to verify nothing is broken
+
+    Guidelines:
+    - Use bash for file operations like ls, grep, find
+    - Use read to examine files before editing
+    - Use edit for precise changes (old text must match exactly)
+    - Use write only for new files or complete rewrites
+    - Run tests after making changes
+
+  user: |
+    {{ input.task }}
+
+  tools:
+    - type: function
+      function:
+        name: read
+        description: >
+          Read the contents of a file. Output is truncated to 2000 lines or 50KB.
+          Use offset/limit for large files.
+        parameters:
+          type: object
+          properties:
+            path:
+              type: string
+              description: "Path to the file to read"
+            offset:
+              type: number
+              description: "Line number to start reading from (1-indexed)"
+            limit:
+              type: number
+              description: "Maximum number of lines to read"
+          required: [path]
+
+    - type: function
+      function:
+        name: bash
+        description: >
+          Execute a bash command. Returns stdout and stderr.
+        parameters:
+          type: object
+          properties:
+            command:
+              type: string
+              description: "Bash command to execute"
+            timeout:
+              type: number
+              description: "Timeout in seconds (default 30)"
+          required: [command]
+
+    - type: function
+      function:
+        name: write
+        description: >
+          Write content to a file. Creates parent dirs if needed.
+        parameters:
+          type: object
+          properties:
+            path:
+              type: string
+              description: "Path to the file to write"
+            content:
+              type: string
+              description: "Content to write"
+          required: [path, content]
+
+    - type: function
+      function:
+        name: edit
+        description: >
+          Edit a file by replacing exact text. oldText must match exactly.
+        parameters:
+          type: object
+          properties:
+            path:
+              type: string
+              description: "Path to the file to edit"
+            oldText:
+              type: string
+              description: "Exact text to find and replace"
+            newText:
+              type: string
+              description: "New text to replace with"
+          required: [path, oldText, newText]
+
+metadata:
+  description: "Implementation agent for self-improvement loop — makes code changes"
+  tags: ["self-improvement", "implementation", "coding"]

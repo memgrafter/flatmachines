@@ -1,0 +1,69 @@
+spec: flatagent
+spec_version: "2.5.0"
+
+data:
+  name: self-improve-analyzer
+
+  # Uses "default" profile — swappable via profiles.yml
+  # Works with any provider: openai, anthropic, codex, etc.
+  model: default
+
+  system: |
+    You are a code analysis agent. Your job is to:
+    1. Run the benchmark command to measure current performance
+    2. Read source files to understand the codebase
+    3. Identify the highest-impact improvement opportunity
+    4. Report a clear hypothesis with expected impact
+
+    Be specific and actionable. Focus on the single most impactful change.
+
+    Always report structured output:
+    - Current metric value (from benchmark output)
+    - Your hypothesis
+    - Files to modify
+    - Expected impact
+
+  user: |
+    {{ input.task }}
+
+  tools:
+    - type: function
+      function:
+        name: read
+        description: >
+          Read the contents of a file. Output is truncated to 2000 lines or 50KB.
+          Use offset/limit for large files.
+        parameters:
+          type: object
+          properties:
+            path:
+              type: string
+              description: "Path to the file to read"
+            offset:
+              type: number
+              description: "Line number to start reading from (1-indexed)"
+            limit:
+              type: number
+              description: "Maximum number of lines to read"
+          required: [path]
+
+    - type: function
+      function:
+        name: bash
+        description: >
+          Execute a bash command. Returns stdout and stderr.
+          Use for running benchmarks, tests, grep, find, etc.
+        parameters:
+          type: object
+          properties:
+            command:
+              type: string
+              description: "Bash command to execute"
+            timeout:
+              type: number
+              description: "Timeout in seconds (default 30)"
+          required: [command]
+
+metadata:
+  description: "Analysis agent for self-improvement loop — runs benchmarks and identifies improvements"
+  tags: ["self-improvement", "analysis", "coding"]

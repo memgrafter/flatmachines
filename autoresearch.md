@@ -58,8 +58,22 @@ The self-improvement loop is a FlatMachine config that the CLI can `run` on itse
 
 ## What's Been Tried
 
-(Updated as experiments accumulate)
-
-### Round 1 — Establishing baseline
+### Round 1 — Baseline (score: 10/100)
 - Starting from 0: no experiment tracking, no self-improvement config
-- Baseline capability_score = 0
+- Only self-contained checks passed (no external deps)
+
+### Round 2 — Full infrastructure (score: 100/100 → 200/200)
+- Created experiment.py: ExperimentTracker with run/log/metrics/archive/noise_floor/persist
+- Created improve.py: SelfImprover + SelfImproveHooks action handlers
+- Created config/self_improve.yml: 8-state FlatMachine (analyze→implement→evaluate→archive loop)
+- Added CLI improve subcommand and REPL improve/experiment commands
+- 59 new tests (37 experiment, 22 improve)
+- Updated __init__.py exports
+- All Phase 1 (presence) and Phase 2 (quality) checks pass
+
+### Round 3 — Real-world readiness (targeting Phase 3)
+- User identified gaps: agent configs missing, no integration tests, no todos.txt notes
+- Created config/agents/analyzer.yml and implementer.yml (profile-based, adapter-agnostic)
+- Created test_self_improve_integration.py with deep config validation + e2e loop tests
+- Updated todos.txt with upstream shim notes
+- Updated benchmark to Phase 3 (300 pts): agent configs, integration tests, self-benchmark, docs
