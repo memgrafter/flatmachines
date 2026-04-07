@@ -42,6 +42,34 @@ def parse_metrics(output: str) -> Dict[str, float]:
     return metrics
 
 
+def _glob_match(path: str, pattern: str) -> bool:
+    """Match a file path against a glob pattern with ** support.
+
+    ** matches zero or more directory segments.
+    * matches any characters except /.
+    ? matches a single character except /.
+    """
+    parts: List[str] = []
+    i = 0
+    while i < len(pattern):
+        if pattern[i: i + 3] == "**/":
+            parts.append("(.+/)?")
+            i += 3
+        elif pattern[i: i + 2] == "**":
+            parts.append(".*")
+            i += 2
+        elif pattern[i] == "*":
+            parts.append("[^/]*")
+            i += 1
+        elif pattern[i] == "?":
+            parts.append("[^/]")
+            i += 1
+        else:
+            parts.append(re.escape(pattern[i]))
+            i += 1
+    return bool(re.fullmatch("".join(parts), path))
+
+
 @dataclass(frozen=True)
 class EvaluationSpec:
     """Immutable evaluation specification. Cannot be modified by the agent.
@@ -207,12 +235,10 @@ class EvaluationRunner:
         if not self._spec.editable_patterns:
             return True, []
 
-        from pathlib import PurePath
-
         out_of_scope = []
         for f in changed_files:
             matched = any(
-                PurePath(f).match(pat) for pat in self._spec.editable_patterns
+                _glob_match(f, pat) for pat in self._spec.editable_patterns
             )
             if not matched:
                 out_of_scope.append(f)

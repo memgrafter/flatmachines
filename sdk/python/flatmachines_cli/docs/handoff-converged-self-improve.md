@@ -549,21 +549,30 @@ data:
 
 ---
 
-## New File Inventory
+## File Inventory (Implemented)
 
-| File | Role | Source Inspiration |
-|------|------|--------------------|
-| `archive.py` | Archive data structure + parent selection | HyperAgents `gl_utils.py` |
-| `isolation.py` | Git worktree isolation | HyperAgents Docker (lightweight) |
-| `evaluation.py` | `EvaluationSpec` + staged eval + tampering detection | Autoresearch `prepare.py` |
-| `self_improve.yml` (updated) | Two-loop machine config | Both |
-| `coder.yml` (updated) | Scoped prompt with redirect-and-grep | Autoresearch `program.md` |
+New files:
+| File | Role | LOC | Source Inspiration |
+|------|------|-----|-------------------|
+| `flatmachines_cli/evaluation.py` | `EvaluationSpec` (frozen) + `EvaluationRunner` (staged eval, tampering, log-redirect, glob matching) | ~290 | Autoresearch `prepare.py` |
+| `flatmachines_cli/archive.py` | `Archive` (append-only JSONL) + `ArchiveEntry` + parent selection (best, score_child_prop, random) | ~230 | HyperAgents `gl_utils.py` |
+| `flatmachines_cli/isolation.py` | `WorktreeIsolation` (create/commit/reset/extract-diff/cleanup per generation) | ~220 | HyperAgents Docker (lightweight) |
+| `tests/test_converged_self_improve.py` | 50 tests covering all new modules + integrated hooks + machine config validation | ~530 | — |
 
-Existing files that change:
+Modified files:
 | File | Changes |
 |------|---------|
-| `experiment.py` | Add `EvaluationSpec`, log-redirect, checks runner |
-| `improve.py` | Wire in `Archive`, `WorktreeIsolation`, `EvaluationSpec`; new action handlers |
+| `flatmachines_cli/improve.py` | Added `ConvergedSelfImproveHooks` (+250 LOC) — handles all outer+inner loop actions. `SelfImprover` now accepts `eval_spec`, `archive_path`, `enable_isolation`. Backward-compatible. |
+| `flatmachines_cli/__init__.py` | Exports `EvaluationSpec`, `EvaluationRunner`, `EvalResult`, `Archive`, `ArchiveEntry`, `WorktreeIsolation`, `ConvergedSelfImproveHooks` |
+| `config/self_improve.yml` | Two-loop machine config: outer (select_parent → worktree → inner → archive → cleanup), inner (improve → checks → evaluate → keep/discard). `eval_spec` in context. `max_steps: 500`. |
+| `config/agents/coder.yml` | Scoped edit instructions, redirect-and-grep benchmark protocol, archive_summary.tsv recovery |
+
+Unchanged (backward-compatible):
+| File | Notes |
+|------|-------|
+| `experiment.py` | No changes needed — `EvaluationRunner` handles the new eval logic. `ExperimentTracker` still used for JSONL experiment history. |
+| `config/agents/analyzer.yml` | Still present, still valid. Machine now uses `coder.yml` (unified pattern). |
+| `config/agents/implementer.yml` | Still present, still valid. Available for split-agent patterns. |
 
 ---
 
@@ -603,24 +612,25 @@ As users gain confidence, they can:
 
 ## Sequencing Summary
 
-```
-Phase 1 (Inner Loop — Autoresearch mechanics):
-  1. EvaluationSpec + evaluation firewall     ← makes each experiment trustworthy
-  2. Scoped edit targets                       ← bounds the search space
-  3. Fail-fast compilation check               ← saves wasted cycles
-  4. Log-redirect-and-grep                     ← efficient context usage
+### Phase 1 — Inner Loop (Autoresearch mechanics)
 
-Phase 2 (Outer Loop — HyperAgents search):
-  5. Archive of variants                       ← preserves diversity
-  6. Worktree isolation + diff lineage         ← safe exploration
-  7. Staged evaluation                         ← efficient compute
-  8. Two-loop machine config                   ← ties it all together
+- [x] **1. EvaluationSpec + evaluation firewall** — `evaluation.py`: frozen `EvaluationSpec` dataclass, `EvaluationRunner` with tampering detection via `validate_no_tampering()`. Makes each experiment trustworthy. *(d68c3cb)*
+- [x] **2. Scoped edit targets** — `evaluation.py`: `editable_patterns` + `protected_paths` with full glob `**` support via `_glob_match()`. `coder.yml` prompt declares scope. `self_improve.yml` context carries `eval_spec.editable_patterns`. Bounds the search space. *(d68c3cb)*
+- [x] **3. Fail-fast compilation check** — `evaluation.py`: `run_checks()` action runs `checks_command` before expensive benchmark. `self_improve.yml` has `check_compilation` state that short-circuits to `inner_discard`. Saves wasted cycles. *(d68c3cb)*
+- [x] **4. Log-redirect-and-grep** — `evaluation.py`: `_run_command()` redirects to `log_file`, captures only METRIC lines + last 50 lines. `coder.yml` prompt instructs `> run.log 2>&1` then `grep "^METRIC" run.log`. Efficient context usage. *(d68c3cb)*
 
-Phase 3 (Self-Reference — Future):
-  9. Agent can edit improve.py / self_improve.yml
-  10. Agent can edit parent selection
-  11. Multi-domain evaluation
-  12. Ensemble of archive
-```
+### Phase 2 — Outer Loop (HyperAgents search)
+
+- [x] **5. Archive of variants** — `archive.py`: append-only JSONL, ALL generations kept (including failures), parent→child links, lineage tracking, `summary_tsv()` for agent context. Preserves diversity. *(d68c3cb)*
+- [x] **6. Worktree isolation + diff lineage** — `isolation.py`: `WorktreeIsolation` with create/commit/reset/extract-diff/cleanup per generation. Patches stored in `.self_improve/patches/`. `apply_patches()` for lineage reconstruction. Safe exploration. *(d68c3cb)*
+- [x] **7. Staged evaluation** — `evaluation.py`: `run_staged()` pipeline: tampering → checks → quick benchmark → full benchmark. `quick_benchmark_command` + `quick_threshold` in `EvaluationSpec`. Efficient compute. *(d68c3cb)*
+- [x] **8. Two-loop machine config** — `self_improve.yml`: outer loop (`select_parent → setup_worktree → [inner loop] → finalize_generation → cleanup_worktree → outer_budget_check`), inner loop (`improve → check_compilation → evaluate → inner_keep/inner_discard → inner_budget_check`). `ConvergedSelfImproveHooks` in `improve.py` handles all actions. Ties it all together. *(d68c3cb)*
+
+### Phase 3 — Self-Reference (Future)
+
+- [ ] **9. Agent can edit improve.py / self_improve.yml** — Add improvement infrastructure to `editable_patterns`. Requires archive + isolation to be battle-tested first.
+- [ ] **10. Agent can edit parent selection** — Expose `archive.py` `select_parent()` to editable scope. HyperAgents' most advanced feature. Requires archive trust + safety.
+- [ ] **11. Multi-domain evaluation** — `EvaluationSpec.benchmark_commands: List[str]` with aggregated scoring. Most users have one benchmark today.
+- [ ] **12. Ensemble of archive** — Best-per-task from all surviving variants. Requires stored predictions, not just scores.
 
 Each phase is independently valuable. Phase 1 alone makes the current loop significantly more robust. Phase 2 transforms it from a hill-climber into an evolutionary search. Phase 3 makes it truly self-referential.
