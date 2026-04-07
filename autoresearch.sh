@@ -1419,7 +1419,36 @@ else
     fail_check "validate function export"
 fi
 
-# 21c. All tests still pass (no regressions) (15 pts — moved from robustness to avoid double-counting)
+# 21c. All tests still pass (no regressions) (10 pts)
+ALL5_RESULT=$($PYTHON -m pytest "$CLI_DIR/tests/" -q --tb=no 2>&1 | tail -1)
+ALL5_FAILED=$(echo "$ALL5_RESULT" | grep -oP '\d+(?= failed)' || echo 0)
+ALL5_PASSED=$(echo "$ALL5_RESULT" | grep -oP '\d+(?= passed)' || echo 0)
+if [ "${ALL5_FAILED:-0}" = "0" ] && [ "${ALL5_PASSED:-0}" -gt 0 ]; then
+    award 10 "all $ALL5_PASSED tests pass (no regressions)"
+else
+    fail_check "test regressions: $ALL5_FAILED failed"
+fi
+
+# 21d. Profiles tests exist (5 pts)
+PROF_TESTS=$($PYTHON -m pytest "$CLI_DIR/tests/" -q --co -k "profiles" 2>/dev/null | grep -c "test_" || true)
+PROF_TESTS=${PROF_TESTS:-0}
+if [ "$PROF_TESTS" -ge 2 ]; then
+    award 5 "profiles tests ($PROF_TESTS)"
+else
+    fail_check "profiles tests ($PROF_TESTS, want ≥2)"
+fi
+
+# 21e. Validate function has docstring (5 pts)
+if $PYTHON -c "
+from flatmachines_cli.improve import validate_self_improve_config
+assert validate_self_improve_config.__doc__
+assert len(validate_self_improve_config.__doc__) > 100
+print('Docstring OK')
+" 2>/dev/null; then
+    award 5 "validate function docstring"
+else
+    fail_check "validate docstring"
+fi
 
 phase5=$((score - phase1 - phase2 - phase3 - phase4))
 echo ""
