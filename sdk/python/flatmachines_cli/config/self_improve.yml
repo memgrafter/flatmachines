@@ -59,17 +59,26 @@ data:
           Iteration: {{ context.iteration }} / {{ context.max_iterations }}
           Best score: {{ context.best_score }}
           Last status: {{ context.last_status }}
-          Recent history:
-          {% for h in context.improvement_history[-5:] %}
-            - [{{ h.status }}] score={{ h.score }}: {{ h.hypothesis }}
-          {% endfor %}
+
+          ## Context Recovery
+          At the start of each iteration, read the FULL experiment history and git log.
+          These are your only artifacts between sessions — never skip them:
+          1. Read the experiment log: `cat {{ context.working_dir }}/experiments.jsonl`
+          2. Read the git log: `git log --oneline -30`
+          3. Read any ideas backlog if it exists: `cat ideas.md 2>/dev/null`
+
+          The experiment log contains EVERY past result — what was tried, the score,
+          keep/discard status. Read ALL of it. Do not skip entries. Past failures
+          are critical context to avoid repeating dead ends.
 
           ## Instructions
-          1. Run the benchmark to see current performance
-          2. Read the code and identify an improvement opportunity
-          3. Implement the change (keep it focused and reversible)
-          4. Run the benchmark again to measure the effect
-          {% if context.test_command %}5. Run the tests to verify nothing is broken{% endif %}
+          1. Read experiment history and git log (see above)
+          2. Run the benchmark to see current performance
+          3. Analyze the code and identify the highest-impact improvement
+          4. Implement the change (keep it focused and reversible)
+          5. Run the benchmark again to measure the effect
+          {% if context.test_command %}6. Run the tests to verify nothing is broken{% endif %}
+          7. If you discover promising ideas you won't try now, append them to ideas.md
 
           Report what you changed and the before/after benchmark scores.
 

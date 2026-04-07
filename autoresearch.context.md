@@ -75,4 +75,18 @@ But neither HyperAgents nor pi-autoresearch have orchestration code for the impr
 3. The agent configs (analyzer.yml, implementer.yml) should give the agent bash+edit tools and context about eval results — like HyperAgents does
 4. The self_improve.yml machine config should have the agent states use tool_loop (like coding_machine_cli) so the LLM can call tools freely
 
-**The gap**: experiment.py is a library. It should expose its functionality as tools the coding agent can call during a tool_loop, similar to how bash.py and edit.py work in HyperAgents.
+### Karpathy's autoresearch (~/clones/autoresearch/)
+
+**What it is**: The simplest possible version. A `program.md` file tells the agent the loop. No framework, no tracker library. Just:
+- `results.tsv` — agent logs every experiment directly (tab-separated: commit, val_bpb, memory, status, description)
+- `git log` — commit history is the code state
+- `program.md` — static instructions (human-edited "skill")
+- `train.py` — the single file the agent modifies
+
+**Key insight**: Context between sessions is just files on disk. `results.tsv` + `git log` = full history. The agent reads both at session start and has everything it needs. **No truncation** — the full history is always available so the agent never repeats dead ends.
+
+## Implications for flatmachines_cli
+
+Our machine config uses the coding machine pattern (FlatMachine orchestrates the outer loop, agent handles analyze+implement within tool_loop turns). This is the right architecture because Claude Code and Codex CLI can't have custom tools injected — the machine must handle evaluate/archive/budget externally.
+
+Context between iterations: the agent reads `experiments.jsonl` (full, never truncated) and `git log` at the start of each iteration. These are the only artifacts that persist. Same pattern as Karpathy's `results.tsv` + `git log`.
