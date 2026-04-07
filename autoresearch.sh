@@ -1636,6 +1636,221 @@ phase6=$((score - phase1 - phase2 - phase3 - phase4 - phase5))
 echo ""
 echo "Phase 6 subtotal: $phase6 / 100"
 
+# ==================================================================
+echo ""
+echo "=== Phase 7: End-to-End Loop (100 pts) ==="
+# ==================================================================
+
+# ------------------------------------------------------------------
+# 26. ImprovementRunner exists and works (35 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- ImprovementRunner ---"
+
+# 26a. ImprovementRunner importable (5 pts)
+if $PYTHON -c "from flatmachines_cli.improve import ImprovementRunner; print('OK')" 2>/dev/null; then
+    award 5 "ImprovementRunner importable"
+else
+    fail_check "ImprovementRunner import"
+fi
+
+# 26b. ImprovementRunner can run baseline (10 pts)
+if $PYTHON -c "
+import tempfile, os
+from flatmachines_cli.improve import SelfImprover, ImprovementRunner
+
+td = tempfile.mkdtemp()
+imp = SelfImprover(
+    target_dir=td,
+    benchmark_command=\"echo 'METRIC score=42'\",
+    metric_name='score',
+    direction='higher',
+    log_path=os.path.join(td, 'log.jsonl'),
+    working_dir=td,
+)
+runner = ImprovementRunner(imp, max_iterations=2)
+ctx = runner.run_baseline()
+assert ctx['last_status'] == 'baseline'
+assert ctx['baseline_score'] == 42.0
+assert ctx['best_score'] == 42.0
+print('Baseline OK')
+" 2>/dev/null; then
+    award 10 "ImprovementRunner baseline works"
+else
+    fail_check "ImprovementRunner baseline"
+fi
+
+# 26c. ImprovementRunner full loop (10 pts)
+if $PYTHON -c "
+import tempfile, os
+from flatmachines_cli.improve import SelfImprover, ImprovementRunner
+
+td = tempfile.mkdtemp()
+imp = SelfImprover(
+    target_dir=td,
+    benchmark_command=\"echo 'METRIC score=100'\",
+    metric_name='score',
+    direction='higher',
+    log_path=os.path.join(td, 'log.jsonl'),
+    working_dir=td,
+)
+runner = ImprovementRunner(imp, max_iterations=3)
+ctx = runner.run()
+assert ctx.get('completed_iterations', 0) >= 1
+assert 'final_summary' in ctx
+assert ctx['final_summary']['total_experiments'] >= 1
+print(f'Loop OK: {ctx[\"completed_iterations\"]} iterations')
+" 2>/dev/null; then
+    award 10 "full evaluation loop runs"
+else
+    fail_check "evaluation loop"
+fi
+
+# 26d. Format output (10 pts)
+if $PYTHON -c "
+import tempfile, os
+from flatmachines_cli.improve import SelfImprover, ImprovementRunner
+
+td = tempfile.mkdtemp()
+imp = SelfImprover(
+    target_dir=td,
+    benchmark_command=\"echo 'METRIC score=100'\",
+    metric_name='score',
+    log_path=os.path.join(td, 'log.jsonl'),
+    working_dir=td,
+)
+runner = ImprovementRunner(imp, max_iterations=2)
+ctx = runner.run()
+
+status = runner.format_status(ctx)
+assert 'Session' in status and 'Experiments' in status
+
+history = runner.format_history(ctx)
+assert 'Baseline' in history or 'keep' in history
+print('Format OK')
+" 2>/dev/null; then
+    award 10 "format_status/format_history work"
+else
+    fail_check "format output"
+fi
+
+# ------------------------------------------------------------------
+# 27. CLI improve --run works (20 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- CLI improve --run ---"
+
+# 27a. --run flag exists in help (5 pts)
+if $PYTHON -m flatmachines_cli.main improve --help 2>/dev/null | grep -q "\-\-run"; then
+    award 5 "--run flag in help"
+else
+    fail_check "--run flag"
+fi
+
+# 27b. --git flag exists (5 pts)
+if $PYTHON -m flatmachines_cli.main improve --help 2>/dev/null | grep -q "\-\-git"; then
+    award 5 "--git flag in help"
+else
+    fail_check "--git flag"
+fi
+
+# 27c. improve --run actually runs (10 pts)
+if $PYTHON -c "
+import tempfile, os, subprocess
+
+td = tempfile.mkdtemp()
+# Create a simple benchmark
+bench = os.path.join(td, 'benchmark.sh')
+with open(bench, 'w') as f:
+    f.write('#!/bin/bash\necho \"METRIC score=50\"\n')
+os.chmod(bench, 0o755)
+
+result = subprocess.run(
+    ['$PYTHON', '-m', 'flatmachines_cli.main', 'improve', td,
+     '-b', f'bash {bench}', '-m', 'score', '-n', '2', '--run'],
+    capture_output=True, text=True, timeout=30,
+)
+# Should show loop output
+assert 'Baseline' in result.stdout or 'score' in result.stdout or 'History' in result.stdout, \
+    f'No expected output in: {result.stdout[:200]}'
+print('CLI --run OK')
+" 2>/dev/null; then
+    award 10 "improve --run executes"
+else
+    fail_check "improve --run execution"
+fi
+
+# ------------------------------------------------------------------
+# 28. REPL improve subcommands (20 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- REPL improve ---"
+
+# 28a. improve has subcommands (status, history, validate) (10 pts)
+if $PYTHON -c "
+import inspect
+from flatmachines_cli.repl import FlatMachinesREPL
+src = inspect.getsource(FlatMachinesREPL._cmd_improve)
+has_status = 'status' in src
+has_history = 'history' in src
+has_validate = 'validate' in src
+assert has_status and has_history and has_validate, \
+    f'Missing: status={has_status}, history={has_history}, validate={has_validate}'
+print('Subcommands OK')
+" 2>/dev/null; then
+    award 10 "REPL improve subcommands"
+else
+    fail_check "REPL improve subcommands"
+fi
+
+# 28b. improve validate works programmatically (10 pts)
+if $PYTHON -c "
+from flatmachines_cli.improve import validate_self_improve_config
+result = validate_self_improve_config()
+assert result['valid']
+assert result['info']['state_count'] >= 5
+print('Validate OK')
+" 2>/dev/null; then
+    award 10 "REPL improve validate works"
+else
+    fail_check "REPL improve validate"
+fi
+
+# ------------------------------------------------------------------
+# 29. Runner tests (25 pts)
+# ------------------------------------------------------------------
+echo ""
+echo "--- Runner Tests ---"
+
+# 29a. Runner tests exist and pass (15 pts)
+RUN_TESTS=$($PYTHON -m pytest "$CLI_DIR/tests/" -q --co -k "improvement_runner" 2>/dev/null | grep -c "test_" || true)
+RUN_TESTS=${RUN_TESTS:-0}
+if [ "$RUN_TESTS" -ge 10 ]; then
+    RUN_RESULT=$($PYTHON -m pytest "$CLI_DIR/tests/test_improvement_runner.py" -q --tb=line 2>&1) || true
+    RUN_FAILED=$(echo "$RUN_RESULT" | grep -oP '\d+(?= failed)' || echo 0)
+    if [ "${RUN_FAILED:-0}" = "0" ]; then
+        award 15 "runner tests pass ($RUN_TESTS)"
+    else
+        fail_check "runner tests: $RUN_FAILED failed"
+    fi
+else
+    fail_check "runner tests ($RUN_TESTS, want ≥10)"
+fi
+
+# 29b. All tests pass (10 pts)
+ALL7_RESULT=$($PYTHON -m pytest "$CLI_DIR/tests/" -q --tb=no 2>&1 | tail -1)
+ALL7_FAILED=$(echo "$ALL7_RESULT" | grep -oP '\d+(?= failed)' || echo 0)
+ALL7_PASSED=$(echo "$ALL7_RESULT" | grep -oP '\d+(?= passed)' || echo 0)
+if [ "${ALL7_FAILED:-0}" = "0" ] && [ "${ALL7_PASSED:-0}" -gt 0 ]; then
+    award 10 "all $ALL7_PASSED tests pass"
+else
+    fail_check "test regressions: $ALL7_FAILED failed"
+fi
+
+phase7=$((score - phase1 - phase2 - phase3 - phase4 - phase5 - phase6))
+echo ""
+echo "Phase 7 subtotal: $phase7 / 100"
+
 # ------------------------------------------------------------------
 # Final
 # ------------------------------------------------------------------
@@ -1647,7 +1862,8 @@ echo "  Phase 3 (readiness): $phase3 / 100"
 echo "  Phase 4 (autonomous): $phase4 / 100"
 echo "  Phase 5 (polish):   $phase5 / 100"
 echo "  Phase 6 (advanced): $phase6 / 100"
-echo "  capability_score = $score / 600"
+echo "  Phase 7 (e2e loop): $phase7 / 100"
+echo "  capability_score = $score / 700"
 
 # Count all passing tests
 TEST_RESULT=$($PYTHON -m pytest "$CLI_DIR/tests/" -q --tb=no 2>&1 | tail -1)

@@ -49,7 +49,7 @@ from .discovery import MachineIndex, MachineInfo, discover_examples
 from .inspector import inspect_machine, validate_machine, show_context
 from .repl import FlatMachinesREPL, interactive_repl
 from .experiment import ExperimentTracker, ExperimentResult, ExperimentEntry, parse_metrics
-from .improve import SelfImprover, SelfImproveHooks, validate_self_improve_config
+from .improve import SelfImprover, SelfImproveHooks, ImprovementRunner, validate_self_improve_config
 
 __all__ = [
     "__version__",
@@ -103,5 +103,6 @@ __all__ = [
     "improve",
     "SelfImprover",
     "SelfImproveHooks",
+    "ImprovementRunner",
     "validate_self_improve_config",
 ]

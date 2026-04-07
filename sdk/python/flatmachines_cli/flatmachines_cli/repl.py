@@ -426,12 +426,83 @@ class FlatMachinesREPL:
 
     def _cmd_improve(self, args: List[str]) -> None:
         """Show self-improvement status or start improvement loop."""
-        from .improve import SelfImprover
-        print(f"\n  {_bold('Self-Improvement')}")
-        print(f"  {_dim('Use the improve CLI subcommand for full functionality:')}")
-        print(f"    flatmachines improve [target_dir] --benchmark 'cmd' --metric name")
-        print(f"\n  {_dim('Or run the self-improvement machine directly:')}")
-        print(f"    fm> run self_improve.yml")
+        from .improve import SelfImprover, ImprovementRunner, validate_self_improve_config
+
+        if not args:
+            print(f"\n  {_bold('Self-Improvement')}")
+            print(f"  {_dim('Subcommands:')}")
+            print(f"    improve status            Show current session info")
+            print(f"    improve history <path>    Show experiment history")
+            print(f"    improve validate [path]   Validate self-improve config")
+            print(f"\n  {_dim('CLI:')}")
+            print(f"    flatmachines improve [dir] --benchmark 'cmd' --run")
+            return
+
+        subcmd = args[0]
+
+        if subcmd == "status":
+            # Show self-improve config validation status
+            result = validate_self_improve_config()
+            if result["valid"]:
+                info = result["info"]
+                print(f"\n  {_green('✓')} Self-improvement config: {_bold(info.get('name', '?'))}")
+                print(f"    States:   {info.get('state_count', '?')}")
+                print(f"    Agents:   {info.get('agent_count', '?')}")
+                print(f"    Profiles: {'yes' if info.get('has_profiles') else 'no'}")
+                if result["warnings"]:
+                    print()
+                    for w in result["warnings"]:
+                        print(f"    ⚠ {w}")
+            else:
+                print(f"\n  {_red('✗')} Config invalid:")
+                for err in result["errors"]:
+                    print(f"    {_red(err)}")
+
+        elif subcmd == "history" and len(args) >= 2:
+            from .experiment import ExperimentTracker
+            path = args[1]
+            try:
+                tracker = ExperimentTracker.from_file(path)
+                history = tracker.history
+                if not history:
+                    print("  No experiments yet.")
+                    return
+
+                print(f"\n  {'#':>3s}  {'Status':8s}  {'Metric':>10s}  {'Duration':>8s}  Description")
+                print(f"  {'─' * 3}  {'─' * 8}  {'─' * 10}  {'─' * 8}  {'─' * 30}")
+                for entry in history:
+                    metric_str = f"{entry.primary_metric:10.1f}"
+                    dur_str = f"{entry.result.duration_s:7.1f}s"
+                    desc = entry.description[:40] if entry.description else ""
+                    print(f"  {entry.experiment_id:3d}  {entry.status:8s}  {metric_str}  {dur_str}  {desc}")
+
+                summary = tracker.summary()
+                print()
+                print(f"  Best: {summary['best_metric']}  |  Kept: {summary['kept']}  |  Total: {summary['total_experiments']}")
+            except FileNotFoundError:
+                print(f"  {_red(f'File not found: {path}')}")
+            except Exception as e:
+                print(f"  {_red(f'Error: {e}')}")
+
+        elif subcmd == "validate":
+            config_path = args[1] if len(args) >= 2 else None
+            result = validate_self_improve_config(config_path)
+            if result["valid"]:
+                print(f"  {_green('✓')} Valid")
+                for k, v in result["info"].items():
+                    if k not in ("errors", "warnings"):
+                        print(f"    {k}: {v}")
+            else:
+                print(f"  {_red('✗')} Invalid:")
+                for err in result["errors"]:
+                    print(f"    {_red(err)}")
+            if result["warnings"]:
+                for w in result["warnings"]:
+                    print(f"    ⚠ {w}")
+
+        else:
+            print(f"  Unknown subcommand: {subcmd}")
+            print(f"  Try: improve status | improve history <path> | improve validate")
 
     def _cmd_experiment(self, args: List[str]) -> None:
         """Show experiment tracking status."""

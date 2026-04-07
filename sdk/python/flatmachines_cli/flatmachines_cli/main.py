@@ -343,6 +343,18 @@ def main():
         default=None,
         help="Machine config for the improvement loop (default: built-in self_improve.yml)",
     )
+    improve_parser.add_argument(
+        "--run", "-r",
+        action="store_true",
+        default=False,
+        help="Run the evaluate loop (benchmark-only, no LLM code changes)",
+    )
+    improve_parser.add_argument(
+        "--git",
+        action="store_true",
+        default=False,
+        help="Enable git integration (auto-commit on keep, auto-revert on discard)",
+    )
 
     # --- run command ---
     run_parser = subparsers.add_parser(
@@ -499,8 +511,7 @@ def main():
             return
 
     if args.command == "improve":
-        from .improve import SelfImprover
-        from .experiment import ExperimentTracker
+        from .improve import SelfImprover, ImprovementRunner
 
         target = os.path.abspath(args.target_dir)
         benchmark = args.benchmark
@@ -523,32 +534,78 @@ def main():
             metric_name=args.metric,
             direction=args.direction,
             working_dir=working_dir,
+            git_enabled=args.git,
         )
 
-        # Show summary
+        # Show configuration
         print(f"Self-improvement loop")
         print(f"  Target:    {target}")
         print(f"  Benchmark: {benchmark}")
         print(f"  Metric:    {args.metric} ({args.direction} is better)")
         print(f"  Max iter:  {args.max_iterations}")
+        print(f"  Git:       {'enabled' if args.git else 'disabled'}")
         print()
 
-        # Run initial benchmark
-        print("Running baseline benchmark...")
-        baseline = improver.run_benchmark()
-        if baseline.success:
-            metric_val = baseline.metrics.get(args.metric, 0.0)
-            improver.log_improvement(baseline, "keep", "Baseline measurement")
-            print(f"  Baseline {args.metric} = {metric_val}")
+        if args.run:
+            # Full evaluation loop
+            def _on_iter(iteration, ctx):
+                status = ctx.get("last_status", "?")
+                score = ctx.get("current_score", "?")
+                best = ctx.get("best_score", "?")
+                print(f"  [{iteration}] status={status}  score={score}  best={best}")
+
+            runner = ImprovementRunner(
+                improver=improver,
+                max_iterations=args.max_iterations,
+                on_iteration=_on_iter,
+            )
+
+            print("Running evaluation loop...")
+            print()
+            context = runner.run()
+
+            print()
+            print(runner.format_status(context))
+            print()
+            print("History:")
+            print(runner.format_history(context))
+
+            # Exit with appropriate code
+            final = context.get("final_summary", {})
+            if final.get("kept", 0) > 0:
+                sys.exit(0)
+            else:
+                sys.exit(1)
         else:
-            print(f"  Benchmark failed: {baseline.error or 'non-zero exit'}")
-            sys.exit(1)
+            # Baseline only
+            print("Running baseline benchmark...")
+            baseline = improver.run_benchmark()
+            if baseline.success:
+                metric_val = baseline.metrics.get(args.metric, 0.0)
+                improver.log_improvement(baseline, "keep", "Baseline measurement")
+                print(f"  Baseline {args.metric} = {metric_val}")
+            else:
+                print(f"  Benchmark failed: {baseline.error or 'non-zero exit'}")
+                if baseline.stdout:
+                    # Show truncated output for debugging
+                    lines = baseline.stdout.strip().split("\n")
+                    if len(lines) > 10:
+                        print(f"  (showing last 10 of {len(lines)} lines)")
+                        lines = lines[-10:]
+                    for line in lines:
+                        print(f"    {line}")
+                sys.exit(1)
 
-        print()
-        print(improver.summary())
-        print()
-        print("To run the full improvement loop, use a coding agent:")
-        print(f"  flatmachines run self_improve.yml")
+            print()
+            summary = improver.summary()
+            for k, v in summary.items():
+                print(f"  {k}: {v}")
+            print()
+            print("To run the evaluation loop:")
+            print(f"  flatmachines improve {args.target_dir} -b '{benchmark}' --run")
+            print()
+            print("To run with a coding agent (full self-improvement):")
+            print(f"  flatmachines run self_improve.yml")
         return
 
     if args.command == "run":

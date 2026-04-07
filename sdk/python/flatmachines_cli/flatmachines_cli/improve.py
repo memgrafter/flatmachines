@@ -282,6 +282,171 @@ class SelfImproveHooks:
         return context
 
 
+class ImprovementRunner:
+    """Run the evaluate→archive loop programmatically without an LLM.
+
+    This exercises the full action dispatch chain:
+    evaluate_improvement → archive_result or revert_changes.
+
+    Useful for:
+    - Testing the wiring between SelfImprover, SelfImproveHooks, and ExperimentTracker
+    - Running benchmark-only improvement tracking (no code changes)
+    - Dry-run validation of the improvement pipeline
+    """
+
+    def __init__(
+        self,
+        improver: SelfImprover,
+        max_iterations: int = 10,
+        on_iteration: Optional[Callable[[int, Dict[str, Any]], None]] = None,
+    ):
+        """
+        Args:
+            improver: The SelfImprover instance.
+            max_iterations: Maximum number of evaluate cycles to run.
+            on_iteration: Optional callback(iteration, context) after each cycle.
+        """
+        self._improver = improver
+        self._hooks = SelfImproveHooks(improver)
+        self._max_iterations = max_iterations
+        self._on_iteration = on_iteration
+
+    @property
+    def improver(self) -> SelfImprover:
+        return self._improver
+
+    @property
+    def hooks(self) -> SelfImproveHooks:
+        return self._hooks
+
+    def run_baseline(self) -> Dict[str, Any]:
+        """Run the initial baseline benchmark.
+
+        Returns context dict with baseline metrics populated.
+        """
+        context: Dict[str, Any] = {
+            "iteration": 0,
+            "best_score": None,
+            "current_score": None,
+            "last_status": None,
+            "consecutive_failures": 0,
+            "improvement_history": [],
+            "max_iterations": self._max_iterations,
+        }
+
+        result = self._improver.run_benchmark()
+        if not result.success:
+            context["last_status"] = "crash"
+            context["error"] = result.error or "benchmark failed"
+            return context
+
+        metric_name = self._improver.tracker.metric_name
+        metric_value = result.metrics.get(metric_name, 0.0)
+        self._improver.log_improvement(result, "keep", "Baseline measurement")
+
+        context["best_score"] = metric_value
+        context["current_score"] = metric_value
+        context["last_status"] = "baseline"
+        context["baseline_score"] = metric_value
+
+        return context
+
+    def run_evaluation(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Run one evaluate→archive cycle.
+
+        Dispatches evaluate_improvement then archive_result or revert_changes
+        based on the evaluation outcome. Returns updated context.
+        """
+        context = self._hooks.on_action("evaluate_improvement", context)
+        status = context.get("last_status")
+
+        if status == "improved":
+            context = self._hooks.on_action("archive_result", context)
+        elif status in ("no_improvement", "crash", "failed_tests"):
+            context = self._hooks.on_action("revert_changes", context)
+
+        if self._on_iteration:
+            self._on_iteration(context.get("iteration", 0), context)
+
+        return context
+
+    def run(self) -> Dict[str, Any]:
+        """Run the full evaluation loop.
+
+        1. Run baseline
+        2. For each iteration: evaluate → archive/revert
+        3. Return final context with summary
+
+        Note: This does NOT make code changes (no LLM).
+        It evaluates the current state of the code each iteration.
+        Pair with an external agent making changes between iterations
+        for actual self-improvement.
+        """
+        context = self.run_baseline()
+        if context.get("last_status") == "crash":
+            return context
+
+        for _i in range(self._max_iterations):
+            # Check budget before each evaluation
+            if context.get("consecutive_failures", 0) >= 3:
+                context["last_status"] = "budget_exhausted"
+                context["stop_reason"] = "3 consecutive failures"
+                break
+
+            context = self.run_evaluation(context)
+
+            status = context.get("last_status")
+            if status == "crash":
+                context["stop_reason"] = "benchmark crashed"
+                break
+
+        context["completed_iterations"] = context.get("iteration", 0)
+        context["final_summary"] = self._improver.summary()
+        return context
+
+    def format_status(self, context: Dict[str, Any]) -> str:
+        """Format a human-readable status from context."""
+        lines = []
+        summary = context.get("final_summary") or self._improver.summary()
+
+        lines.append(f"  Session: {summary['name']}")
+        lines.append(f"  Metric:  {summary['metric_name']} ({summary['direction']})")
+        lines.append(f"  Experiments: {summary['total_experiments']}")
+        lines.append(f"    Kept:      {summary['kept']}")
+        lines.append(f"    Discarded: {summary['discarded']}")
+        lines.append(f"    Crashed:   {summary['crashed']}")
+
+        if summary['best_metric'] is not None:
+            lines.append(f"  Best:    {summary['best_metric']}")
+        if summary.get('baseline') is not None:
+            lines.append(f"  Baseline: {summary['baseline']}")
+
+        stop = context.get("stop_reason")
+        if stop:
+            lines.append(f"  Stopped: {stop}")
+
+        return "\n".join(lines)
+
+    def format_history(self, context: Optional[Dict[str, Any]] = None) -> str:
+        """Format experiment history as a table."""
+        history = self._improver.tracker.history
+        if not history:
+            return "  No experiments yet."
+
+        lines = []
+        lines.append(f"  {'#':>3s}  {'Status':8s}  {'Metric':>10s}  {'Duration':>8s}  Description")
+        lines.append(f"  {'─' * 3}  {'─' * 8}  {'─' * 10}  {'─' * 8}  {'─' * 30}")
+
+        for entry in history:
+            status_str = entry.status
+            metric_str = f"{entry.primary_metric:10.1f}"
+            dur_str = f"{entry.result.duration_s:7.1f}s"
+            desc = entry.description[:40] if entry.description else ""
+            lines.append(f"  {entry.experiment_id:3d}  {status_str:8s}  {metric_str}  {dur_str}  {desc}")
+
+        return "\n".join(lines)
+
+
 def validate_self_improve_config(
     config_path: Optional[str] = None,
 ) -> Dict[str, Any]:
