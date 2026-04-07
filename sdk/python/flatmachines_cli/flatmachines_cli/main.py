@@ -56,6 +56,55 @@ def _resolve_config(config_path: str) -> str:
     return str(Path.cwd() / p)
 
 
+def _make_self_improve_handler():
+    """Create a lazy-init action handler for self-improve actions.
+
+    On first call, creates SelfImprover from the machine context.
+    Subsequent calls reuse the same instance.
+    """
+    from .improve import SelfImprover, SelfImproveHooks
+
+    state = {"hooks": None}
+
+    def handler(action_name, context):
+        if state["hooks"] is None:
+            improver = SelfImprover(
+                target_dir=context.get("target_dir", "."),
+                benchmark_command=context.get("benchmark_command", "echo 'METRIC score=0'"),
+                test_command=context.get("test_command", ""),
+                metric_name=context.get("metric_name", "score"),
+                direction=context.get("metric_direction", "higher"),
+                working_dir=context.get("working_dir", os.getcwd()),
+                git_enabled=context.get("git_enabled", False),
+            )
+            state["hooks"] = SelfImproveHooks(improver)
+        return state["hooks"].on_action(action_name, context)
+
+    return handler
+
+
+def _register_self_improve_actions(backend, config_file: str) -> None:
+    """Register self-improve actions if the machine config uses them."""
+    import yaml
+
+    try:
+        with open(config_file) as f:
+            config = yaml.safe_load(f)
+    except Exception:
+        return
+
+    actions = {"evaluate_improvement", "archive_result", "revert_changes"}
+    states = config.get("data", {}).get("states", {})
+    used = {s.get("action") for s in states.values()} & actions
+
+    if not used:
+        return
+
+    handler = _make_self_improve_handler()
+    for action_name in used:
+        backend.register_action(action_name, handler)
+
+
 def _try_find_tool_provider(working_dir: str):
     """
     Try to import and create CLIToolProvider from tool_use_cli.
@@ -84,12 +133,15 @@ async def run_once(
     working_dir: str,
     human_review: bool = True,
     auto_approve: bool = False,
+    **extra_input,
 ) -> Dict[str, Any]:
     """
     Run a single task through a flatmachine with the CLI pipeline.
 
     This is the core execution function. It wires up:
     backend (bus + processors) ← hooks ← flatmachine → hooks → backend → frontend
+
+    Extra keyword args are passed as machine input fields.
     """
     bus = DataBus()
     frontend = TerminalFrontend(auto_approve=auto_approve or not human_review)
@@ -99,14 +151,19 @@ async def run_once(
     tool_provider_factory = _try_find_tool_provider(working_dir)
     hooks = CLIHooks(backend, tool_provider_factory=tool_provider_factory)
 
+    resolved_config = _resolve_config(config_file)
+    _register_self_improve_actions(backend, resolved_config)
+
+    machine_input = {"task": task, "working_dir": working_dir, **extra_input}
+
     machine = FlatMachine(
-        config_file=_resolve_config(config_file),
+        config_file=resolved_config,
         hooks=hooks,
     )
 
     result = await backend.run_machine(
         machine,
-        input={"task": task, "working_dir": working_dir},
+        input=machine_input,
     )
 
     return result
