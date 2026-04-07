@@ -6,12 +6,9 @@ Usage:
     python -m interpreter_machine.main "What if state machines are the wrong abstraction?" -w /path/to/project
 """
 
-import asyncio
 import logging
 import os
-import signal
 import sys
-import termios
 from pathlib import Path
 
 from flatmachines import FlatMachine
@@ -26,22 +23,16 @@ for _name in ("flatagents", "flatmachines"):
 _CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config"
 
 
-# Module-level reference so the signal handler can cancel the subprocess.
-_machine: FlatMachine | None = None
-
-
-async def run(statement: str, working_dir: str):
+def run(statement: str, working_dir: str):
     """Interpret a statement and update INTERPRETATIONS.md."""
-    global _machine
     hooks = InterpreterHooks()
 
     machine = FlatMachine(
         config_file=str(_CONFIG_DIR / "machine.yml"),
         hooks=hooks,
     )
-    _machine = machine
 
-    result = await machine.execute(
+    result = machine.execute_sync(
         input={"statement": statement, "working_dir": working_dir}
     )
 
@@ -88,39 +79,11 @@ def main():
 
     statement = " ".join(statement_parts)
 
-    # Save terminal state so we can restore it no matter what the subprocess does.
     try:
-        saved_termios = termios.tcgetattr(sys.stdin)
-    except termios.error:
-        saved_termios = None
-
-    loop = asyncio.new_event_loop()
-    main_task = loop.create_task(run(statement, working_dir))
-
-    def _cancel(sig, frame):
-        print("\n\nCancelling...")
-        # Cancel any running adapter subprocess (claude-code, etc.)
-        if _machine is not None:
-            for executor in getattr(_machine, "_agents", {}).values():
-                if hasattr(executor, "cancel"):
-                    asyncio.ensure_future(executor.cancel(), loop=loop)
-        main_task.cancel()
-
-    signal.signal(signal.SIGINT, _cancel)
-
-    try:
-        loop.run_until_complete(main_task)
-    except asyncio.CancelledError:
-        print("Cancelled.")
+        run(statement, working_dir)
+    except KeyboardInterrupt:
+        print("\nCancelled.")
         sys.exit(130)
-    finally:
-        loop.close()
-        # Restore terminal state.
-        if saved_termios is not None:
-            try:
-                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, saved_termios)
-            except termios.error:
-                pass
 
 
 if __name__ == "__main__":

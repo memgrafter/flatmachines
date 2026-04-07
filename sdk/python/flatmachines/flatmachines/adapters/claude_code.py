@@ -38,8 +38,14 @@ import json
 import logging
 import os
 import signal
+import sys
 import uuid
 from typing import Any, Dict, List, Optional
+
+try:
+    import termios as _termios
+except ImportError:
+    _termios = None  # Not available on Windows
 
 from flatagents.monitoring import AgentMonitor
 
@@ -586,6 +592,16 @@ class ClaudeCodeExecutor(AgentExecutor):
         )
         logger.debug("Claude Code args: %s", args)
 
+        # Save terminal state before spawning the subprocess.
+        # Claude Code can alter terminal settings (raw mode, echo, etc.)
+        # and a crash / cancellation would leave the terminal broken.
+        _saved_termios = None
+        if _termios is not None:
+            try:
+                _saved_termios = _termios.tcgetattr(sys.stdin)
+            except (_termios.error, ValueError, OSError):
+                pass
+
         with AgentMonitor(agent_id, extra_attributes={
             "adapter": "claude-code",
             "session_id": session_id,
@@ -641,6 +657,13 @@ class ClaudeCodeExecutor(AgentExecutor):
             # Wait for process exit
             await proc.wait()
             self._process = None
+
+            # Restore terminal state after subprocess exits.
+            if _saved_termios is not None:
+                try:
+                    _termios.tcsetattr(sys.stdin, _termios.TCSADRAIN, _saved_termios)
+                except (_termios.error, ValueError, OSError):
+                    pass
 
             stderr_text = stderr_data.decode("utf-8", errors="replace")
 

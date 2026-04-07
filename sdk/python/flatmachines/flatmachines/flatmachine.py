@@ -12,6 +12,8 @@ import importlib
 import json
 import os
 import re
+import signal
+import sys
 import time
 import warnings
 from collections.abc import Mapping
@@ -1137,6 +1139,26 @@ class FlatMachine:
             
             self._mark_launched(child_id)
 
+    # =========================================================================
+    # Cancellation
+    # =========================================================================
+
+    async def cancel(self) -> None:
+        """Cancel all running agent executors.
+
+        Propagates cancellation to every cached executor that implements
+        a ``cancel()`` method (e.g. subprocess-based adapters like
+        claude-code and codex-cli).  Safe to call from signal handlers
+        via ``asyncio.ensure_future``.
+        """
+        for executor in self._agents.values():
+            cancel_fn = getattr(executor, "cancel", None)
+            if cancel_fn is not None:
+                try:
+                    await cancel_fn()
+                except Exception:
+                    pass
+
     async def _run_hook(self, method_name: str, *args) -> Any:
         """Run a hook method, awaiting if it's a coroutine."""
         method = getattr(self._hooks, method_name)
@@ -2028,11 +2050,41 @@ class FlatMachine:
         self,
         input: Optional[Dict[str, Any]] = None,
         max_steps: int = 1000,
-        max_agent_calls: Optional[int] = None
+        max_agent_calls: Optional[int] = None,
+        handle_signals: bool = True,
     ) -> Dict[str, Any]:
-        """Synchronous wrapper for execute()."""
-        import asyncio
-        return asyncio.run(self.execute(input=input, max_steps=max_steps, max_agent_calls=max_agent_calls))
+        """Synchronous wrapper for execute().
+
+        Args:
+            input: Input data for the machine.
+            max_steps: Maximum state transitions.
+            max_agent_calls: Maximum total agent API calls.
+            handle_signals: When True (default), installs a SIGINT handler
+                that gracefully cancels running agent subprocesses before
+                re-raising ``KeyboardInterrupt``.  Set to False when the
+                caller manages its own signal handling.
+        """
+        loop = asyncio.new_event_loop()
+        main_task = loop.create_task(
+            self.execute(input=input, max_steps=max_steps, max_agent_calls=max_agent_calls)
+        )
+
+        prev_handler = None
+        if handle_signals:
+            def _cancel_handler(sig, frame):
+                asyncio.ensure_future(self.cancel(), loop=loop)
+                main_task.cancel()
+
+            prev_handler = signal.signal(signal.SIGINT, _cancel_handler)
+
+        try:
+            return loop.run_until_complete(main_task)
+        except asyncio.CancelledError:
+            raise KeyboardInterrupt("Machine execution cancelled via SIGINT")
+        finally:
+            loop.close()
+            if handle_signals and prev_handler is not None:
+                signal.signal(signal.SIGINT, prev_handler)
 
 
 __all__ = ["FlatMachine"]
