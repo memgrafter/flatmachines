@@ -273,9 +273,10 @@ class TestSelfImproveConfig:
         with open(config_path) as f:
             config = yaml.safe_load(f)
         states = set(config["data"]["states"].keys())
-        # Must have analyze + implement + evaluate
-        assert any("analy" in s for s in states), f"No analyze state in {states}"
-        assert any("implement" in s for s in states), f"No implement state in {states}"
+        # Must have agent state (unified "improve" or split "analyze"+"implement") + evaluate
+        has_unified = any("improv" in s for s in states)
+        has_split = any("analy" in s for s in states) and any("implement" in s for s in states)
+        assert has_unified or has_split, f"No agent state in {states}"
         assert any("eval" in s for s in states), f"No evaluate state in {states}"
 
     def test_config_has_loop(self):

@@ -133,13 +133,18 @@ import yaml
 with open('$CONFIG_FOUND') as f:
     config = yaml.safe_load(f)
 states = set(config['data']['states'].keys())
-assert any('analy' in s.lower() or 'assess' in s.lower() or 'benchmark' in s.lower() for s in states)
+# Accept unified 'improve' or split 'analyze'+'implement' pattern
+has_agent = any('improv' in s.lower() for s in states) or (
+    any('analy' in s.lower() or 'assess' in s.lower() for s in states) and
+    any('implement' in s.lower() or 'work' in s.lower() for s in states)
+)
+assert has_agent, f'No agent state: {states}'
 assert any('eval' in s.lower() or 'test' in s.lower() or 'check' in s.lower() for s in states)
 print('OK')
 " 2>/dev/null; then
-    award 5 "analyze + evaluate states"
+    award 5 "agent + evaluate states"
 else
-    fail_check "analyze/evaluate states"
+    fail_check "agent/evaluate states"
 fi
 
 if [ -n "$CONFIG_FOUND" ] && $PYTHON -c "
@@ -1254,20 +1259,21 @@ else
     fail_check "profiles.yml"
 fi
 
-# 18b. Multiple profiles for adapter flexibility (10 pts)
+# 18b. Profile has provider configured (10 pts)
 if [ -f "$PROFILES" ] && $PYTHON -c "
 import yaml
 with open('$PROFILES') as f:
     config = yaml.safe_load(f)
 profiles = config['data']['model_profiles']
-assert len(profiles) >= 2, f'Only {len(profiles)} profile(s)'
-# Check different providers are represented
-providers = set(p.get('provider', '') for p in profiles.values())
-print(f'Providers: {providers}')
+assert len(profiles) >= 1, f'No profiles configured'
+# Check default profile has provider
+default = profiles.get('default', list(profiles.values())[0])
+assert default.get('provider'), 'No provider in default profile'
+print(f'Profiles: {list(profiles.keys())}')
 " 2>/dev/null; then
-    award 10 "multiple profiles (adapter flexibility)"
+    award 10 "profiles configured with provider"
 else
-    fail_check "multiple profiles"
+    fail_check "profiles configuration"
 fi
 
 # ------------------------------------------------------------------

@@ -1,173 +1,78 @@
 # Autoresearch Context — Self-Improving flatmachines_cli
 
-> **Purpose**: Static reference for resuming after compaction. Read this FIRST, then autoresearch.md.
-> **Last updated**: Run #4, score 400/400, 1062 tests passing.
+## Source Analysis
 
-## Goal
+### HyperAgents (Meta Research, ~/clones/HyperAgents/)
 
-Convert `sdk/python/flatmachines_cli/` into a **coding machine with self-improvement mode**.
-- Must work with any coding agent adapter (claude_code, codex_cli, coding_machine_cli, coding_agent_cli)
-- Must be able to self-improve without external references (HyperAgents, pi-autoresearch)
-- Benchmark: when flatmachines_cli can run an improvement loop on itself, we're done
+**What it is**: A self-referential self-improving agent system from Meta. An LLM agent (the "meta agent") modifies its own codebase to improve at solving tasks, then gets evaluated, and the cycle repeats.
 
-## Current Status: 400/400 — All Phases Complete
+**Architecture** (3 layers):
 
-| Phase | Score | What it measures |
-|-------|-------|-----------------|
-| 1. Presence | 100/100 | Modules exist, importable, correct API surface |
-| 2. Quality | 100/100 | E2E experiment loop, persistence, error handling, hooks |
-| 3. Readiness | 100/100 | Agent configs, integration tests, self-benchmark, docs |
-| 4. Autonomous | 100/100 | Git commit/revert, confidence scoring, robustness |
+1. **generate_loop.py** — The outer loop. Runs generations in sequence:
+   - Select parent from archive (score-proportional or random)
+   - Spin up Docker container with the codebase
+   - Apply lineage diffs (all ancestor patches)
+   - Run meta agent to produce code changes (diff)
+   - Evaluate the modified agent on task benchmarks
+   - Staged evaluation: small sample first, full eval only if promising
+   - Update archive, select next parent, repeat
 
-## Architecture (current — 4687 LOC, 14 source files, 76 test files, 1062 passing)
+2. **meta_agent.py** — Extremely simple. 7 lines of real code:
+   ```python
+   class MetaAgent(AgentSystem):
+       def forward(self, repo_path, eval_path, iterations_left=None):
+           instruction = f"Modify any part of the codebase at `{repo_path}`."
+           chat_with_agent(instruction, model=self.model, tools_available='all')
+   ```
+   The meta agent gets the repo path, the eval results folder, and a tool-use chat loop. That's it. The LLM decides what to change.
 
-```
-flatmachines_cli/
-├── __init__.py       (108L)  — public API exports, version="2.5.0"
-├── main.py           (495L)  — CLI entry: list/inspect/validate/context/run/improve subcommands
-├── backend.py        (269L)  — CLIBackend: orchestrates processors, DataBus, events
-├── hooks.py          (172L)  — CLIHooks(MachineHooks): bridges flatmachines → event pipeline
-├── bus.py            (372L)  — DataBus: UDP-like latest-value slots, subscribe/diff/persist
-├── processors.py     (608L)  — Status/Token/Tool/Content/Error processors, Hz-capped
-├── events.py         (150L)  — Event types + constructor functions (plain dicts)
-├── protocol.py       (122L)  — Frontend ABC + ActionHandler registry
-├── frontend.py       (294L)  — TerminalFrontend: simple line-based output
-├── inspector.py      (308L)  — Machine config pretty-printer (inspect/validate/context)
-├── discovery.py      (202L)  — MachineIndex: finds machine.yml configs in project
-├── repl.py           (606L)  — Interactive REPL + improve/experiment commands
-├── experiment.py     (550L)  — NEW: ExperimentTracker with run/log/git/confidence/persist
-└── improve.py        (245L)  — NEW: SelfImprover + SelfImproveHooks action handlers
+3. **task_agent.py** — The agent being improved. Also simple — takes task input, calls LLM, returns prediction. This is what the meta agent modifies.
 
-config/
-├── self_improve.yml           — 8-state FlatMachine improvement loop
-└── agents/
-    ├── analyzer.yml           — Analysis agent (read + bash tools, profile-based model)
-    └── implementer.yml        — Implementation agent (all 4 coding tools)
+**Key design decisions**:
+- **Docker isolation**: Every generation runs in a fresh container. Changes can't corrupt the host.
+- **Diff-based lineage**: Changes stored as git diffs, not full snapshots. Ancestors' diffs applied in order.
+- **Archive with parent selection**: Not just latest — score-proportional selection across all generations. Enables exploring from any promising ancestor.
+- **Staged evaluation**: Small sample first (fast, cheap). Full eval only if staged eval passes a threshold. Saves compute.
+- **Tools**: Just `bash` and `editor` (view/create/str_replace/insert/undo_edit). The editor has undo history.
+- **The meta agent is the LLM itself**: No orchestration logic for what to analyze or implement. One instruction: "Modify any part of the codebase." The LLM figures out what to do by reading eval results and code.
 
-tests/ (76 files, 1062 tests)
-├── test_experiment.py         — 37 tests: tracker API, run, log, persist, metrics
-├── test_experiment_git.py     — 15 tests: git commit/revert, auto on keep/discard
-├── test_experiment_confidence.py — 9 tests: confidence scoring
-├── test_improve.py            — 24 tests: SelfImprover, hooks, config
-└── test_self_improve_integration.py — 24 tests: full loop, adapter compat, config structure
-```
+**What's remarkable**: The meta agent has zero domain knowledge. It gets told "modify the codebase" and figures out improvements by reading evaluation results from previous generations. The entire self-improvement logic lives in the LLM's reasoning, not in code.
 
-## Key New Modules
+### pi-autoresearch (~/.pi/agent/git/github.com/davebcn87/pi-autoresearch/)
 
-### experiment.py — ExperimentTracker
-```python
-tracker = ExperimentTracker(
-    name="optimize-X", metric_name="score", direction="higher",
-    log_path="experiments.jsonl", working_dir=".", git_enabled=True,
-)
-tracker.init()
-result = tracker.run("bash benchmark.sh")           # Runs command, parses METRIC lines
-entry = tracker.log(result, status="keep", ...)      # Persists to JSONL, auto-commits
-tracker.best_metric()                                # Best kept metric value
-tracker.confidence_score()                           # Improvement / noise floor ratio
-tracker.git_commit("message")                        # Stage all + commit
-tracker.git_revert()                                 # Reset + checkout + clean
-ExperimentTracker.from_file("log.jsonl")             # Resume from persisted log
-```
+**What it is**: A pi extension (2,575 lines TypeScript) that turns any pi coding session into an autonomous experiment loop.
 
-### improve.py — SelfImprover
-```python
-improver = SelfImprover(
-    target_dir="./my_project", benchmark_command="bash bench.sh",
-    metric_name="score", direction="higher", git_enabled=True,
-)
-result = improver.run_benchmark()                    # Run benchmark command
-evaluation = improver.evaluate(result)               # Compare to best
-improver.log_improvement(result, "keep", "description")
+**Architecture**: 
+- **3 tools**: `init_experiment`, `run_experiment`, `log_experiment`
+- **A skill prompt** (SKILL.md): Teaches the LLM agent the experiment loop pattern
+- **The LLM agent IS the loop**: It reads code, hypothesizes, implements, benchmarks, keeps/discards
 
-# SelfImproveHooks for FlatMachine integration:
-hooks = SelfImproveHooks(improver)
-ctx = hooks.on_action("evaluate_improvement", ctx)   # Run + evaluate
-ctx = hooks.on_action("archive_result", ctx)         # Log as keep
-ctx = hooks.on_action("revert_changes", ctx)         # Log as discard
-```
+**Key design decisions**:
+- **No orchestration code**: The loop is the LLM calling tools in sequence, guided by the skill prompt
+- **JSONL persistence**: Append-only log with config headers and experiment entries
+- **Segments**: Re-init without losing history (new baseline, old results stay)
+- **Context management**: Tracks token usage, auto-stops before exhaustion, auto-resumes with fresh context
+- **Backpressure checks**: Optional `autoresearch.checks.sh` runs after every passing benchmark
+- **Confidence scoring**: MAD-based (Median Absolute Deviation) — robust to outliers
+- **Git integration**: `keep` auto-commits via changeset_commit, `discard`/`crash` auto-reverts
+- **TUI dashboard**: Collapsible widget with experiment table, spinner, metrics
 
-### config/self_improve.yml — FlatMachine States
-```
-start → analyze (agent:analyzer, tool_loop) → check_budget → implement (agent:implementer, tool_loop)
-  → evaluate (action:evaluate_improvement) → archive_keep/archive_discard → back to analyze
-  → done (final, when max_iterations or consecutive_failures reached)
-```
+**Core insight shared by both systems**: The LLM is the agent. You give it tools (bash, edit, run_experiment) and context (eval results, code), and it figures out what to improve. You don't need to code an analyze→implement→evaluate state machine — the LLM does that naturally when given the right tools and instructions.
 
-## Event Pipeline (unchanged from original)
-```
-flatmachines hooks → events (dicts) → processors (async, Hz-capped) → DataBus (slots) → frontend
-```
+## Implications for flatmachines_cli
 
-## Agent Adapters (examples that must work)
-All agent configs use `model: default` — profile-based, swappable via profiles.yml:
-1. **coding_machine_cli** — FlatMachine with tool_loop, CLIToolProvider
-2. **coding_agent_cli** — Same + standalone ToolLoopAgent mode  
-3. **claude_code_adapter** — Claude Code specific hooks
-4. **codex_cli_adapter** — OpenAI Codex specific hooks
+The current implementation (experiment.py, improve.py, self_improve.yml) over-engineered the orchestration. It built:
+- A `SelfImprover` class that wraps experiment tracking
+- A `SelfImproveHooks` class for FlatMachine action dispatch  
+- An `ImprovementRunner` class for programmatic loops
+- An 8-state FlatMachine config describing analyze→implement→evaluate→archive
 
-## HyperAgents Self-Improvement Core (extracted patterns)
+But neither HyperAgents nor pi-autoresearch have orchestration code for the improvement loop. Both rely on the LLM to drive the cycle.
 
-### Key Abstractions We Adopted
-- **MetaAgent pattern** → Our analyze + implement states with coding tools
-- **Archive pattern** → ExperimentTracker JSONL persistence with keep/discard
-- **Staged evaluation** → check_budget state, consecutive_failures counter
-- **Parent selection** → Not adopted (single-branch), noted for future
+**What flatmachines_cli actually needs to be a self-improving coding machine**:
+1. Work as a coding machine with any adapter (✓ already does this via backend/frontend/hooks/bus)
+2. Provide experiment tracking tools the agent can call (experiment.py has the logic, but it's a library not tools)
+3. The agent configs (analyzer.yml, implementer.yml) should give the agent bash+edit tools and context about eval results — like HyperAgents does
+4. The self_improve.yml machine config should have the agent states use tool_loop (like coding_machine_cli) so the LLM can call tools freely
 
-### Key Differences
-- No Docker isolation (runs in same process)
-- No multi-branch evolution (single improvement track)
-- Git commit/revert instead of diff-based lineage
-- Profile-based model selection instead of hardcoded
-
-## pi-autoresearch Self-Improvement Core (extracted patterns)
-
-### Key Abstractions We Adopted
-- **METRIC line parsing** → `parse_metrics()` regex, same format
-- **init/run/log lifecycle** → ExperimentTracker mirrors init_experiment/run_experiment/log_experiment
-- **keep/discard/crash statuses** → Same semantics, auto-commit/revert
-- **Confidence scoring** → `confidence_score()` = improvement / noise_floor
-- **ASI pattern** → notes dict on ExperimentEntry (structured diagnostics)
-
-### Key Differences
-- No pi-specific tooling dependency
-- JSONL format is simpler (no segment tracking)
-- No dashboard/widget integration
-- Git operations are optional (git_enabled flag)
-
-## Constraints (from user)
-- Production quality changes only in `sdk/python/flatmachines_cli/`
-- Tiny QOL changes OK in flatmachines/flatagents if directly related
-- Prefer shimming in flatmachines_cli, note TODOs in todos.txt
-- Don't overfit to benchmarks, don't cheat
-- Focus on high impact
-
-## What to Work On Next (see autoresearch.ideas.md)
-
-### Benchmark Ceiling Reached
-The benchmark is at 400/400 across 4 phases. To continue improving:
-1. **Add Phase 5** checks for deeper capability (e.g., profiles.yml for self-improvement, validate machine config loads with FlatMachine, stress-test persistence)
-2. **Or** shift focus to code quality improvements that don't need new benchmark phases (refactoring, edge case handling, documentation)
-
-### High-Value Remaining Ideas
-- Profiles.yml for self-improvement (default config that works out of box)
-- validate_self_improve_config() API function
-- `improve run` REPL command that actually starts the loop
-- Improve CLI subcommand with `--run` flag for full loop execution
-
-## Test Infrastructure
-```bash
-# Run all tests (from repo root)
-sdk/python/flatmachines_cli/.venv/bin/python -m pytest sdk/python/flatmachines_cli/tests/ -q --tb=line
-
-# Run only new self-improvement tests
-sdk/python/flatmachines_cli/.venv/bin/python -m pytest sdk/python/flatmachines_cli/tests/ -k "experiment or improve or self_improve or git or confidence" -q
-
-# Checks script (run by autoresearch automatically)
-bash autoresearch.checks.sh
-```
-
-## Files Off Limits
-- sdk/python/flatmachines/ (core SDK — shim in CLI, note in todos.txt)
-- sdk/python/flatagents/ (core SDK — shim in CLI, note in todos.txt)
-- Existing test files (don't modify, only add new ones)
+**The gap**: experiment.py is a library. It should expose its functionality as tools the coding agent can call during a tool_loop, similar to how bash.py and edit.py work in HyperAgents.

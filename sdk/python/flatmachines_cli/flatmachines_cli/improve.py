@@ -598,7 +598,12 @@ def validate_self_improve_config(
     if len(initial_states) > 1:
         warnings.append(f"Multiple initial states: {initial_states}")
 
-    # Required state patterns
+    # Required state patterns — either:
+    # 1. Unified: "improve" state (coding machine pattern)
+    # 2. Split: "analyze" + "implement" states (separate agent pattern)
+    has_unified = any(
+        "improv" in s.lower() for s in state_names
+    )
     has_analyze = any(
         "analy" in s.lower() or "assess" in s.lower() or "benchmark" in s.lower()
         for s in state_names
@@ -612,10 +617,9 @@ def validate_self_improve_config(
         for s in state_names
     )
 
-    if not has_analyze:
-        errors.append("No analyze/benchmark state found")
-    if not has_implement:
-        errors.append("No implement/work state found")
+    has_agent_state = has_unified or (has_analyze and has_implement)
+    if not has_agent_state:
+        errors.append("No agent state found (need 'improve' or 'analyze'+'implement')")
     if not has_evaluate:
         errors.append("No evaluate/check state found")
 

@@ -1,0 +1,116 @@
+spec: flatagent
+spec_version: "2.5.0"
+
+data:
+  name: self-improve-coder
+
+  model: default
+
+  system: |
+    You are an expert coding agent working on self-improvement.
+    You have access to tools for reading files, writing files, executing bash
+    commands, and making surgical edits.
+
+    Your workflow each iteration:
+    1. Run the benchmark to measure current state
+    2. Analyze code for the highest-impact improvement
+    3. Implement the change — keep it focused and minimal
+    4. Run the benchmark again to verify improvement
+    5. Run tests if a test command is provided
+
+    Guidelines:
+    - Read code before editing — understand what you're changing
+    - Use bash for running benchmarks, tests, and exploration (ls, grep, find)
+    - Use edit for precise changes (oldText must match exactly, including whitespace)
+    - Use write only for new files or complete rewrites
+    - Prefer small, surgical changes over large rewrites
+    - If something doesn't improve the metric, say so clearly
+    - Be scientific: measure before and after, report the delta
+
+  user: |
+    {{ input.task }}
+
+  tools:
+    - type: function
+      function:
+        name: read
+        description: >
+          Read the contents of a file. Output is truncated to 2000 lines or 50KB.
+          Use offset/limit for large files.
+        parameters:
+          type: object
+          properties:
+            path:
+              type: string
+              description: "Path to the file to read (relative or absolute)"
+            offset:
+              type: number
+              description: "Line number to start reading from (1-indexed)"
+            limit:
+              type: number
+              description: "Maximum number of lines to read"
+          required: [path]
+
+    - type: function
+      function:
+        name: bash
+        description: >
+          Execute a bash command. Returns stdout and stderr. Use for running
+          benchmarks, tests, and exploring the codebase.
+        parameters:
+          type: object
+          properties:
+            command:
+              type: string
+              description: "Bash command to execute"
+            timeout:
+              type: number
+              description: "Timeout in seconds (default 120)"
+          required: [command]
+
+    - type: function
+      function:
+        name: write
+        description: >
+          Write content to a file. Creates parent directories automatically.
+          Use for new files or complete rewrites.
+        parameters:
+          type: object
+          properties:
+            path:
+              type: string
+              description: "Path to the file to write"
+            content:
+              type: string
+              description: "Content to write to the file"
+          required: [path, content]
+
+    - type: function
+      function:
+        name: edit
+        description: >
+          Edit a file by replacing exact text. The oldText must match exactly
+          (including whitespace).
+        parameters:
+          type: object
+          properties:
+            path:
+              type: string
+              description: "Path to the file to edit"
+            oldText:
+              type: string
+              description: "Exact text to find and replace"
+            newText:
+              type: string
+              description: "New text to replace with"
+          required: [path, oldText, newText]
+
+metadata:
+  description: >
+    Unified coding agent for self-improvement. Handles analysis, implementation,
+    and verification in a single tool_loop. Uses the coding_machine_cli pattern
+    with bash, read, write, edit tools.
+  tags:
+    - self-improvement
+    - coding
+    - tool-loop
