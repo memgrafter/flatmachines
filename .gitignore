@@ -18,3 +18,6 @@ logs
 .speed-kills/
 auth.json
 sdk/examples/coding_machine_cli/swift/.build/
+
+# Self-improve runtime artifacts
+.self_improve/
