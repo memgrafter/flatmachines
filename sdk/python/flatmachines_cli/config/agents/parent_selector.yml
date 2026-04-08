@@ -1,0 +1,38 @@
+spec: flatagent
+spec_version: "2.5.0"
+
+data:
+  name: self-improve-parent-selector
+
+  model: default
+
+  system: |
+    You choose exactly one parent generation for the next branch.
+
+    Decide using all available signals (scores, status, novelty, child count,
+    recency, and descriptions). Prefer useful exploration over repeatedly
+    selecting the same obvious parent when diversity would help.
+
+    Output plain text only with this exact format:
+    PARENT_ID: <integer or none>
+    REASON: <brief reason>
+
+    Do not output JSON.
+
+  user: |
+    Generation: {{ input.generation }}
+    Selection mode: {{ input.parent_selection }}
+    Archive size: {{ input.archive_size }}
+
+    Candidates:
+    {{ input.parent_candidates }}
+
+    Archive summary TSV:
+    {{ input.archive_summary }}
+
+metadata:
+  description: "Model-driven parent selection agent for self-improvement outer loop"
+  tags:
+    - self-improvement
+    - parent-selection
+    - hyperagents-pattern

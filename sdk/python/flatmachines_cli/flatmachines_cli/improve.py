@@ -331,24 +331,20 @@ class SelfImproveHooks:
 
 
 class ConvergedSelfImproveHooks:
-    """Action handlers for the converged two-loop self_improve.yml.
+    """Action handlers for the converged self_improve.yml.
 
-    Handles both outer loop (archive, worktree, parent selection) and
-    inner loop (evaluation firewall, checks, staged eval) actions.
-
-    Actions handled:
-    - select_parent_from_archive: pick next parent generation
-    - create_isolated_worktree: set up worktree from parent
-    - run_checks: fail-fast compilation/lint check
-    - evaluate_with_staging: staged eval (checks → quick → full)
-    - commit_inner_improvement: commit changes in worktree
-    - revert_inner_changes: reset worktree to clean state
+    Outer loop:
+    - prepare_parent_selection_context: build archive context for selector model
+    - apply_parent_selection: parse selector output and set parent fields
+    - select_parent_from_archive: heuristic fallback/backward compatibility
+    - create_isolated_worktree: set up worktree from selected parent
     - extract_diff_and_archive: save diff and add to archive
     - cleanup_isolated_worktree: remove worktree
     - write_archive_summary: write TSV summary for agent context
 
-    Backward-compatible: also handles the original simple actions
-    (evaluate_improvement, archive_result, revert_changes).
+    Inner loop utilities (backward-compatible):
+    - run_checks / evaluate_with_staging / commit_inner_improvement / revert_inner_changes
+    - evaluate_improvement / archive_result / revert_changes
     """
 
     def __init__(self, improver: SelfImprover):
@@ -360,6 +356,8 @@ class ConvergedSelfImproveHooks:
         """Dispatch to the appropriate handler."""
         handlers = {
             # Outer loop actions
+            "prepare_parent_selection_context": self._prepare_parent_selection_context,
+            "apply_parent_selection": self._apply_parent_selection,
             "select_parent_from_archive": self._select_parent,
             "create_isolated_worktree": self._create_worktree,
             "extract_diff_and_archive": self._extract_and_archive,
@@ -383,34 +381,27 @@ class ConvergedSelfImproveHooks:
 
     # --- Outer Loop Actions ---
 
-    def _select_parent(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Select next parent from archive using configured strategy.
-
-        Also coerces max_generations to int (expression engine needs real ints
-        for >= comparisons, not Jinja2-rendered strings).
-        Populates sibling/lineage context for the agent prompt.
-        """
-        archive = self._improver.archive
-        method = context.get("parent_selection", "best")
-
-        # Coerce max_generations from input (may arrive as string from Jinja2)
-        max_gen = context.get("max_generations", 1)
+    def _coerce_max_generations(self, context: Dict[str, Any]) -> None:
+        """Coerce max_generations to int for expression compatibility."""
+        max_gen = context.get("max_generations", 0)
         if isinstance(max_gen, str):
             try:
                 max_gen = int(max_gen)
             except (ValueError, TypeError):
-                max_gen = 1
+                max_gen = 0
         context["max_generations"] = max_gen
 
-        if archive.size == 0:
-            # No archive yet → this is generation 0 (baseline)
-            context["parent_id"] = None
-            context["parent_commit"] = None
-            context["parent_score"] = None
-            context["sibling_summary"] = []
-            return context
+    def _populate_parent_fields(
+        self,
+        context: Dict[str, Any],
+        parent: Optional[ArchiveEntry],
+        *,
+        source: str,
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        """Populate normalized parent context fields."""
+        archive = self._improver.archive
 
-        parent = archive.select_parent(method=method)
         if parent is None:
             context["parent_id"] = None
             context["parent_commit"] = None
@@ -420,8 +411,6 @@ class ConvergedSelfImproveHooks:
             context["parent_id"] = parent.generation_id
             context["parent_commit"] = parent.metadata.get("commit")
             context["parent_score"] = parent.score
-
-            # Populate sibling context for the agent
             siblings = [archive.get(cid) for cid in parent.children]
             context["sibling_summary"] = [
                 {
@@ -433,7 +422,150 @@ class ConvergedSelfImproveHooks:
                 if s is not None
             ]
 
+        context["parent_selection_source"] = source
+        context["parent_selection_reason"] = reason
         return context
+
+    def _select_parent(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Heuristic parent selection (backward-compatible fallback)."""
+        self._coerce_max_generations(context)
+
+        archive = self._improver.archive
+        method = str(context.get("parent_selection", "best"))
+        if method == "model":
+            method = "best"
+
+        if archive.size == 0:
+            return self._populate_parent_fields(
+                context,
+                None,
+                source="heuristic",
+                reason="Archive empty",
+            )
+
+        parent = archive.select_parent(method=method)
+        return self._populate_parent_fields(
+            context,
+            parent,
+            source=f"heuristic:{method}",
+            reason=f"Selected by {method}",
+        )
+
+    def _prepare_parent_selection_context(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Build plain-text archive context for the selector model."""
+        self._coerce_max_generations(context)
+
+        archive = self._improver.archive
+        context["archive_size"] = archive.size
+        context["archive_summary"] = archive.summary_tsv() if archive.size > 0 else ""
+
+        if archive.size == 0:
+            context["parent_candidates"] = "Archive is empty. Use PARENT_ID: none"
+            return context
+
+        lines: List[str] = []
+        for eid in sorted(archive.entries.keys()):
+            e = archive.entries[eid]
+            score = "n/a" if e.score is None else str(e.score)
+            metrics = ", ".join(f"{k}={v}" for k, v in e.scores.items())
+            if not metrics:
+                metrics = "-"
+            desc = e.metadata.get("description", "")
+            commit = e.metadata.get("commit", "")
+            lines.append(
+                f"- id={e.generation_id} parent={e.parent_id} score={score} "
+                f"status={e.status} children={len(e.children)} commit={commit} "
+                f"metrics={metrics} desc={desc}"
+            )
+
+        context["parent_candidates"] = "\n".join(lines)
+        return context
+
+    def _parse_parent_selection_text(self, text: str) -> tuple[bool, Optional[int], str]:
+        """Parse plain-text selector output.
+
+        Expected format:
+        PARENT_ID: <int|none>
+        REASON: <text>
+        """
+        import re
+
+        if not text:
+            return False, None, ""
+
+        parent_match = re.search(r"(?im)^\s*PARENT_ID\s*:\s*([^\n\r]+)", text)
+        reason_match = re.search(r"(?im)^\s*REASON\s*:\s*(.+)$", text)
+        reason = reason_match.group(1).strip() if reason_match else ""
+
+        if not parent_match:
+            return False, None, reason
+
+        token = parent_match.group(1).strip().lower()
+        if token in {"none", "null", "-"}:
+            return True, None, reason
+
+        try:
+            return True, int(token), reason
+        except (TypeError, ValueError):
+            return False, None, reason
+
+    def _apply_parent_selection(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply model-driven parent selection with heuristic fallback."""
+        method = str(context.get("parent_selection", "model"))
+
+        # Non-model methods go straight to heuristic selection
+        if method != "model":
+            return self._select_parent(context)
+
+        archive = self._improver.archive
+        if archive.size == 0:
+            return self._populate_parent_fields(
+                context,
+                None,
+                source="model",
+                reason="Archive empty",
+            )
+
+        raw = str(context.get("parent_selection_text", ""))
+        ok, parent_id, reason = self._parse_parent_selection_text(raw)
+
+        if not ok:
+            context["parent_selection_reason"] = "Invalid selector output; fallback to best"
+            fallback_context = dict(context)
+            fallback_context["parent_selection"] = "best"
+            selected = self._select_parent(fallback_context)
+            context.update(selected)
+            context["parent_selection_source"] = "fallback:best"
+            if reason:
+                context["parent_selection_reason"] = reason
+            return context
+
+        if parent_id is None:
+            return self._populate_parent_fields(
+                context,
+                None,
+                source="model",
+                reason=reason or "Model selected baseline",
+            )
+
+        parent = archive.get(parent_id)
+        if parent is None:
+            context["parent_selection_reason"] = (
+                f"Unknown parent id {parent_id}; fallback to best"
+            )
+            fallback_context = dict(context)
+            fallback_context["parent_selection"] = "best"
+            selected = self._select_parent(fallback_context)
+            context.update(selected)
+            context["parent_selection_source"] = "fallback:best"
+            return context
+
+        return self._populate_parent_fields(
+            context,
+            parent,
+            source="model",
+            reason=reason or f"Model selected parent {parent_id}",
+        )
 
     def _create_worktree(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Create an isolated worktree for this generation.
@@ -872,11 +1004,15 @@ class ImprovementRunner:
 
 
 def scaffold_self_improve(target_dir: str) -> List[str]:
-    """Initialize self-improvement config files in target directory.
+    """Initialize self-improvement helper files in target directory.
 
     Creates:
     - profiles.yml (if not exists)
-    - benchmark.sh (if not exists)
+    - program.md (if not exists)
+
+    Notes:
+    - Benchmark scripts are agent-owned in the program.md pattern.
+    - The scaffold does not create benchmark.sh.
 
     Args:
         target_dir: Directory to initialize.
@@ -906,32 +1042,18 @@ def scaffold_self_improve(target_dir: str) -> List[str]:
         )
         created.append(str(profiles_path))
 
-    # benchmark.sh
-    bench_path = target / "benchmark.sh"
-    if not bench_path.exists():
-        bench_path.write_text(
-            '#!/bin/bash\n'
-            'set -euo pipefail\n'
-            '\n'
-            '# Self-improvement benchmark.\n'
-            '# Output METRIC lines for the tracker to parse.\n'
-            '# Example:\n'
-            '#   echo "METRIC score=100"\n'
-            '#   echo "METRIC test_count=42"\n'
-            '\n'
-            '# Run tests and count passing\n'
-            'RESULT=$(python -m pytest tests/ -q --tb=no 2>&1 | tail -1)\n'
-            'PASSED=$(echo "$RESULT" | grep -oP \'\\d+(?= passed)\' || echo 0)\n'
-            'FAILED=$(echo "$RESULT" | grep -oP \'\\d+(?= failed)\' || echo 0)\n'
-            '\n'
-            'echo "METRIC test_count=$PASSED"\n'
-            'echo "METRIC failures=$FAILED"\n'
-            '\n'
-            '# Exit non-zero if any tests failed\n'
-            '[ "${FAILED:-0}" = "0" ]\n'
+    # program.md
+    program_path = target / "program.md"
+    if not program_path.exists():
+        program_path.write_text(
+            '# program\n\n'
+            'Describe what to optimize (goal/vision), not the exact benchmark command.\n'
+            'The agent will choose or create measurable benchmarks and iterate.\n\n'
+            'Example:\n'
+            '- Improve runtime of core workflows while preserving correctness.\n'
+            '- Do not modify public API contracts.\n'
         )
-        bench_path.chmod(0o755)
-        created.append(str(bench_path))
+        created.append(str(program_path))
 
     return created
 

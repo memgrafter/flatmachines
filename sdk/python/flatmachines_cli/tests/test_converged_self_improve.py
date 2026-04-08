@@ -412,6 +412,49 @@ class TestConvergedHooks:
         ctx = hooks.on_action("select_parent_from_archive", ctx)
         assert ctx["parent_id"] == 1  # Best score = 20.0
 
+    def test_prepare_parent_selection_context(self, tmp_path):
+        improver = self._make_improver(tmp_path)
+        hooks = ConvergedSelfImproveHooks(improver)
+
+        improver.archive.add(parent_id=None, patch_file="", score=10.0, status="baseline")
+        improver.archive.add(parent_id=0, patch_file="p.diff", score=20.0)
+
+        ctx = hooks.on_action("prepare_parent_selection_context", {"generation": 2})
+        assert "parent_candidates" in ctx
+        assert "id=0" in ctx["parent_candidates"]
+        assert "id=1" in ctx["parent_candidates"]
+        assert "archive_summary" in ctx
+
+    def test_apply_parent_selection_model_valid(self, tmp_path):
+        improver = self._make_improver(tmp_path)
+        hooks = ConvergedSelfImproveHooks(improver)
+
+        improver.archive.add(parent_id=None, patch_file="", score=10.0, status="baseline")
+        improver.archive.add(parent_id=0, patch_file="p.diff", score=20.0)
+
+        ctx = {
+            "parent_selection": "model",
+            "parent_selection_text": "PARENT_ID: 0\nREASON: Try a different branch",
+        }
+        ctx = hooks.on_action("apply_parent_selection", ctx)
+        assert ctx["parent_id"] == 0
+        assert ctx["parent_selection_source"] == "model"
+
+    def test_apply_parent_selection_model_invalid_fallback(self, tmp_path):
+        improver = self._make_improver(tmp_path)
+        hooks = ConvergedSelfImproveHooks(improver)
+
+        improver.archive.add(parent_id=None, patch_file="", score=10.0, status="baseline")
+        improver.archive.add(parent_id=0, patch_file="p.diff", score=20.0)
+
+        ctx = {
+            "parent_selection": "model",
+            "parent_selection_text": "I pick parent one because reasons",
+        }
+        ctx = hooks.on_action("apply_parent_selection", ctx)
+        assert ctx["parent_id"] == 1  # fallback best
+        assert ctx["parent_selection_source"] == "fallback:best"
+
     def test_run_checks_pass(self, tmp_path):
         improver = self._make_improver(tmp_path)
         hooks = ConvergedSelfImproveHooks(improver)
@@ -623,6 +666,8 @@ class TestConvergedMachineConfig:
         states = config["data"]["states"]
         # Outer loop infrastructure
         assert "select_parent" in states
+        assert "select_parent_model" in states
+        assert "apply_parent_selection" in states
         assert "setup_worktree" in states
         assert "archive_generation" in states
         assert "cleanup_worktree" in states

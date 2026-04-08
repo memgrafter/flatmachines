@@ -17,9 +17,17 @@ data:
     - Run the benchmark again to verify
     - If improved: git add and git commit
     - If not improved: git checkout -- . && git clean -fd
-    - Write your best score to .self_improve/score.json:
+    - Write your best score to .self_improve/score.json every generation:
       {"metric": "name", "value": 123, "direction": "higher"}
+      (write it even when no improvement is found)
     - Repeat with the next improvement
+
+    Hard rules:
+    - Do not stop to ask the user to choose a metric or benchmark.
+    - If program.md is vague, choose a concrete measurable metric yourself and proceed.
+    - If no benchmark exists, create one (e.g. .self_improve/benchmark.sh) and run it.
+    - If tools are missing in the worktree, use available alternatives (python3, uv, or host env paths)
+      and continue; do not block waiting for clarification.
 
     Guidelines:
     - Use bash for file operations like ls, grep, find
@@ -30,6 +38,7 @@ data:
 
   user: |
     Improve the code at {{ input.working_dir }}.
+    Host repo path (for shared tooling if needed): {{ input.host_working_dir }}
     Read program.md if it exists for guidance on what to optimize.
 
   tools:

@@ -439,7 +439,7 @@ class FlatMachinesREPL:
             target = args[1] if len(args) >= 2 else self._working_dir
             target = os.path.abspath(target)
             generations = 0
-            parent_selection = "best"
+            parent_selection = "model"
 
             # Parse simple flags
             i = 1
@@ -453,7 +453,7 @@ class FlatMachinesREPL:
                 else:
                     i += 1
 
-            from .main import run_once, _run_async, _register_self_improve_actions
+            from .main import run_once, _run_async
             from pathlib import Path
 
             config = str(Path(__file__).parent.parent / "config" / "self_improve.yml")
@@ -473,7 +473,6 @@ class FlatMachinesREPL:
                 working_dir=target,
                 human_review=False,
                 auto_approve=True,
-                target_dir=target,
                 max_generations=generations,
                 parent_selection=parent_selection,
                 git_enabled=True,

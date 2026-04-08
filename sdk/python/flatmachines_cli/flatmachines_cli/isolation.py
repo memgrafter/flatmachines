@@ -93,6 +93,17 @@ class WorktreeIsolation:
                 f"Failed to create worktree: {result.stderr.strip()}"
             )
 
+        # Share local virtualenv into the worktree when present.
+        # .venv is usually untracked, so worktrees do not include it by default.
+        source_venv = Path(self._repo_dir) / ".venv"
+        target_venv = wt_path / ".venv"
+        if source_venv.exists() and not target_venv.exists():
+            try:
+                target_venv.symlink_to(source_venv)
+            except OSError:
+                # Non-fatal: agent can still use python3/uv or absolute host paths.
+                pass
+
         return str(wt_path)
 
     def apply_patches(

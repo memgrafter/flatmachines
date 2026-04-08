@@ -97,6 +97,7 @@ _SELF_IMPROVE_ACTIONS = {
     # Original simple actions
     "evaluate_improvement", "archive_result", "revert_changes",
     # Converged outer loop
+    "prepare_parent_selection_context", "apply_parent_selection",
     "select_parent_from_archive", "create_isolated_worktree",
     "extract_diff_and_archive", "cleanup_isolated_worktree",
     "write_archive_summary",
@@ -414,9 +415,9 @@ def main():
     )
     improve_parser.add_argument(
         "--parent-selection",
-        default="best",
-        choices=["best", "score_child_prop", "random"],
-        help="Parent selection strategy for multi-generation search (default: best)",
+        default="model",
+        choices=["model", "best", "score_child_prop", "random"],
+        help="Parent selection strategy for multi-generation search (default: model)",
     )
     improve_parser.add_argument(
         "--init",
@@ -591,7 +592,7 @@ def main():
             print()
             print("Next steps:")
             print(f"  1. Edit profiles.yml to set your LLM provider")
-            print(f"  2. Edit benchmark.sh to define your optimization metric")
+            print(f"  2. Edit program.md to describe optimization goals")
             print(f"  3. Run: flatmachines improve {args.target_dir} --run")
         else:
             print("  All configs already exist — nothing to create.")
@@ -631,7 +632,6 @@ def main():
                 working_dir=target,
                 human_review=False,
                 auto_approve=True,
-                target_dir=target,
                 max_generations=args.generations,
                 parent_selection=args.parent_selection,
                 git_enabled=args.git,

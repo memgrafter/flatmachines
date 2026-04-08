@@ -199,7 +199,7 @@ class TestScaffold:
         created = scaffold_self_improve(str(tmp_path))
         assert len(created) == 2
         assert (tmp_path / "profiles.yml").exists()
-        assert (tmp_path / "benchmark.sh").exists()
+        assert (tmp_path / "program.md").exists()
 
     def test_profiles_valid_yaml(self, tmp_path):
         import yaml
@@ -208,23 +208,25 @@ class TestScaffold:
             config = yaml.safe_load(f)
         assert config["spec"] == "flatprofiles"
 
-    def test_benchmark_executable(self, tmp_path):
+    def test_program_template_created(self, tmp_path):
         scaffold_self_improve(str(tmp_path))
-        bench = tmp_path / "benchmark.sh"
-        assert os.access(str(bench), os.X_OK)
+        program = tmp_path / "program.md"
+        assert program.exists()
+        assert "Describe what to optimize" in program.read_text()
 
     def test_no_overwrite(self, tmp_path):
         (tmp_path / "profiles.yml").write_text("existing")
-        (tmp_path / "benchmark.sh").write_text("existing")
+        (tmp_path / "program.md").write_text("existing")
         created = scaffold_self_improve(str(tmp_path))
         assert len(created) == 0
         assert (tmp_path / "profiles.yml").read_text() == "existing"
+        assert (tmp_path / "program.md").read_text() == "existing"
 
     def test_partial_creation(self, tmp_path):
         (tmp_path / "profiles.yml").write_text("existing")
         created = scaffold_self_improve(str(tmp_path))
         assert len(created) == 1
-        assert "benchmark.sh" in created[0]
+        assert "program.md" in created[0]
 
     def test_importable_from_package(self):
         from flatmachines_cli import scaffold_self_improve as s

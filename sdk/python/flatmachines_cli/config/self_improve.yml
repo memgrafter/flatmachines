@@ -8,14 +8,22 @@ data:
   context:
     # Target
     working_dir: "{{ input.working_dir | default('.') }}"
+    git_enabled: "{{ input.git_enabled | default(false) }}"
 
     # Outer loop state (0 = unlimited)
-    max_generations: 0
+    max_generations: "{{ input.max_generations | default(0) }}"
     generation: 0
     parent_id: null
     parent_score: null
     sibling_summary: []
-    parent_selection: "{{ input.parent_selection | default('best') }}"
+    parent_selection: "{{ input.parent_selection | default('model') }}"
+
+    # Parent selector context
+    parent_candidates: ""
+    archive_summary: ""
+    parent_selection_text: ""
+    parent_selection_reason: ""
+    parent_selection_source: ""
 
     # Shared state
     best_score: null
@@ -23,6 +31,7 @@ data:
 
   agents:
     coder: ./agents/agent.yml
+    parent_selector: ./agents/parent_selector.yml
 
   states:
     start:
@@ -33,7 +42,25 @@ data:
     # ── Outer Loop: Generation Management ──
 
     select_parent:
-      action: select_parent_from_archive
+      action: prepare_parent_selection_context
+      transitions:
+        - to: select_parent_model
+
+    select_parent_model:
+      agent: parent_selector
+      input:
+        generation: "{{ context.generation }}"
+        parent_selection: "{{ context.parent_selection }}"
+        archive_size: "{{ context.archive_size }}"
+        parent_candidates: "{{ context.parent_candidates }}"
+        archive_summary: "{{ context.archive_summary }}"
+      output_to_context:
+        parent_selection_text: "{{ output.content }}"
+      transitions:
+        - to: apply_parent_selection
+
+    apply_parent_selection:
+      action: apply_parent_selection
       transitions:
         - to: setup_worktree
 
@@ -54,6 +81,7 @@ data:
         total_timeout: 600
       input:
         working_dir: "{{ context.worktree_path | default(context.working_dir) }}"
+        host_working_dir: "{{ context.working_dir }}"
 
       output_to_context:
         analysis: "{{ output.content }}"
@@ -95,8 +123,9 @@ metadata:
   description: >
     Self-improvement loop. Agent owns the full experiment lifecycle
     (discover/write benchmark, measure, edit, commit/revert, repeat).
+    Parent selection is model-driven from archive context.
     Machine handles only infrastructure: worktree isolation, archive,
-    parent selection, cleanup.
+    parent selection application, cleanup.
   tags:
     - self-improvement
     - coding-machine
