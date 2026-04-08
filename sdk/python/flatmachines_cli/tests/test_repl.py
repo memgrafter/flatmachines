@@ -1,7 +1,7 @@
 """Tests for FlatMachinesREPL."""
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from flatmachines_cli.repl import FlatMachinesREPL, ExecutionRecord
 
 
@@ -109,6 +109,21 @@ class TestFlatMachinesREPLCommands:
         assert result is None
         out = capsys.readouterr().out
         assert "Not found" in out
+
+    @pytest.mark.asyncio
+    async def test_improve_run_uses_await_not_asyncio_run(self, tmp_path, capsys):
+        repl = FlatMachinesREPL(project_root=str(tmp_path), working_dir=str(tmp_path))
+        (tmp_path / "program.md").write_text("# program\n")
+
+        with patch("flatmachines_cli.main.run_once", new_callable=AsyncMock) as mock_run_once, \
+             patch("flatmachines_cli.main._run_async", side_effect=AssertionError("_run_async should not be used in REPL improve")):
+            mock_run_once.return_value = {"generations": 1, "archive_size": 2}
+            await repl._cmd_improve([])
+
+        mock_run_once.assert_awaited_once()
+        out = capsys.readouterr().out
+        assert "Self-Improvement" in out
+        assert "Result:" in out
 
 
 class TestFlatMachinesREPLInput:

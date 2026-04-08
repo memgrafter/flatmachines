@@ -26,8 +26,10 @@ data:
     - Do not stop to ask the user to choose a metric or benchmark.
     - If program.md is vague, choose a concrete measurable metric yourself and proceed.
     - If no benchmark exists, create one (e.g. .self_improve/benchmark.sh) and run it.
-    - If tools are missing in the worktree, use available alternatives (python3, uv, or host env paths)
+    - If tools or Python deps are missing in the worktree, use available alternatives (python3, uv, or host env paths)
       and continue; do not block waiting for clarification.
+    - If you must install temporary dependencies for benchmarking/tests, install them in /tmp
+      (for example using a /tmp virtualenv or /tmp uv cache), not in the repo tree.
 
     Guidelines:
     - Use bash for file operations like ls, grep, find

@@ -86,3 +86,10 @@
 - `max_depth` to limit machine launch nesting
 - Checkpoint pruning (easy to implement)
 - Tool registry
+- Parent selector retries UX + memory [2026-04-08T00:15:01]
+  - Preserve retry history across parent-selector requery attempts (store prior invalid/unknown responses + feedback trail, not just latest attempt).
+  - Update parent_selector user prompt contract to explicitly require selecting exactly one parent each generation to continue (`PARENT_ID: <id|none>` is mandatory).
+  - Allow optional recommendations for cross-parent synthesis/merge ideas in `REASON`, but selection is still required to advance the machine.
+- Tool-loop output visibility [2026-04-08T00:50:18]
+  - When a tool-loop turn has `content=(empty)`, also print a concise tool-call/output preview so users can see what happened without waiting for the final assistant text.
+  - Consider exposing this both in debug logs and CLI-facing run summaries.

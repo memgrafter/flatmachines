@@ -100,15 +100,16 @@ class MockExecutor:
     def metadata(self):
         return {}
 
-    async def execute(self, input_data, context=None):
-        return self._next_response("execute", input_data=input_data)
+    async def execute(self, input_data, context=None, session_id=None):
+        return self._next_response("execute", input_data=input_data, session_id=session_id)
 
-    async def execute_with_tools(self, input_data, tools, messages=None, context=None):
+    async def execute_with_tools(self, input_data, tools, messages=None, context=None, session_id=None):
         return self._next_response(
             "execute_with_tools",
             input_data=input_data,
             tools=tools,
             messages=messages,
+            session_id=session_id,
         )
 
     def _next_response(self, method, **kwargs):
@@ -127,7 +128,7 @@ class NoToolsExecutor:
     def metadata(self):
         return {}
 
-    async def execute(self, input_data, context=None):
+    async def execute(self, input_data, context=None, session_id=None):
         return _make_agent_result()
 
 
@@ -218,6 +219,25 @@ class TestBasicMachineToolLoop:
         assert provider.calls[0]["name"] == "read_file"
         assert executor.calls[0]["method"] == "execute_with_tools"
         assert executor.calls[1]["method"] == "execute_with_tools"
+
+    @pytest.mark.asyncio
+    async def test_tool_loop_passes_stable_session_id(self):
+        """All tool-loop turns should share a stable non-empty session_id."""
+        provider = MockToolProvider()
+        machine, executor = _build_machine(
+            executor_responses=[
+                _make_tool_result([{"id": "c1", "name": "read_file", "arguments": {"path": "x"}}]),
+                _make_agent_result(content="file contents analyzed"),
+            ],
+            tool_provider=provider,
+        )
+
+        await machine.execute(input={"task": "read a file"})
+
+        session_ids = [c.get("session_id") for c in executor.calls if c.get("method") == "execute_with_tools"]
+        assert session_ids
+        assert all(session_ids)
+        assert len(set(session_ids)) == 1
 
     @pytest.mark.asyncio
     async def test_multi_round_tool_calls(self):

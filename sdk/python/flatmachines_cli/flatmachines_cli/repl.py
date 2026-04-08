@@ -421,7 +421,7 @@ class FlatMachinesREPL:
                 for name, st in sorted(timing.items()):
                     print(f"    {name:<20} {st['calls']:>6} {st['total_ms']:>10.3f} {st['avg_ms']:>8.3f}")
 
-    def _cmd_improve(self, args: List[str]) -> None:
+    async def _cmd_improve(self, args: List[str]) -> None:
         """Run self-improvement or show status."""
         from .improve import validate_self_improve_config
 
@@ -450,7 +450,7 @@ class FlatMachinesREPL:
                 else:
                     i += 1
 
-            from .main import run_once, _run_async
+            from .main import run_once
             from pathlib import Path
 
             config = str(Path(__file__).parent.parent / "config" / "self_improve.yml")
@@ -464,7 +464,7 @@ class FlatMachinesREPL:
                 print(f"  Parent sel:  {parent_selection}")
             print()
 
-            result = _run_async(run_once(
+            result = await run_once(
                 config_file=config,
                 task="",
                 working_dir=target,
@@ -473,7 +473,7 @@ class FlatMachinesREPL:
                 max_generations=generations,
                 parent_selection=parent_selection,
                 git_enabled=True,
-            ))
+            )
 
             if result:
                 print()

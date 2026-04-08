@@ -10,6 +10,7 @@ See local/flatmachines-plan.md for the full specification.
 import asyncio
 import importlib
 import json
+import hashlib
 import os
 import re
 import time
@@ -1289,7 +1290,13 @@ class FlatMachine:
 
                 execution_config = state.get('execution')
                 execution_type = get_execution_type(execution_config)
-                result = await execution_type.execute(executor, agent_input, context=context)
+                session_id = self._agent_session_id(state_name, agent_name)
+                result = await execution_type.execute(
+                    executor,
+                    agent_input,
+                    context=context,
+                    session_id=session_id,
+                )
                 agent_result = coerce_agent_result(result)
 
                 if agent_result.error:
@@ -1473,6 +1480,18 @@ class FlatMachine:
                     return float(total)
         return 0.0
 
+    def _agent_session_id(self, state_name: str, agent_name: str) -> Optional[str]:
+        """Stable per-state/per-agent session id for prompt cache continuity.
+
+        Codex `prompt_cache_key` max length is 64 chars, so keep this compact.
+        """
+        if not self.execution_id:
+            return None
+        scope = f"{state_name}:{agent_name}".encode("utf-8")
+        scope_hash = hashlib.sha1(scope).hexdigest()[:12]
+        base = str(self.execution_id)
+        return f"{base}-{scope_hash}"[:64]
+
     async def _execute_tool_loop(
         self,
         state_name: str,
@@ -1557,6 +1576,8 @@ class FlatMachine:
         start_time = time.monotonic()
         last_content: Optional[str] = None
 
+        session_id = self._agent_session_id(state_name, agent_name)
+
         while True:
             # --- Guardrail checks ---
             if time.monotonic() - start_time >= total_timeout:
@@ -1580,6 +1601,7 @@ class FlatMachine:
                     tools=tool_defs,
                     messages=None,
                     context=context,
+                    session_id=session_id,
                 )
             else:
                 # Continuation — pass chain (preserves prefix cache)
@@ -1588,6 +1610,7 @@ class FlatMachine:
                     tools=tool_defs,
                     messages=chain,
                     context=context,
+                    session_id=session_id,
                 )
 
             turns += 1
@@ -1787,6 +1810,7 @@ class FlatMachine:
                         tools=[],  # no tools — force text response
                         messages=chain,
                         context=context,
+                        session_id=session_id,
                     )
                     self._accumulate_agent_metrics(final_result)
                     if final_result.content and str(final_result.content).strip():
