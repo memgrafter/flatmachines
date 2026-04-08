@@ -63,22 +63,13 @@ def _make_self_improve_handler():
 
     On first call, creates SelfImprover from the machine context.
     Subsequent calls reuse the same instance.
-
-    Supports both the original simple actions and the converged two-loop actions.
     """
     from .improve import SelfImprover, ConvergedSelfImproveHooks
-    from .evaluation import EvaluationSpec
 
     state = {"hooks": None}
 
     def handler(action_name, context):
         if state["hooks"] is None:
-            # Build EvaluationSpec from context if eval_spec dict is present
-            eval_spec = None
-            eval_spec_dict = context.get("eval_spec")
-            if isinstance(eval_spec_dict, dict) and eval_spec_dict.get("benchmark_command"):
-                eval_spec = EvaluationSpec.from_dict(eval_spec_dict)
-
             # Auto-enable isolation when max_generations > 1
             max_gen = context.get("max_generations", 1)
             if isinstance(max_gen, str):
@@ -89,14 +80,9 @@ def _make_self_improve_handler():
             enable_isolation = max_gen > 1
 
             improver = SelfImprover(
-                target_dir=context.get("target_dir", "."),
-                benchmark_command=context.get("benchmark_command", "echo 'METRIC score=0'"),
-                test_command=context.get("test_command", ""),
-                metric_name=context.get("metric_name", "score"),
-                direction=context.get("metric_direction", "higher"),
+                target_dir=context.get("working_dir", "."),
                 working_dir=context.get("working_dir", os.getcwd()),
                 git_enabled=context.get("git_enabled", False),
-                eval_spec=eval_spec,
                 enable_isolation=enable_isolation,
             )
             state["hooks"] = ConvergedSelfImproveHooks(improver)
@@ -404,34 +390,6 @@ def main():
         help="Directory containing the code to improve (default: cwd)",
     )
     improve_parser.add_argument(
-        "--benchmark", "-b",
-        required=False,
-        default=None,
-        help="Benchmark command (must output METRIC lines)",
-    )
-    improve_parser.add_argument(
-        "--test", "-t",
-        default="",
-        help="Test command to verify changes don't break anything",
-    )
-    improve_parser.add_argument(
-        "--metric", "-m",
-        default="score",
-        help="Primary metric name to optimize (default: score)",
-    )
-    improve_parser.add_argument(
-        "--direction", "-d",
-        default="higher",
-        choices=["higher", "lower"],
-        help="Whether higher or lower metric values are better",
-    )
-    improve_parser.add_argument(
-        "--max-iterations", "-n",
-        type=int,
-        default=10,
-        help="Maximum improvement iterations (default: 10)",
-    )
-    improve_parser.add_argument(
         "--config", "-c",
         default=None,
         help="Machine config for the improvement loop (default: built-in self_improve.yml)",
@@ -440,7 +398,7 @@ def main():
         "--run", "-r",
         action="store_true",
         default=False,
-        help="Run the evaluate loop (benchmark-only, no LLM code changes)",
+        help="Run the self-improvement loop with LLM agent",
     )
     improve_parser.add_argument(
         "--git",
@@ -452,7 +410,7 @@ def main():
         "--generations", "-g",
         type=int,
         default=1,
-        help="Number of generations (1 = linear hill-climbing, >1 = tree search with worktree isolation)",
+        help="Number of generations (1 = linear, >1 = tree search with worktree isolation)",
     )
     improve_parser.add_argument(
         "--parent-selection",
@@ -640,38 +598,13 @@ def main():
         return
 
     if args.command == "improve":
-        from .improve import SelfImprover
-
         target = os.path.abspath(args.target_dir)
-        benchmark = args.benchmark
-        if not benchmark:
-            # Look for autoresearch.sh or benchmark.sh in target dir
-            for name in ["autoresearch.sh", "benchmark.sh", "improve.sh"]:
-                candidate = os.path.join(target, name)
-                if os.path.isfile(candidate):
-                    benchmark = f"bash {candidate}"
-                    break
-            if not benchmark:
-                improve_parser.error(
-                    "No benchmark command specified and no autoresearch.sh/benchmark.sh found in target dir"
-                )
-
-        improver = SelfImprover(
-            target_dir=target,
-            benchmark_command=benchmark,
-            test_command=args.test,
-            metric_name=args.metric,
-            direction=args.direction,
-            working_dir=working_dir,
-            git_enabled=args.git,
-        )
 
         # Show configuration
+        has_program = os.path.isfile(os.path.join(target, "program.md"))
         print(f"Self-improvement loop")
         print(f"  Target:    {target}")
-        print(f"  Benchmark: {benchmark}")
-        print(f"  Metric:    {args.metric} ({args.direction} is better)")
-        print(f"  Max iter:  {args.max_iterations}")
+        print(f"  program.md: {'found' if has_program else 'not found (agent will explore)'}")
         print(f"  Generations: {args.generations}")
         if args.generations > 1:
             print(f"  Parent sel: {args.parent_selection}")
@@ -699,11 +632,6 @@ def main():
                 human_review=False,
                 auto_approve=True,
                 target_dir=target,
-                benchmark_command=benchmark,
-                test_command=args.test or "",
-                metric_name=args.metric,
-                metric_direction=args.direction,
-                max_iterations=args.max_iterations,
                 max_generations=args.generations,
                 parent_selection=args.parent_selection,
                 git_enabled=args.git,
@@ -718,35 +646,7 @@ def main():
 
             sys.exit(0)
         else:
-            # Baseline only
-            print("Running baseline benchmark...")
-            baseline = improver.run_benchmark()
-            if baseline.success:
-                metric_val = baseline.metrics.get(args.metric, 0.0)
-                improver.log_improvement(baseline, "keep", "Baseline measurement")
-                print(f"  Baseline {args.metric} = {metric_val}")
-            else:
-                print(f"  Benchmark failed: {baseline.error or 'non-zero exit'}")
-                if baseline.stdout:
-                    # Show truncated output for debugging
-                    lines = baseline.stdout.strip().split("\n")
-                    if len(lines) > 10:
-                        print(f"  (showing last 10 of {len(lines)} lines)")
-                        lines = lines[-10:]
-                    for line in lines:
-                        print(f"    {line}")
-                sys.exit(1)
-
-            print()
-            summary = improver.summary()
-            for k, v in summary.items():
-                print(f"  {k}: {v}")
-            print()
-            print("To run the evaluation loop:")
-            print(f"  flatmachines improve {args.target_dir} -b '{benchmark}' --run")
-            print()
-            print("To run with a coding agent (full self-improvement):")
-            print(f"  flatmachines run self_improve.yml")
+            print("Use --run to start the self-improvement loop.")
         return
 
     if args.command == "run":

@@ -630,13 +630,9 @@ class TestConvergedMachineConfig:
         # Agent does everything
         assert "improve" in states
 
-    def test_eval_spec_in_context(self, config):
+    def test_working_dir_in_context(self, config):
         context = config["data"]["context"]
-        assert "eval_spec" in context
-        spec = context["eval_spec"]
-        assert "benchmark_command" in spec
-        assert "protected_paths" in spec
-        assert "editable_patterns" in spec
+        assert "working_dir" in context
 
     def test_all_transitions_valid(self, config):
         states = config["data"]["states"]
@@ -669,9 +665,7 @@ class TestConvergedMachineConfig:
         assert "parent_selection" in context
         assert "archive_size" in context
 
-    def test_agent_input_has_scope(self, config):
+    def test_agent_input_has_working_dir(self, config):
         improve = config["data"]["states"]["improve"]
         inp = improve["input"]
-        assert "editable_patterns" in inp
-        assert "protected_paths" in inp
-        assert "benchmark_command" in inp
+        assert "working_dir" in inp

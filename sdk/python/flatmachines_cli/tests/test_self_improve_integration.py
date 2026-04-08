@@ -387,10 +387,8 @@ class TestMachineConfigStructure:
 
     def test_context_has_required_fields(self, config):
         context = config["data"]["context"]
-        # Must have these fields for the improvement loop
-        required = ["target_dir", "benchmark_command", "metric_name"]
-        for key in required:
-            assert key in context, f"Missing context field: {key}"
+        # Must have working_dir — agent discovers everything else
+        assert "working_dir" in context, "Missing context field: working_dir"
 
     def test_loop_has_budget_control(self, config):
         """Loop should have max_steps or max_iterations to prevent runaway."""
@@ -406,17 +404,16 @@ class TestMachineConfigStructure:
             "No budget control found (max_steps, max_iterations, or check_budget state)"
         )
 
-    def test_evaluate_state_is_action(self, config):
-        """Evaluate state should use action (not agent) for deterministic evaluation."""
+    def test_agent_owns_lifecycle(self, config):
+        """Agent state should own the full experiment lifecycle (no separate evaluate state)."""
         states = config["data"]["states"]
-        eval_states = [
-            (s, d) for s, d in states.items()
-            if "eval" in s.lower()
-        ]
-        assert eval_states, "No evaluate state found"
-        for sname, sdata in eval_states:
-            assert sdata.get("action"), (
-                f"State '{sname}' should use 'action' for deterministic evaluation"
+        # improve state exists and uses an agent
+        assert "improve" in states, "No improve state found"
+        assert states["improve"].get("agent"), "improve state should use an agent"
+        # No evaluate state — agent owns evaluation
+        eval_states = [s for s in states if "eval" in s.lower()]
+        assert not eval_states, (
+            f"Found evaluate state(s) {eval_states} — agent should own the lifecycle"
             )
 
     def test_final_state_has_output(self, config):

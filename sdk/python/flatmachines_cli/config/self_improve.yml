@@ -7,22 +7,7 @@ data:
 
   context:
     # Target
-    target_dir: "{{ input.target_dir }}"
-    benchmark_command: "{{ input.benchmark_command }}"
-    test_command: "{{ input.test_command | default('') }}"
-    metric_name: "{{ input.metric_name | default('score') }}"
-    metric_direction: "{{ input.metric_direction | default('higher') }}"
     working_dir: "{{ input.working_dir | default('.') }}"
-
-    # Evaluation firewall — cannot be changed by the agent
-    eval_spec:
-      benchmark_command: "{{ input.benchmark_command }}"
-      metric_name: "{{ input.metric_name | default('score') }}"
-      direction: "{{ input.metric_direction | default('higher') }}"
-      timeout_s: "{{ input.timeout_s | default(300) | float }}"
-      checks_command: "{{ input.checks_command | default('') }}"
-      protected_paths: "{{ input.protected_paths | default([]) }}"
-      editable_patterns: "{{ input.editable_patterns | default(['**/*.py']) }}"
 
     # Outer loop state
     max_generations: 1
@@ -57,7 +42,7 @@ data:
       transitions:
         - to: improve
 
-    # ── Agent does everything ──
+    # ── Agent owns the full experiment lifecycle ──
 
     improve:
       agent: coder
@@ -69,22 +54,9 @@ data:
         total_timeout: 600
       input:
         working_dir: "{{ context.worktree_path | default(context.working_dir) }}"
-        benchmark_command: "{{ context.eval_spec.benchmark_command }}"
-        metric_name: "{{ context.eval_spec.metric_name }}"
-        metric_direction: "{{ context.metric_direction }}"
-        editable_patterns: "{{ context.eval_spec.editable_patterns | join(', ') }}"
-        protected_paths: "{{ context.eval_spec.protected_paths | join(', ') }}"
-        best_score: "{{ context.best_score }}"
-        parent_score: "{{ context.parent_score }}"
-        parent_id: "{{ context.parent_id }}"
 
       output_to_context:
         analysis: "{{ output.content }}"
-      transitions:
-        - to: evaluate
-
-    evaluate:
-      action: run_evaluation
       transitions:
         - to: archive_generation
 
@@ -116,14 +88,14 @@ data:
         summary: >
           Self-improvement complete. {{ context.generation }} generations,
           {{ context.archive_size }} variants in archive.
-          Best {{ context.eval_spec.metric_name }}: {{ context.best_score }}
+          Best score: {{ context.best_score }}
           from generation {{ context.best_generation | default(0) }}.
 
 metadata:
   description: >
-    Self-improvement loop. Agent owns the full experiment cycle
-    (edit, benchmark, commit/revert, repeat) within a single tool loop.
-    Machine handles infrastructure: worktree isolation, archive,
+    Self-improvement loop. Agent owns the full experiment lifecycle
+    (discover/write benchmark, measure, edit, commit/revert, repeat).
+    Machine handles only infrastructure: worktree isolation, archive,
     parent selection, cleanup.
   tags:
     - self-improvement

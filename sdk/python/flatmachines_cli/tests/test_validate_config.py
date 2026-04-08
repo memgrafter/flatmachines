@@ -115,9 +115,8 @@ class TestValidateInvalidConfigs:
         }))
         result = validate_self_improve_config(str(config))
         assert not result["valid"]
-        assert any("analyze" in e.lower() for e in result["errors"])
-        assert any("implement" in e.lower() for e in result["errors"])
-        assert any("evaluate" in e.lower() for e in result["errors"])
+        # Must have at least an agent state (improve or analyze+implement)
+        assert any("agent state" in e.lower() for e in result["errors"])
 
     def test_broken_transition(self, tmp_path):
         config = tmp_path / "broken_transition.yml"

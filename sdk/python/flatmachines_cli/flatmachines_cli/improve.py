@@ -476,7 +476,14 @@ class ConvergedSelfImproveHooks:
         return context
 
     def _extract_and_archive(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract diff from worktree and add generation to archive."""
+        """Extract diff from worktree and add generation to archive.
+
+        Reads the agent-written .self_improve/score.json for scoring.
+        The agent owns the experiment lifecycle — this action only handles
+        infrastructure (diff extraction, archive storage).
+        """
+        import json as _json
+
         generation = context.get("generation", 0)
         isolation = self._improver.isolation
         wt_path = context.get("worktree_path", self._improver.target_dir)
@@ -500,26 +507,20 @@ class ConvergedSelfImproveHooks:
             except Exception as e:
                 logger.warning("Failed to extract diff: %s", e)
 
-        # Run benchmark to get final score for the archive
-        # (The agent handles commit/revert, we just need the final metric)
+        # Read agent-written score.json (agent owns the experiment lifecycle)
         score = context.get("best_score")
         scores = {}
-        runner = EvaluationRunner(
-            spec=self._improver.eval_spec,
-            working_dir=wt_path,
-        )
-        try:
-            result = runner.run_benchmark()
-            if result.success and result.metrics:
-                metric_name = self._improver.eval_spec.metric_name
-                score = result.metrics.get(metric_name, score)
-                scores = result.metrics
+        score_path = Path(wt_path) / ".self_improve" / "score.json"
+        if score_path.exists():
+            try:
+                data = _json.loads(score_path.read_text())
+                score = data.get("value")
+                scores = {data.get("metric", "score"): score}
                 context["best_score"] = score
-        except Exception as e:
-            logger.warning("Failed to run final benchmark for archive: %s", e)
-
-        if self._last_eval_result and self._last_eval_result.metrics and not scores:
-            scores = self._last_eval_result.metrics
+                # Store direction for parent selection
+                context["_score_direction"] = data.get("direction", "higher")
+            except (ValueError, KeyError, TypeError) as e:
+                logger.warning("Failed to read score.json: %s", e)
 
         entry = self._improver.archive.add(
             parent_id=context.get("parent_id"),
@@ -1031,8 +1032,7 @@ def validate_self_improve_config(
     has_agent_state = has_unified or (has_analyze and has_implement)
     if not has_agent_state:
         errors.append("No agent state found (need 'improve' or 'analyze'+'implement')")
-    if not has_evaluate:
-        errors.append("No evaluate/check state found")
+    # evaluate state is optional — agent may own the full lifecycle
 
     # Transition validation
     for sname, sdata in states.items():
