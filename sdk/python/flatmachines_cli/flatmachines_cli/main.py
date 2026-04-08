@@ -41,11 +41,13 @@ except ImportError:
     pass
 
 
-# Quiet by default
-_log_level = os.environ.get("LOG_LEVEL", "WARNING").upper()
+# Debug by default for development
+_log_level = os.environ.get("LOG_LEVEL", "DEBUG").upper()
 logging.getLogger().setLevel(_log_level)
-for _name in ("flatagents", "flatmachines", "flatmachines_cli", "LiteLLM"):
+for _name in ("flatagents", "flatmachines", "flatmachines_cli"):
     logging.getLogger(_name).setLevel(_log_level)
+# Keep LiteLLM quiet
+logging.getLogger("LiteLLM").setLevel("WARNING")
 
 
 def _resolve_config(config_path: str) -> str:

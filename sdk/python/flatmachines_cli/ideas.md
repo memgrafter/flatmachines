@@ -1,0 +1,4 @@
+- Investigate remaining 7 failing tests by running targeted pytest -k on likely clusters: processor_event_types, defensive_access, tool_history_desync.
+- Add stricter normalization for tool_calls payload shape (None/non-list coercion) in processor path.
+- Verify state loop continuation criteria in improve/coder machine around mixed content+tool_calls responses.
+- Improve archive/experiment read resilience for empty/corrupt JSONL tail lines.

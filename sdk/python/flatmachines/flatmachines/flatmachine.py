@@ -1561,12 +1561,15 @@ class FlatMachine:
             # --- Guardrail checks ---
             if time.monotonic() - start_time >= total_timeout:
                 context['_tool_loop_stop'] = 'timeout'
+                logger.debug("tool_loop guardrail: timeout after %.1fs", time.monotonic() - start_time)
                 break
             if turns >= max_turns:
                 context['_tool_loop_stop'] = 'max_turns'
+                logger.debug("tool_loop guardrail: max_turns=%d reached", max_turns)
                 break
             if max_cost is not None and loop_cost >= max_cost:
                 context['_tool_loop_stop'] = 'cost_limit'
+                logger.debug("tool_loop guardrail: cost_limit=%.2f reached (cost=%.2f)", max_cost, loop_cost)
                 break
 
             # --- Call agent via execute_with_tools ---
@@ -1598,6 +1601,16 @@ class FlatMachine:
             context['_tool_loop_content'] = result.content
             context['_tool_loop_usage'] = result.usage
 
+            # --- Log turn details ---
+            n_tools = len(result.tool_calls) if result.tool_calls else 0
+            content_preview = ""
+            if result.content:
+                content_preview = str(result.content)[:200].replace("\n", " ")
+            logger.debug(
+                "tool_loop turn=%d finish=%s tools=%d cost=%.4f content=%s",
+                turns, result.finish_reason, n_tools, loop_cost, content_preview or "(empty)",
+            )
+
             # --- Handle error ---
             if result.error:
                 raise RuntimeError(
@@ -1619,6 +1632,11 @@ class FlatMachine:
             # Some providers may return tool calls with finish_reason != "tool_use".
             pending_calls = result.tool_calls or []
             if not pending_calls:
+                logger.debug(
+                    "tool_loop ending: no tool calls (finish=%s). Final content: %s",
+                    result.finish_reason,
+                    str(result.content)[:500].replace("\n", " ") if result.content else "(empty)",
+                )
                 break
 
             # --- Guardrail: tool call count ---
