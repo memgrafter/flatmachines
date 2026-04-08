@@ -472,14 +472,11 @@ class TestConvergedHooks:
             "generation": 0,
             "parent_id": None,
             "best_score": 42.0,
-            "inner_iteration": 3,
-            "last_hypothesis": "test improvement",
-            "consecutive_failures": 0,
+            "analysis": "test improvement",
         }
         ctx = hooks.on_action("extract_diff_and_archive", ctx)
         assert ctx["generation"] == 1
         assert ctx["archive_size"] == 1
-        assert ctx["inner_iteration"] == 0  # Reset for next gen
 
         # Summary file should exist
         summary_path = Path(tmp_path) / ".self_improve" / "archive_summary.tsv"
@@ -622,21 +619,16 @@ class TestConvergedMachineConfig:
         with open(config_path) as f:
             return yaml.safe_load(f)
 
-    def test_has_two_loop_states(self, config):
+    def test_has_required_states(self, config):
         states = config["data"]["states"]
-        # Outer loop states
+        # Outer loop infrastructure
         assert "select_parent" in states
         assert "setup_worktree" in states
-        assert "finalize_generation" in states
+        assert "archive_generation" in states
         assert "cleanup_worktree" in states
         assert "outer_budget_check" in states
-        # Inner loop states
+        # Agent does everything
         assert "improve" in states
-        assert "check_compilation" in states
-        assert "evaluate" in states
-        assert "inner_keep" in states
-        assert "inner_discard" in states
-        assert "inner_budget_check" in states
 
     def test_eval_spec_in_context(self, config):
         context = config["data"]["context"]
@@ -677,16 +669,8 @@ class TestConvergedMachineConfig:
         assert "parent_selection" in context
         assert "archive_size" in context
 
-    def test_inner_loop_context_fields(self, config):
-        context = config["data"]["context"]
-        assert "inner_iterations" in context
-        assert "inner_iteration" in context
-        assert "consecutive_failures" in context
-
     def test_agent_prompt_has_scope(self, config):
         improve = config["data"]["states"]["improve"]
         task = improve["input"]["task"]
         assert "editable_patterns" in task
         assert "protected_paths" in task
-        assert "grep" in task.lower() or "METRIC" in task
-        assert "archive_summary" in task

@@ -1,1 +1,0 @@
-- Investigate the 7 failing tests by capturing exact failing test node IDs from benchmark output (or run `pytest -q` with failure summary) and make a targeted fix in the responsible module; likely highest-impact path to raise `tests_passing` quickly.

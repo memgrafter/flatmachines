@@ -500,10 +500,25 @@ class ConvergedSelfImproveHooks:
             except Exception as e:
                 logger.warning("Failed to extract diff: %s", e)
 
-        # Add to archive (ALL generations, not just winners)
+        # Run benchmark to get final score for the archive
+        # (The agent handles commit/revert, we just need the final metric)
         score = context.get("best_score")
         scores = {}
-        if self._last_eval_result and self._last_eval_result.metrics:
+        runner = EvaluationRunner(
+            spec=self._improver.eval_spec,
+            working_dir=wt_path,
+        )
+        try:
+            result = runner.run_benchmark()
+            if result.success and result.metrics:
+                metric_name = self._improver.eval_spec.metric_name
+                score = result.metrics.get(metric_name, score)
+                scores = result.metrics
+                context["best_score"] = score
+        except Exception as e:
+            logger.warning("Failed to run final benchmark for archive: %s", e)
+
+        if self._last_eval_result and self._last_eval_result.metrics and not scores:
             scores = self._last_eval_result.metrics
 
         entry = self._improver.archive.add(
@@ -513,18 +528,14 @@ class ConvergedSelfImproveHooks:
             scores=scores,
             status="evaluated" if score is not None else "failed",
             metadata={
-                "description": context.get("last_hypothesis", ""),
-                "inner_iterations": context.get("inner_iteration", 0),
+                "description": context.get("analysis", "")[:200] if context.get("analysis") else "",
                 "commit": commit or context.get("last_commit"),
             },
-            inner_iterations=context.get("inner_iteration", 0),
         )
 
         # Update context
         context["generation"] = generation + 1
         context["archive_size"] = self._improver.archive.size
-        context["inner_iteration"] = 0
-        context["consecutive_failures"] = 0
 
         # Track best across all generations
         archive_best = self._improver.archive.best_score()
