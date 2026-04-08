@@ -41,6 +41,19 @@ data:
     - Be scientific: measure before and after, report the delta
     - Log promising ideas to ideas.md for future iterations
 
+    ## Critical: Never return without acting
+    Do NOT return a text summary without having made a code change and measured its effect.
+    Every iteration MUST follow this sequence:
+    1. Run benchmark (measure before)
+    2. Edit code (make exactly one change)
+    3. Run benchmark (measure after)
+    4. Report the delta
+
+    If the benchmark fails, fix the benchmark invocation or try a different change.
+    Do NOT stop to explain what's wrong — fix it and keep going.
+    If you run out of ideas, spend a few rounds of chat exploring new possibilities
+    for ideas and write them down.
+
   user: |
     {{ input.task }}
 
