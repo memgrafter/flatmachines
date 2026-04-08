@@ -440,7 +440,7 @@ class TestConvergedHooks:
         assert ctx["parent_id"] == 0
         assert ctx["parent_selection_source"] == "model"
 
-    def test_apply_parent_selection_model_invalid_fallback(self, tmp_path):
+    def test_apply_parent_selection_model_invalid_requeries(self, tmp_path):
         improver = self._make_improver(tmp_path)
         hooks = ConvergedSelfImproveHooks(improver)
 
@@ -452,8 +452,49 @@ class TestConvergedHooks:
             "parent_selection_text": "I pick parent one because reasons",
         }
         ctx = hooks.on_action("apply_parent_selection", ctx)
-        assert ctx["parent_id"] == 1  # fallback best
-        assert ctx["parent_selection_source"] == "fallback:best"
+        assert ctx["parent_selection_needs_retry"] is True
+        assert ctx["parent_selection_attempts"] == 1
+        assert ctx["parent_selection_source"] == "model:retry"
+        assert "invalid" in ctx["parent_selection_reason"].lower()
+
+    def test_apply_parent_selection_model_unknown_id_requeries(self, tmp_path):
+        improver = self._make_improver(tmp_path)
+        hooks = ConvergedSelfImproveHooks(improver)
+
+        improver.archive.add(parent_id=None, patch_file="", score=10.0, status="baseline")
+        improver.archive.add(parent_id=0, patch_file="p.diff", score=20.0)
+
+        ctx = {
+            "parent_selection": "model",
+            "parent_selection_text": "PARENT_ID: 999\nREASON: typo",
+        }
+        ctx = hooks.on_action("apply_parent_selection", ctx)
+        assert ctx["parent_selection_needs_retry"] is True
+        assert ctx["parent_selection_attempts"] == 1
+        assert "Unknown parent id" in ctx["parent_selection_reason"]
+
+    def test_apply_parent_selection_model_retry_then_valid(self, tmp_path):
+        improver = self._make_improver(tmp_path)
+        hooks = ConvergedSelfImproveHooks(improver)
+
+        improver.archive.add(parent_id=None, patch_file="", score=10.0, status="baseline")
+        improver.archive.add(parent_id=0, patch_file="p.diff", score=20.0)
+
+        # First selector response is malformed -> retry
+        ctx = {
+            "parent_selection": "model",
+            "parent_selection_text": "malformed",
+            "parent_selection_attempts": 0,
+        }
+        ctx = hooks.on_action("apply_parent_selection", ctx)
+        assert ctx["parent_selection_needs_retry"] is True
+
+        # Second response is valid -> parent applied
+        ctx["parent_selection_text"] = "PARENT_ID: 1\nREASON: best recent branch"
+        ctx = hooks.on_action("apply_parent_selection", ctx)
+        assert ctx["parent_selection_needs_retry"] is False
+        assert ctx["parent_id"] == 1
+        assert ctx["parent_selection_source"] == "model"
 
     def test_run_checks_pass(self, tmp_path):
         improver = self._make_improver(tmp_path)
@@ -714,3 +755,12 @@ class TestConvergedMachineConfig:
         improve = config["data"]["states"]["improve"]
         inp = improve["input"]
         assert "working_dir" in inp
+
+    def test_parent_selection_requery_transition(self, config):
+        apply_state = config["data"]["states"]["apply_parent_selection"]
+        transitions = apply_state.get("transitions", [])
+        assert any(
+            t.get("condition") == "context.parent_selection_needs_retry"
+            and t.get("to") == "select_parent_model"
+            for t in transitions
+        )

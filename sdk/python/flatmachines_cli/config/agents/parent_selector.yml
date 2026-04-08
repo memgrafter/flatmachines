@@ -23,7 +23,13 @@ data:
     Generation: {{ input.generation }}
     Selection mode: {{ input.parent_selection }}
     Archive size: {{ input.archive_size }}
+    Selection attempts so far: {{ input.selection_attempts | default(0) }}
 
+    {% if input.selection_feedback %}
+    Retry feedback (must fix):
+    {{ input.selection_feedback }}
+
+    {% endif %}
     Candidates:
     {{ input.parent_candidates }}
 

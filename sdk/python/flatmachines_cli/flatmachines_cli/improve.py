@@ -455,6 +455,12 @@ class ConvergedSelfImproveHooks:
         """Build plain-text archive context for the selector model."""
         self._coerce_max_generations(context)
 
+        # Reset per-generation selector state
+        context["parent_selection_text"] = ""
+        context["parent_selection_needs_retry"] = False
+        context["parent_selection_attempts"] = 0
+        context["parent_selection_feedback"] = ""
+
         archive = self._improver.archive
         context["archive_size"] = archive.size
         context["archive_summary"] = archive.summary_tsv() if archive.size > 0 else ""
@@ -510,15 +516,23 @@ class ConvergedSelfImproveHooks:
             return False, None, reason
 
     def _apply_parent_selection(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Apply model-driven parent selection with heuristic fallback."""
+        """Apply model-driven parent selection.
+
+        On invalid model output, request another selector pass instead of
+        falling back to a deterministic heuristic parent.
+        """
         method = str(context.get("parent_selection", "model"))
 
         # Non-model methods go straight to heuristic selection
         if method != "model":
+            context["parent_selection_needs_retry"] = False
+            context["parent_selection_feedback"] = ""
             return self._select_parent(context)
 
         archive = self._improver.archive
         if archive.size == 0:
+            context["parent_selection_needs_retry"] = False
+            context["parent_selection_feedback"] = ""
             return self._populate_parent_fields(
                 context,
                 None,
@@ -530,17 +544,21 @@ class ConvergedSelfImproveHooks:
         ok, parent_id, reason = self._parse_parent_selection_text(raw)
 
         if not ok:
-            context["parent_selection_reason"] = "Invalid selector output; fallback to best"
-            fallback_context = dict(context)
-            fallback_context["parent_selection"] = "best"
-            selected = self._select_parent(fallback_context)
-            context.update(selected)
-            context["parent_selection_source"] = "fallback:best"
-            if reason:
-                context["parent_selection_reason"] = reason
+            attempts = int(context.get("parent_selection_attempts", 0) or 0) + 1
+            context["parent_selection_attempts"] = attempts
+            context["parent_selection_needs_retry"] = True
+            context["parent_selection_source"] = "model:retry"
+            context["parent_selection_reason"] = "Invalid selector output; requerying model"
+            detail = reason or "Missing or invalid PARENT_ID line"
+            context["parent_selection_feedback"] = (
+                f"Previous output was invalid ({detail}). "
+                "Output exactly two lines: 'PARENT_ID: <integer or none>' and 'REASON: <brief reason>'."
+            )
             return context
 
         if parent_id is None:
+            context["parent_selection_needs_retry"] = False
+            context["parent_selection_feedback"] = ""
             return self._populate_parent_fields(
                 context,
                 None,
@@ -550,16 +568,22 @@ class ConvergedSelfImproveHooks:
 
         parent = archive.get(parent_id)
         if parent is None:
+            attempts = int(context.get("parent_selection_attempts", 0) or 0) + 1
+            context["parent_selection_attempts"] = attempts
+            context["parent_selection_needs_retry"] = True
+            context["parent_selection_source"] = "model:retry"
             context["parent_selection_reason"] = (
-                f"Unknown parent id {parent_id}; fallback to best"
+                f"Unknown parent id {parent_id}; requerying model"
             )
-            fallback_context = dict(context)
-            fallback_context["parent_selection"] = "best"
-            selected = self._select_parent(fallback_context)
-            context.update(selected)
-            context["parent_selection_source"] = "fallback:best"
+            valid_ids = ", ".join(str(eid) for eid in sorted(archive.entries.keys()))
+            context["parent_selection_feedback"] = (
+                f"PARENT_ID {parent_id} does not exist. Valid ids: [{valid_ids}] or 'none'. "
+                "Output exactly two lines: 'PARENT_ID: <integer or none>' and 'REASON: <brief reason>'."
+            )
             return context
 
+        context["parent_selection_needs_retry"] = False
+        context["parent_selection_feedback"] = ""
         return self._populate_parent_fields(
             context,
             parent,

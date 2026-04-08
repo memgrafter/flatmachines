@@ -24,6 +24,9 @@ data:
     parent_selection_text: ""
     parent_selection_reason: ""
     parent_selection_source: ""
+    parent_selection_attempts: 0
+    parent_selection_needs_retry: false
+    parent_selection_feedback: ""
 
     # Shared state
     best_score: null
@@ -54,6 +57,8 @@ data:
         archive_size: "{{ context.archive_size }}"
         parent_candidates: "{{ context.parent_candidates }}"
         archive_summary: "{{ context.archive_summary }}"
+        selection_attempts: "{{ context.parent_selection_attempts | default(0) }}"
+        selection_feedback: "{{ context.parent_selection_feedback | default('') }}"
       output_to_context:
         parent_selection_text: "{{ output.content }}"
       transitions:
@@ -62,6 +67,8 @@ data:
     apply_parent_selection:
       action: apply_parent_selection
       transitions:
+        - condition: "context.parent_selection_needs_retry"
+          to: select_parent_model
         - to: setup_worktree
 
     setup_worktree:
