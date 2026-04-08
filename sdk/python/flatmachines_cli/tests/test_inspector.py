@@ -139,12 +139,12 @@ class TestFormatTransitions:
         assert "wait" in result
         assert "context.ready" in result
 
-    def test_long_condition_truncated(self):
+    def test_long_condition_not_truncated(self):
         long_cond = "context.very_long_condition_name_that_exceeds_forty_characters"
         result = _format_transitions([
             {"condition": long_cond, "to": "target"},
         ])
-        assert "..." in result
+        assert long_cond in result
 
 
 class TestFormatState:

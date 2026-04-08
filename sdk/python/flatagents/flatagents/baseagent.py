@@ -179,7 +179,7 @@ class LiteLLMBackend:
         content = response.choices[0].message.content
         if content is None:
             raise ValueError("The LLM response content was empty.")
-        logger.info(f"LLM response received: '{content[:100]}...'")
+        logger.info(f"LLM response received: '{content}'")
         return content
 
 
@@ -279,7 +279,7 @@ class AISuiteBackend:
         content = response.choices[0].message.content
         if content is None:
             raise ValueError("The LLM response content was empty.")
-        logger.info(f"LLM response received: '{content[:100]}...'")
+        logger.info(f"LLM response received: '{content}'")
         return content
 
 

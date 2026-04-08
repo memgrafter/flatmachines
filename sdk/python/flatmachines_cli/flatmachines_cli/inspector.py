@@ -205,9 +205,6 @@ def _format_transitions(transitions: List[Dict[str, Any]]) -> str:
         target = t.get("to", "?")
         cond = t.get("condition")
         if cond:
-            # Abbreviate long conditions
-            if len(cond) > 40:
-                cond = cond[:37] + "..."
             parts.append(f"{target} {_dim(f'if {cond}')}")
         else:
             parts.append(target)
@@ -267,8 +264,6 @@ def show_context(path: str) -> str:
         for key in static_keys:
             val = context[key]
             display = str(val)
-            if len(display) > 60:
-                display = display[:57] + "..."
             lines.append(f"    {key}: {display}")
         lines.append("")
 

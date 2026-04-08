@@ -576,7 +576,7 @@ class ExperimentTracker:
             lines.append("| # | Status | Metric | Duration | Description |")
             lines.append("|---|--------|--------|----------|-------------|")
             for entry in self._history:
-                desc = entry.description[:50] if entry.description else ""
+                desc = entry.description if entry.description else ""
                 lines.append(
                     f"| {entry.experiment_id} "
                     f"| {entry.status} "
@@ -635,7 +635,7 @@ class ExperimentTracker:
             target_hash = None
             for line in result.stdout.strip().split("\n"):
                 if f"#{experiment_id}" in line or (
-                    target.description and target.description[:40] in line
+                    target.description and target.description in line
                 ):
                     target_hash = line.split()[0]
                     break

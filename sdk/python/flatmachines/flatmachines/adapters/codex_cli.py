@@ -580,7 +580,7 @@ class CodexCliExecutor(AgentExecutor):
                 event = json.loads(line_str)
                 collector.ingest(event)
             except json.JSONDecodeError:
-                logger.warning("Codex CLI: unparseable JSONL: %s", line_str[:200])
+                logger.warning("Codex CLI: unparseable JSONL: %s", line_str)
 
         await stderr_task
         return b"".join(stderr_chunks)

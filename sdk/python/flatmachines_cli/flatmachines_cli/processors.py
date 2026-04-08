@@ -374,8 +374,9 @@ class ToolProcessor(Processor):
     slot_name = "tools"
     event_types = frozenset({events.TOOL_CALLS, events.TOOL_RESULT, events.MACHINE_START})
 
-    def __init__(self, bus: DataBus, max_hz: float = 30.0, history_limit: int = 50):
+    def __init__(self, bus: DataBus, max_hz: float = 30.0, history_limit: Optional[int] = None):
         super().__init__(bus, max_hz)
+        # None = unbounded history (no truncation)
         self._history_limit = history_limit
         self.reset()
 
@@ -425,8 +426,9 @@ class ToolProcessor(Processor):
             })
             if self._history_limit == 0:
                 self._history = []
-            elif len(self._history) > self._history_limit:
-                self._history = self._history[-self._history_limit:]
+            elif self._history_limit is not None and self._history_limit > 0:
+                if len(self._history) > self._history_limit:
+                    self._history = self._history[-self._history_limit:]
 
             self._total_calls += 1
             if is_error:

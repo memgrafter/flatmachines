@@ -273,7 +273,7 @@ class FlatMachinesREPL:
         print(f"  {'─' * name_w}  {'─' * 6}  {'─' * 40}")
 
         for m in machines:
-            desc = m.description[:50] if m.description else _dim("—")
+            desc = m.description if m.description else _dim("—")
             features = []
             if m.has_machines:
                 features.append("machines")

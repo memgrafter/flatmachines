@@ -942,7 +942,7 @@ class FlatAgent:
                         monitor.metrics["rate_limited"] = True
                 
                 log_msg = (
-                    f"LLM call failed: {error_info.error_type} - {error_info.message[:100]}"
+                    f"LLM call failed: {error_info.error_type} - {error_info.message}"
                     + (f" (status={status_code})" if status_code else "")
                     + (" [rate_limited]" if rate_limit_info and rate_limit_info.is_limited() else "")
                 )

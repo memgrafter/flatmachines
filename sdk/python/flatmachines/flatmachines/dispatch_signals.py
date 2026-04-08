@@ -324,7 +324,7 @@ async def run_once(
     )
 
     for channel, ids in results.items():
-        logger.info(f"  {channel}: {len(ids)} resumed ({', '.join(ids[:3])}{'...' if len(ids) > 3 else ''})")
+        logger.info(f"  {channel}: {len(ids)} resumed ({', '.join(ids)})")
 
     return results
 

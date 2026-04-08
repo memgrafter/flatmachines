@@ -1605,7 +1605,7 @@ class FlatMachine:
             n_tools = len(result.tool_calls) if result.tool_calls else 0
             content_preview = ""
             if result.content:
-                content_preview = str(result.content)[:200].replace("\n", " ")
+                content_preview = str(result.content).replace("\n", " ")
             logger.debug(
                 "tool_loop turn=%d finish=%s tools=%d cost=%.4f content=%s",
                 turns, result.finish_reason, n_tools, loop_cost, content_preview or "(empty)",
@@ -1635,7 +1635,7 @@ class FlatMachine:
                 logger.debug(
                     "tool_loop ending: no tool calls (finish=%s). Final content: %s",
                     result.finish_reason,
-                    str(result.content)[:500].replace("\n", " ") if result.content else "(empty)",
+                    str(result.content).replace("\n", " ") if result.content else "(empty)",
                 )
                 break
 

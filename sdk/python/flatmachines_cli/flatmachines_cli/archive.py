@@ -169,7 +169,7 @@ class Archive:
         lines = ["gen_id\tparent\tscore\tstatus\tchildren\tdescription"]
         for eid in sorted(self._entries.keys()):
             e = self._entries[eid]
-            desc = e.metadata.get("description", "")[:60]
+            desc = e.metadata.get("description", "")
             score_str = f"{e.score:.4f}" if e.score is not None else "n/a"
             parent_str = str(e.parent_id) if e.parent_id is not None else "-"
             lines.append(

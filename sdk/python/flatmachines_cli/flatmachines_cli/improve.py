@@ -298,7 +298,7 @@ class SelfImproveHooks:
                 "iteration": context.get("iteration", 0),
                 "status": status,
                 "score": context.get("current_score"),
-                "hypothesis": hypothesis[:200],
+                "hypothesis": hypothesis,
             })
             context["improvement_history"] = history
 
@@ -323,7 +323,7 @@ class SelfImproveHooks:
             "iteration": context.get("iteration", 0),
             "status": "discard",
             "score": context.get("current_score"),
-            "hypothesis": context.get("last_hypothesis", "")[:200],
+            "hypothesis": context.get("last_hypothesis", ""),
         })
         context["improvement_history"] = history
 
@@ -416,7 +416,7 @@ class ConvergedSelfImproveHooks:
                 {
                     "id": s.generation_id,
                     "score": s.score,
-                    "description": s.metadata.get("description", "")[:80],
+                    "description": s.metadata.get("description", ""),
                 }
                 for s in siblings
                 if s is not None
@@ -661,7 +661,7 @@ class ConvergedSelfImproveHooks:
             scores=scores,
             status="evaluated" if score is not None else "failed",
             metadata={
-                "description": context.get("analysis", "")[:200] if context.get("analysis") else "",
+                "description": context.get("analysis", "") if context.get("analysis") else "",
                 "commit": commit or context.get("last_commit"),
             },
         )
@@ -803,7 +803,7 @@ class ConvergedSelfImproveHooks:
             commit_hash = isolation.commit_worktree(
                 wt_path,
                 message=f"gen-{context.get('generation', 0)} iter-{context.get('inner_iteration', 0)}: "
-                        f"{context.get('last_hypothesis', 'improvement')[:80]}",
+                        f"{context.get('last_hypothesis', 'improvement')}",
             )
             context["last_commit"] = commit_hash
         elif self._improver._git_enabled:
@@ -997,7 +997,7 @@ class ImprovementRunner:
             status_str = entry.status
             metric_str = f"{entry.primary_metric:10.1f}"
             dur_str = f"{entry.result.duration_s:7.1f}s"
-            desc = entry.description[:40] if entry.description else ""
+            desc = entry.description if entry.description else ""
             lines.append(f"  {entry.experiment_id:3d}  {status_str:8s}  {metric_str}  {dur_str}  {desc}")
 
         return "\n".join(lines)
