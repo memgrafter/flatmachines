@@ -82,11 +82,11 @@ data:
     improve:
       agent: coder
       tool_loop:
-        max_turns: 12
-        max_tool_calls: 40
+        max_turns: 30
+        max_tool_calls: 100
         max_cost: 2.00
-        tool_timeout: 120
-        total_timeout: 300
+        tool_timeout: 60
+        total_timeout: 600
       input:
         task: |
           You are a self-improving coding agent. Iteration {{ context.inner_iteration + 1 }}/{{ context.inner_iterations }}, generation {{ context.generation }}.
