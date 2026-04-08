@@ -18,29 +18,12 @@ data:
     - Be concise in your responses
 
   user: |
-    {{ input.task }}
+    Improve the code at {{ input.working_dir }} to get the best {{ input.metric_name }} ({{ input.metric_direction }} is better).
 
-    ## Experiment Loop
-
-    Follow this loop. Try to complete as many iterations as possible:
-
-    1. Read context: `cat .self_improve/archive_summary.tsv 2>/dev/null; git log --oneline -20; cat ideas.md 2>/dev/null`
-    2. Run benchmark: `{{ input.benchmark_command }} > run.log 2>&1; grep "^METRIC" run.log`
-    3. Analyze the code for the highest-impact improvement
-    4. Edit code — one focused change
-    5. Run benchmark again: `{{ input.benchmark_command }} > run.log 2>&1; grep "^METRIC" run.log`
-    6. Compare results:
-       - If {{ input.metric_name }} improved ({{ input.metric_direction }} is better): `git add -A && git commit -m "description of change"`
-       - If equal or worse: `git checkout -- . && git clean -fd` to revert
-    7. Log ideas for future iterations to ideas.md
-    8. Go back to step 3 and try another improvement
-
-    If a run crashes, check `tail -50 run.log`. If it's a fixable bug, fix it and re-run.
-    If fundamentally broken, revert and try something else.
-
-    Do not stop to ask for permission. Keep iterating. If you run out of ideas,
-    read the code more carefully, try combining previous near-misses, or try
-    more radical changes.
+    Benchmark: `{{ input.benchmark_command }}`
+    Editable files: {{ input.editable_patterns }}
+    {% if input.protected_paths %}Protected: {{ input.protected_paths }}{% endif %}
+    {% if input.best_score %}Current best: {{ input.best_score }}{% endif %}
 
   tools:
     - type: function

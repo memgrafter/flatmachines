@@ -669,8 +669,9 @@ class TestConvergedMachineConfig:
         assert "parent_selection" in context
         assert "archive_size" in context
 
-    def test_agent_prompt_has_scope(self, config):
+    def test_agent_input_has_scope(self, config):
         improve = config["data"]["states"]["improve"]
-        task = improve["input"]["task"]
-        assert "editable_patterns" in task
-        assert "protected_paths" in task
+        inp = improve["input"]
+        assert "editable_patterns" in inp
+        assert "protected_paths" in inp
+        assert "benchmark_command" in inp

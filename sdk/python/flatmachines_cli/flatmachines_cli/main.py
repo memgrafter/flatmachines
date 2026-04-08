@@ -694,7 +694,7 @@ def main():
 
             result = _run_async(run_once(
                 config_file=config,
-                task=f"Improve the code in {target} to optimize {args.metric}",
+                task="",
                 working_dir=target,
                 human_review=False,
                 auto_approve=True,

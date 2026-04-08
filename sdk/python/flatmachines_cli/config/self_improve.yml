@@ -68,35 +68,15 @@ data:
         tool_timeout: 120
         total_timeout: 600
       input:
+        working_dir: "{{ context.worktree_path | default(context.working_dir) }}"
         benchmark_command: "{{ context.eval_spec.benchmark_command }}"
         metric_name: "{{ context.eval_spec.metric_name }}"
         metric_direction: "{{ context.metric_direction }}"
-        task: |
-          You are an autonomous self-improving coding agent. Generation {{ context.generation }}.
-
-          ## Target
-          Working directory: {{ context.worktree_path | default(context.working_dir) }}
-
-          ## Scope
-          You may ONLY edit files matching: {{ context.eval_spec.editable_patterns | join(', ') }}
-          {% if context.eval_spec.protected_paths %}Do NOT modify: {{ context.eval_spec.protected_paths | join(', ') }}{% endif %}
-
-          ## Benchmark
-          Command: {{ context.eval_spec.benchmark_command }}
-          Metric: {{ context.eval_spec.metric_name }} ({{ context.metric_direction }} is better)
-          {% if context.eval_spec.checks_command %}Checks: {{ context.eval_spec.checks_command }}{% endif %}
-
-          ## Current State
-          Best score: {{ context.best_score }}
-          {% if context.parent_score is not none %}
-          Parent generation {{ context.parent_id }} scored {{ context.parent_score }}.
-          {% endif %}
-          {% if context.sibling_summary %}
-          Other branches from same parent:
-          {% for sibling in context.sibling_summary %}
-          - Gen {{ sibling.id }}: {{ sibling.description }} → score {{ sibling.score }}
-          {% endfor %}
-          {% endif %}
+        editable_patterns: "{{ context.eval_spec.editable_patterns | join(', ') }}"
+        protected_paths: "{{ context.eval_spec.protected_paths | join(', ') }}"
+        best_score: "{{ context.best_score }}"
+        parent_score: "{{ context.parent_score }}"
+        parent_id: "{{ context.parent_id }}"
 
       output_to_context:
         analysis: "{{ output.content }}"
