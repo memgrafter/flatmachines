@@ -28,6 +28,11 @@ data:
     parent_selection_needs_retry: false
     parent_selection_feedback: ""
 
+    # Generation completion guardrail
+    generation_completion_attempts: 0
+    generation_needs_retry: false
+    generation_completion_feedback: ""
+
     # Shared state
     best_score: null
     archive_size: 0
@@ -89,10 +94,19 @@ data:
       input:
         working_dir: "{{ context.worktree_path | default(context.working_dir) }}"
         host_working_dir: "{{ context.working_dir }}"
+        completion_feedback: "{{ context.generation_completion_feedback | default('') }}"
+        completion_attempts: "{{ context.generation_completion_attempts | default(0) }}"
 
       output_to_context:
         analysis: "{{ output.content }}"
       transitions:
+        - to: validate_generation_output
+
+    validate_generation_output:
+      action: validate_generation_output
+      transitions:
+        - condition: "context.generation_needs_retry and context.generation_completion_attempts < 3"
+          to: improve
         - to: archive_generation
 
     # ── Back to Outer Loop ──

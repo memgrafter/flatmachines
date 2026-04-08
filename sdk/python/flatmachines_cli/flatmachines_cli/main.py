@@ -101,7 +101,7 @@ _SELF_IMPROVE_ACTIONS = {
     # Converged outer loop
     "prepare_parent_selection_context", "apply_parent_selection",
     "select_parent_from_archive", "create_isolated_worktree",
-    "extract_diff_and_archive", "cleanup_isolated_worktree",
+    "validate_generation_output", "extract_diff_and_archive", "cleanup_isolated_worktree",
     "write_archive_summary",
     # Converged inner loop
     "run_checks", "evaluate_with_staging",

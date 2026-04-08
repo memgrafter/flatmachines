@@ -360,6 +360,7 @@ class ConvergedSelfImproveHooks:
             "apply_parent_selection": self._apply_parent_selection,
             "select_parent_from_archive": self._select_parent,
             "create_isolated_worktree": self._create_worktree,
+            "validate_generation_output": self._validate_generation_output,
             "extract_diff_and_archive": self._extract_and_archive,
             "cleanup_isolated_worktree": self._cleanup_worktree,
             "write_archive_summary": self._write_summary,
@@ -604,6 +605,11 @@ class ConvergedSelfImproveHooks:
         isolation = self._improver.isolation
         generation = context.get("generation", 0)
 
+        # Reset generation-completion guardrail state
+        context["generation_completion_attempts"] = 0
+        context["generation_needs_retry"] = False
+        context["generation_completion_feedback"] = ""
+
         if isolation is None:
             # No isolation → work in-place (backward-compatible)
             context["worktree_path"] = self._improver.target_dir
@@ -640,6 +646,79 @@ class ConvergedSelfImproveHooks:
             context["worktree_path"] = self._improver.target_dir
             context["worktree_error"] = str(e)
 
+        return context
+
+    def _validate_generation_output(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Require a concrete completed generation before archiving.
+
+        If the agent exits without writing a valid .self_improve/score.json, or if
+        the response indicates it is deferring work to "next iteration", request
+        continuation in the same generation.
+        """
+        import json as _json
+
+        wt_path = context.get("worktree_path", self._improver.target_dir)
+        score_path = Path(wt_path) / ".self_improve" / "score.json"
+        analysis = str(context.get("analysis", "") or "")
+
+        # Heuristic: detect deferral/hand-off language that indicates
+        # the loop was not fully completed.
+        analysis_l = analysis.lower()
+        deferred_markers = [
+            "if you want",
+            "i can continue",
+            "ready to continue",
+            "next iteration",
+            "not yet completed",
+            "have not yet completed",
+            "i'll continue",
+            "i will continue",
+        ]
+        deferred = any(m in analysis_l for m in deferred_markers)
+
+        has_valid_score = False
+        score_error = ""
+        if score_path.exists():
+            try:
+                data = _json.loads(score_path.read_text())
+                metric = data.get("metric")
+                value = data.get("value")
+                direction = data.get("direction")
+                has_valid_score = (
+                    isinstance(metric, str)
+                    and metric.strip() != ""
+                    and isinstance(value, (int, float))
+                    and direction in {"higher", "lower"}
+                )
+                if not has_valid_score:
+                    score_error = "score.json missing required fields (metric/value/direction)"
+            except Exception as e:
+                score_error = f"invalid score.json: {e}"
+        else:
+            score_error = "missing .self_improve/score.json"
+
+        if has_valid_score and not deferred:
+            context["generation_needs_retry"] = False
+            context["generation_completion_feedback"] = ""
+            return context
+
+        attempts = int(context.get("generation_completion_attempts", 0) or 0) + 1
+        context["generation_completion_attempts"] = attempts
+        context["generation_needs_retry"] = True
+
+        reasons = []
+        if not has_valid_score:
+            reasons.append(score_error)
+        if deferred:
+            reasons.append("assistant response deferred work instead of completing this generation")
+
+        context["generation_completion_feedback"] = (
+            "Generation incomplete: "
+            + "; ".join(r for r in reasons if r)
+            + ". Continue immediately in the same generation. "
+            "Run baseline -> edit -> re-run -> keep/revert -> write valid .self_improve/score.json. "
+            "Do not ask for permission to continue."
+        )
         return context
 
     def _extract_and_archive(self, context: Dict[str, Any]) -> Dict[str, Any]:

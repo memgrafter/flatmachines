@@ -32,6 +32,8 @@ data:
       and continue; do not block waiting for clarification.
     - If you must install temporary dependencies for benchmarking/tests, install them in /tmp
       (for example using a /tmp virtualenv or /tmp uv cache), not in the repo tree.
+    - NEVER stop to ask whether you should continue. Do not end with "if you want" or
+      "I can continue". Complete the loop now with concrete runs, decision, and score output.
 
     Guidelines:
     - Use bash for file operations like ls, grep, find
@@ -44,6 +46,12 @@ data:
     Improve the code at {{ input.working_dir }}.
     Host repo path (for shared tooling if needed): {{ input.host_working_dir }}
     Read program.md if it exists for guidance on what to optimize.
+
+    Completion attempts for this generation so far: {{ input.completion_attempts | default(0) }}
+    {% if input.completion_feedback %}
+    MUST FIX BEFORE EXITING THIS GENERATION:
+    {{ input.completion_feedback }}
+    {% endif %}
 
   tools:
     - type: function

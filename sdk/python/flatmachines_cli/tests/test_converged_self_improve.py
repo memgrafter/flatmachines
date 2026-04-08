@@ -496,6 +496,39 @@ class TestConvergedHooks:
         assert ctx["parent_id"] == 1
         assert ctx["parent_selection_source"] == "model"
 
+    def test_validate_generation_output_missing_score_retries(self, tmp_path):
+        improver = self._make_improver(tmp_path)
+        hooks = ConvergedSelfImproveHooks(improver)
+
+        ctx = {
+            "worktree_path": str(tmp_path),
+            "analysis": "Did setup, can continue next iteration if you want.",
+            "generation_completion_attempts": 0,
+        }
+        ctx = hooks.on_action("validate_generation_output", ctx)
+        assert ctx["generation_needs_retry"] is True
+        assert ctx["generation_completion_attempts"] == 1
+        assert "incomplete" in ctx["generation_completion_feedback"].lower()
+
+    def test_validate_generation_output_valid_score_passes(self, tmp_path):
+        improver = self._make_improver(tmp_path)
+        hooks = ConvergedSelfImproveHooks(improver)
+
+        score_path = tmp_path / ".self_improve" / "score.json"
+        score_path.parent.mkdir(parents=True, exist_ok=True)
+        score_path.write_text('{"metric":"x","value":1.0,"direction":"higher"}')
+
+        ctx = {
+            "worktree_path": str(tmp_path),
+            "analysis": "Completed full loop.",
+            "generation_completion_attempts": 0,
+            "generation_needs_retry": True,
+            "generation_completion_feedback": "old",
+        }
+        ctx = hooks.on_action("validate_generation_output", ctx)
+        assert ctx["generation_needs_retry"] is False
+        assert ctx["generation_completion_feedback"] == ""
+
     def test_run_checks_pass(self, tmp_path):
         improver = self._make_improver(tmp_path)
         hooks = ConvergedSelfImproveHooks(improver)
@@ -728,6 +761,7 @@ class TestConvergedMachineConfig:
         assert "select_parent_model" in states
         assert "apply_parent_selection" in states
         assert "setup_worktree" in states
+        assert "validate_generation_output" in states
         assert "archive_generation" in states
         assert "cleanup_worktree" in states
         assert "outer_budget_check" in states
@@ -780,5 +814,14 @@ class TestConvergedMachineConfig:
         assert any(
             t.get("condition") == "context.parent_selection_needs_retry"
             and t.get("to") == "select_parent_model"
+            for t in transitions
+        )
+
+    def test_generation_completion_requery_transition(self, config):
+        validate_state = config["data"]["states"]["validate_generation_output"]
+        transitions = validate_state.get("transitions", [])
+        assert any(
+            t.get("condition") == "context.generation_needs_retry and context.generation_completion_attempts < 3"
+            and t.get("to") == "improve"
             for t in transitions
         )
