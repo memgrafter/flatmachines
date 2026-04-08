@@ -1,6 +1,8 @@
 # Handoff: Closing the Outer Loop
 
 > **Status:** Inner loop (autoresearch pattern) is solid and e2e verified with codex. Outer loop (HyperAgents pattern) has infrastructure built but is not usable end-to-end. This doc specifies what's needed to make it real.
+>
+> **Updated 2026-04-07:** Corrected after code review. Removed phantom `.self_improve/config.yml` loading path — the machine YAML (`self_improve.yml`) already accepts all outer loop knobs as `{{ input.X }}` templates. The gap is purely CLI flag wiring, not a new config system.
 
 ---
 
@@ -8,69 +10,80 @@
 
 | Component | Code exists | Exposed to user | Actually works e2e |
 |-----------|------------|-----------------|-------------------|
-| EvaluationSpec (firewall) | ✅ | ✅ via config.yml | ✅ verified |
-| Scoped edits | ✅ | ✅ via config.yml | ✅ verified |
-| Fail-fast checks | ✅ | ✅ via config.yml | ✅ verified |
+| EvaluationSpec (firewall) | ✅ | ✅ via machine input | ✅ verified |
+| Scoped edits | ✅ | ✅ via machine input | ✅ verified |
+| Fail-fast checks | ✅ | ✅ via machine input | ✅ verified |
 | Log-redirect-and-grep | ✅ | ✅ automatic | ✅ verified |
-| Archive (all variants) | ✅ | ❌ no user path | ⚠️ stores entries but no branching without isolation |
-| Parent selection | ✅ | ❌ `generations` knob exists but meaningless without isolation | ❌ |
-| Worktree isolation | ✅ | ❌ `enable_isolation` not in CLI or config | ❌ never activates |
+| Archive (all variants) | ✅ | ❌ no user path | ⚠️ stores entries but `parent_commit: None` without isolation |
+| Parent selection | ✅ | ❌ `max_generations` hardcoded to 1, no CLI flag | ❌ |
+| Worktree isolation | ✅ | ❌ `enable_isolation` not in CLI, never set to True | ❌ never activates |
 | Diff/patch lineage | ✅ | ❌ depends on isolation | ❌ |
 | Agent understands tree | ❌ | ❌ | ❌ prompt shows flat list, no branching context |
 
-**The bottom line:** Setting `generations: 5` without isolation just runs the inner loop 5× on the same codebase. There's no code divergence, no branching, no evolutionary search. It's `iterations: 15` with extra bookkeeping.
+**The bottom line:** Setting `max_generations: 3` in the YAML without isolation just runs the inner loop 3× on the same codebase. There's no code divergence, no branching, no evolutionary search. It's `iterations: 9` with extra bookkeeping.
 
 ---
 
 ## 4 Changes to Close the Gap
 
-### 1. Enable isolation by default when `generations > 1`
+### 1. Auto-enable isolation when `max_generations > 1`
 
-In `_make_self_improve_handler` (main.py) or in `ConvergedSelfImproveHooks`, auto-enable isolation when the user sets generations > 1:
+In `_make_self_improve_handler` (main.py), auto-enable isolation when the user sets generations > 1:
 
 ```python
-# If user wants multi-generation, they need isolation
-if context.get("max_generations", 1) > 1:
-    enable_isolation = True
+# In _make_self_improve_handler's inner handler function:
+max_gen = context.get("max_generations", 1)
+if isinstance(max_gen, str):
+    max_gen = int(max_gen)
+enable_isolation = max_gen > 1
+
+improver = SelfImprover(
+    ...
+    enable_isolation=enable_isolation,
+)
 ```
 
-Expose in config.yml:
-```yaml
-generations: 3          # >1 automatically enables worktree isolation
-```
-
-No separate `enable_isolation` flag needed. The contract is: `generations > 1` = tree search = isolation on.
+No separate `enable_isolation` flag needed. The contract is: `max_generations > 1` = tree search = isolation on.
 
 **Requires:** The target dir must be a git repo. Error clearly if not.
 
-### 2. Apply parent patches in worktree
+### 2. Fix commit hash storage in `_extract_and_archive`
 
-Currently `_create_worktree` creates a worktree and calls `apply_patches`, but the parent's commit hash is often `None` because `_extract_and_archive` doesn't reliably store it. Fix:
+Currently `_extract_and_archive` stores `context.get("last_commit")` in metadata, but `_commit_inner` only sets `last_commit` when isolation is active. Even with isolation enabled (after fix #1), the final state of the worktree needs an explicit commit before extraction.
 
-- After the inner loop completes, commit all kept changes in the worktree
-- Store that commit hash in the archive entry metadata
-- When creating a new worktree for a child generation, branch from the parent's commit
-
-This is the difference between "all generations start from the same baseline" (useless) and "generation 3 builds on generation 1's improvements" (actual tree search).
+Fix: commit all changes in the worktree *inside* `_extract_and_archive`, before extracting the diff:
 
 ```python
 def _extract_and_archive(self, context):
-    # ... existing code ...
-    # Commit everything in the worktree before extracting
-    commit = isolation.commit_worktree(wt_path, f"gen-{generation} final")
-    # Store commit in archive entry
+    generation = context.get("generation", 0)
+    isolation = self._improver.isolation
+    wt_path = context.get("worktree_path", self._improver.target_dir)
+
+    # Commit everything before extracting so we have a real commit hash
+    commit = None
+    if isolation is not None:
+        commit = isolation.commit_worktree(wt_path, f"gen-{generation} final")
+
+    # Extract diff
+    patch_file = ""
+    if isolation is not None:
+        patch_file = isolation.extract_diff(wt_path, generation)
+
     entry = self._improver.archive.add(
         ...
         metadata={"commit": commit, ...},
     )
 ```
 
-Then in `_create_worktree`:
+Then in `_create_worktree`, branching from `parent_commit` gives the child generation the parent's actual code state — no need for `apply_patches`:
+
 ```python
 parent_commit = context.get("parent_commit")  # From archive entry metadata
 wt_path = isolation.create_worktree(generation, parent_commit)
-# No need to apply_patches — branching from parent_commit already has the code
+# Branching from parent_commit already has the code — skip apply_patches
 ```
+
+This is the difference between "all generations start from the same baseline" (useless) and "generation 3 builds on generation 1's improvements" (actual tree search).
 
 ### 3. Give the agent tree context
 
@@ -80,7 +93,21 @@ The agent prompt currently says "Read the archive summary" which is a flat TSV. 
 - What sibling generations tried (and their scores)
 - What the full lineage looks like
 
-Add to the improve state prompt:
+Add to `_select_parent` in `improve.py`:
+```python
+# Populate sibling context for the agent
+parent = archive.get(context["parent_id"])
+if parent:
+    siblings = [archive.get(cid) for cid in parent.children]
+    context["parent_score"] = parent.score
+    context["sibling_summary"] = [
+        {"id": s.generation_id, "score": s.score,
+         "description": s.metadata.get("description", "")}
+        for s in siblings if s
+    ]
+```
+
+Add to the `improve` state prompt in `self_improve.yml`:
 ```
 ## Lineage
 You are generation {{ context.generation }}, branching from generation {{ context.parent_id }}.
@@ -95,49 +122,51 @@ Parent score: {{ context.parent_score }}
 cat .self_improve/archive_summary.tsv
 ```
 
-Add to `_select_parent`:
+### 4. Add CLI flags for outer loop
+
+The machine YAML already accepts `max_generations` and `parent_selection` as input. Just add CLI flags and pass them through.
+
+In `main.py`, add to the `improve` subparser:
+
 ```python
-# Populate sibling context for the agent
-parent = archive.get(context["parent_id"])
-if parent:
-    siblings = [archive.get(cid) for cid in parent.children]
-    context["parent_score"] = parent.score
-    context["sibling_summary"] = [
-        {"id": s.generation_id, "score": s.score,
-         "description": s.metadata.get("description", "")}
-        for s in siblings if s
-    ]
+improve_parser.add_argument(
+    "--generations", "-g",
+    type=int,
+    default=1,
+    help="Number of generations (1 = linear hill-climbing, >1 = tree search with worktree isolation)",
+)
+improve_parser.add_argument(
+    "--parent-selection",
+    default="best",
+    choices=["best", "score_child_prop", "random"],
+    help="Parent selection strategy for multi-generation search (default: best)",
+)
 ```
 
-### 4. Expose in config.yml and CLI
+Pass them as machine input in the `--run` path:
 
-In the `--init` scaffolded config:
-```yaml
-# Outer loop: evolutionary search
-# 1 = linear hill-climbing (safe default)
-# >1 = tree search with branching (requires git repo)
-generations: 1
-
-# Parent selection (only matters when generations > 1)
-# "best" = always improve the best variant
-# "score_child_prop" = explore diverse branches (recommended for generations > 3)
-parent_selection: best
+```python
+result = _run_async(run_once(
+    ...
+    max_generations=args.generations,
+    parent_selection=args.parent_selection,
+))
 ```
 
-In CLI, `--run` reads these from config.yml and passes as machine input. The machine YAML uses plain ints (already done).
+That's it — the machine YAML templates (`{{ input.max_generations }}`, `{{ input.parent_selection }}`) already handle the rest.
 
 ---
 
 ## Sequencing
 
 ```
-1. Fix commit storage in archive          ← 30 min, enables real branching
-2. Auto-enable isolation for generations>1 ← 15 min, wiring
-3. Agent tree context in prompt            ← 30 min, prompt + select_parent
-4. Expose in config.yml scaffold           ← 15 min, scaffold_self_improve
+1. Auto-enable isolation for max_generations>1  ← 15 min, 5 lines in main.py
+2. Fix commit storage in _extract_and_archive   ← 20 min, commit before extract
+3. Agent tree context in prompt + _select_parent ← 30 min, hooks + YAML prompt
+4. CLI flags (--generations, --parent-selection) ← 15 min, argparse + pass-through
 ```
 
-Total: ~90 minutes. After this, `generations: 3` with `parent_selection: score_child_prop` does real evolutionary tree search with code divergence, and the agent understands it's exploring branches.
+Total: ~80 minutes. After this, `--generations 3 --parent-selection score_child_prop` does real evolutionary tree search with code divergence, and the agent understands it's exploring branches.
 
 ---
 
@@ -147,18 +176,22 @@ Total: ~90 minutes. After this, `generations: 3` with `parent_selection: score_c
 - **Self-referential improvement** — Phase 3, requires the outer loop to be battle-tested first.
 - **Ensemble** — requires stored predictions, not just scores. Phase 3.
 - **Multi-domain eval** — most users have one benchmark. Phase 3.
+- **`.self_improve/config.yml` convenience wrapper** — design-improve-init.md describes a flat YAML the user edits instead of passing CLI flags. Nice-to-have, not a prerequisite. The machine YAML is the config.
 
 ---
 
 ## How to Verify
 
-Run with `generations: 3` on the test project:
+Run with `--generations 3` on the test project:
 
 ```bash
 flatmachines improve /tmp/converged-test \
   --benchmark "bash benchmark.sh" \
   --metric speed_ms \
   --direction lower \
+  --generations 3 \
+  --parent-selection best \
+  --git \
   --run
 ```
 

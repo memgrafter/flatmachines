@@ -77,6 +77,15 @@ def _make_self_improve_handler():
             if isinstance(eval_spec_dict, dict) and eval_spec_dict.get("benchmark_command"):
                 eval_spec = EvaluationSpec.from_dict(eval_spec_dict)
 
+            # Auto-enable isolation when max_generations > 1
+            max_gen = context.get("max_generations", 1)
+            if isinstance(max_gen, str):
+                try:
+                    max_gen = int(max_gen)
+                except (ValueError, TypeError):
+                    max_gen = 1
+            enable_isolation = max_gen > 1
+
             improver = SelfImprover(
                 target_dir=context.get("target_dir", "."),
                 benchmark_command=context.get("benchmark_command", "echo 'METRIC score=0'"),
@@ -86,7 +95,7 @@ def _make_self_improve_handler():
                 working_dir=context.get("working_dir", os.getcwd()),
                 git_enabled=context.get("git_enabled", False),
                 eval_spec=eval_spec,
-                enable_isolation=context.get("enable_isolation", False),
+                enable_isolation=enable_isolation,
             )
             state["hooks"] = ConvergedSelfImproveHooks(improver)
 
@@ -438,6 +447,18 @@ def main():
         help="Enable git integration (auto-commit on keep, auto-revert on discard)",
     )
     improve_parser.add_argument(
+        "--generations", "-g",
+        type=int,
+        default=1,
+        help="Number of generations (1 = linear hill-climbing, >1 = tree search with worktree isolation)",
+    )
+    improve_parser.add_argument(
+        "--parent-selection",
+        default="best",
+        choices=["best", "score_child_prop", "random"],
+        help="Parent selection strategy for multi-generation search (default: best)",
+    )
+    improve_parser.add_argument(
         "--init",
         action="store_true",
         default=False,
@@ -649,6 +670,10 @@ def main():
         print(f"  Benchmark: {benchmark}")
         print(f"  Metric:    {args.metric} ({args.direction} is better)")
         print(f"  Max iter:  {args.max_iterations}")
+        print(f"  Generations: {args.generations}")
+        if args.generations > 1:
+            print(f"  Parent sel: {args.parent_selection}")
+            print(f"  Isolation: worktree (auto-enabled)")
         print(f"  Git:       {'enabled' if args.git else 'disabled'}")
         print()
 
@@ -677,6 +702,8 @@ def main():
                 metric_name=args.metric,
                 metric_direction=args.direction,
                 max_iterations=args.max_iterations,
+                max_generations=args.generations,
+                parent_selection=args.parent_selection,
                 git_enabled=args.git,
             ))
 

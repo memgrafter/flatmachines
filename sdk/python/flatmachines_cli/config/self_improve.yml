@@ -30,9 +30,15 @@ data:
       log_file: "{{ input.log_file | default('run.log') }}"
 
     # Outer loop state
+    # NOTE: max_generations must be a plain int, not a Jinja2 template,
+    # because the expression engine compares it with >= and doesn't coerce types.
+    # The ConvergedSelfImproveHooks._select_parent action reads input.max_generations
+    # and sets context.max_generations as an int.
     max_generations: 1
     generation: 0
     parent_id: null
+    parent_score: null
+    sibling_summary: []
     parent_selection: "{{ input.parent_selection | default('best') }}"
 
     # Inner loop state (per generation)
@@ -103,6 +109,17 @@ data:
           Generation: {{ context.generation }} (parent: {{ context.parent_id }})
           Best score: {{ context.best_score }}
           Last status: {{ context.last_status }}
+          {% if context.parent_score is not none %}
+          ## Lineage
+          You are generation {{ context.generation }}, branching from generation {{ context.parent_id }}.
+          Parent score: {{ context.parent_score }}
+          {% endif %}
+          {% if context.sibling_summary %}
+          ## What's been tried (other branches from same parent)
+          {% for sibling in context.sibling_summary %}
+          - Gen {{ sibling.id }}: {{ sibling.description }} → score {{ sibling.score }}
+          {% endfor %}
+          {% endif %}
 
           ## Context Recovery
           At the start of each iteration, read the FULL experiment history and git log.

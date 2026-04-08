@@ -171,8 +171,9 @@ class Archive:
             e = self._entries[eid]
             desc = e.metadata.get("description", "")[:60]
             score_str = f"{e.score:.4f}" if e.score is not None else "n/a"
+            parent_str = str(e.parent_id) if e.parent_id is not None else "-"
             lines.append(
-                f"{e.generation_id}\t{e.parent_id or '-'}\t{score_str}\t"
+                f"{e.generation_id}\t{parent_str}\t{score_str}\t"
                 f"{e.status}\t{len(e.children)}\t{desc}"
             )
         return "\n".join(lines)

@@ -384,28 +384,67 @@ class ConvergedSelfImproveHooks:
     # --- Outer Loop Actions ---
 
     def _select_parent(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Select next parent from archive using configured strategy."""
+        """Select next parent from archive using configured strategy.
+
+        Also coerces max_generations to int (expression engine needs real ints
+        for >= comparisons, not Jinja2-rendered strings).
+        Populates sibling/lineage context for the agent prompt.
+        """
         archive = self._improver.archive
         method = context.get("parent_selection", "best")
+
+        # Coerce max_generations from input (may arrive as string from Jinja2)
+        max_gen = context.get("max_generations", 1)
+        if isinstance(max_gen, str):
+            try:
+                max_gen = int(max_gen)
+            except (ValueError, TypeError):
+                max_gen = 1
+        context["max_generations"] = max_gen
 
         if archive.size == 0:
             # No archive yet → this is generation 0 (baseline)
             context["parent_id"] = None
             context["parent_commit"] = None
+            context["parent_score"] = None
+            context["sibling_summary"] = []
             return context
 
         parent = archive.select_parent(method=method)
         if parent is None:
             context["parent_id"] = None
             context["parent_commit"] = None
+            context["parent_score"] = None
+            context["sibling_summary"] = []
         else:
             context["parent_id"] = parent.generation_id
             context["parent_commit"] = parent.metadata.get("commit")
+            context["parent_score"] = parent.score
+
+            # Populate sibling context for the agent
+            siblings = [archive.get(cid) for cid in parent.children]
+            context["sibling_summary"] = [
+                {
+                    "id": s.generation_id,
+                    "score": s.score,
+                    "description": s.metadata.get("description", "")[:80],
+                }
+                for s in siblings
+                if s is not None
+            ]
 
         return context
 
     def _create_worktree(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Create an isolated worktree for this generation."""
+        """Create an isolated worktree for this generation.
+
+        When parent_commit is set (from archive metadata), branches from
+        that commit directly — the child inherits the parent's code state
+        without needing to apply patches.
+
+        Falls back to apply_patches only when parent_commit is None but
+        parent_id exists (legacy entries or baseline generation).
+        """
         isolation = self._improver.isolation
         generation = context.get("generation", 0)
 
@@ -418,14 +457,15 @@ class ConvergedSelfImproveHooks:
         try:
             wt_path = isolation.create_worktree(generation, parent_commit)
 
-            # Apply ancestor patches if parent has lineage
-            parent_id = context.get("parent_id")
-            if parent_id is not None:
-                patches = self._improver.archive.get_patch_chain(parent_id)
-                if patches:
-                    ok, err = isolation.apply_patches(wt_path, patches)
-                    if not ok:
-                        logger.warning("Failed to apply patches: %s", err)
+            # Only apply patches if we don't have a parent commit to branch from
+            if parent_commit is None:
+                parent_id = context.get("parent_id")
+                if parent_id is not None:
+                    patches = self._improver.archive.get_patch_chain(parent_id)
+                    if patches:
+                        ok, err = isolation.apply_patches(wt_path, patches)
+                        if not ok:
+                            logger.warning("Failed to apply patches: %s", err)
 
             context["worktree_path"] = wt_path
         except RuntimeError as e:
@@ -440,6 +480,17 @@ class ConvergedSelfImproveHooks:
         generation = context.get("generation", 0)
         isolation = self._improver.isolation
         wt_path = context.get("worktree_path", self._improver.target_dir)
+
+        # Commit everything in the worktree before extracting so we have
+        # a real commit hash for child generations to branch from
+        commit = None
+        if isolation is not None:
+            try:
+                commit = isolation.commit_worktree(
+                    wt_path, f"gen-{generation} final"
+                )
+            except Exception as e:
+                logger.warning("Failed to commit worktree: %s", e)
 
         # Extract diff
         patch_file = ""
@@ -464,7 +515,7 @@ class ConvergedSelfImproveHooks:
             metadata={
                 "description": context.get("last_hypothesis", ""),
                 "inner_iterations": context.get("inner_iteration", 0),
-                "commit": context.get("last_commit"),
+                "commit": commit or context.get("last_commit"),
             },
             inner_iterations=context.get("inner_iteration", 0),
         )
