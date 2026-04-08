@@ -566,6 +566,24 @@ class TestConvergedHooks:
         summary_path = Path(tmp_path) / ".self_improve" / "archive_summary.tsv"
         assert summary_path.exists()
 
+    def test_extract_and_archive_does_not_reuse_context_best_score(self, tmp_path):
+        improver = self._make_improver(tmp_path)
+        hooks = ConvergedSelfImproveHooks(improver)
+
+        # No score.json written for this generation, even though context has best_score
+        ctx = {
+            "generation": 0,
+            "parent_id": None,
+            "best_score": 999.0,
+            "analysis": "no score file produced",
+        }
+        ctx = hooks.on_action("extract_diff_and_archive", ctx)
+
+        entry = improver.archive.get(0)
+        assert entry is not None
+        assert entry.score is None
+        assert entry.status == "failed"
+
     def test_full_inner_loop_cycle(self, tmp_path):
         """Test the core inner loop: checks → evaluate → keep/discard."""
         improver = self._make_improver(tmp_path, score=50.0)

@@ -403,11 +403,19 @@ def main():
         default=False,
         help="Run the self-improvement loop with LLM agent",
     )
-    improve_parser.add_argument(
+    git_group = improve_parser.add_mutually_exclusive_group()
+    git_group.add_argument(
         "--git",
+        dest="git",
         action="store_true",
-        default=False,
-        help="Enable git integration (auto-commit on keep, auto-revert on discard)",
+        default=True,
+        help="Enable git integration (default)",
+    )
+    git_group.add_argument(
+        "--no-git",
+        dest="git",
+        action="store_false",
+        help="Disable git integration",
     )
     improve_parser.add_argument(
         "--generations", "-g",

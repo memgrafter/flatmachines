@@ -41,6 +41,26 @@ class TestCLIConfigValidation:
         assert "not found" in result.stderr.lower() or "error" in result.stderr.lower()
 
 
+class TestImproveGitFlags:
+    def test_help_includes_no_git(self):
+        result = subprocess.run(
+            [PYTHON, "-m", "flatmachines_cli.main", "improve", "--help"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+        assert "--no-git" in result.stdout
+
+    def test_git_enabled_by_default_in_output(self):
+        result = subprocess.run(
+            [PYTHON, "-m", "flatmachines_cli.main", "improve"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+        assert "Git:       enabled" in result.stdout
+
+
 class TestResolveConfig:
     def test_absolute_path(self):
         from flatmachines_cli.main import _resolve_config

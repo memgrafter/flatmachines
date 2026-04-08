@@ -624,6 +624,17 @@ class ConvergedSelfImproveHooks:
                             logger.warning("Failed to apply patches: %s", err)
 
             context["worktree_path"] = wt_path
+
+            # Ensure score is generation-local. Parent worktrees may contain
+            # a previously committed .self_improve/score.json; remove it so a
+            # generation is only "evaluated" when the current agent writes a
+            # fresh score file.
+            stale_score = Path(wt_path) / ".self_improve" / "score.json"
+            if stale_score.exists():
+                try:
+                    stale_score.unlink()
+                except Exception as e:
+                    logger.warning("Failed to remove stale score.json: %s", e)
         except RuntimeError as e:
             logger.error("Failed to create worktree: %s", e)
             context["worktree_path"] = self._improver.target_dir
@@ -664,7 +675,7 @@ class ConvergedSelfImproveHooks:
                 logger.warning("Failed to extract diff: %s", e)
 
         # Read agent-written score.json (agent owns the experiment lifecycle)
-        score = context.get("best_score")
+        score = None
         scores = {}
         score_path = Path(wt_path) / ".self_improve" / "score.json"
         if score_path.exists():
@@ -677,6 +688,8 @@ class ConvergedSelfImproveHooks:
                 context["_score_direction"] = data.get("direction", "higher")
             except (ValueError, KeyError, TypeError) as e:
                 logger.warning("Failed to read score.json: %s", e)
+        else:
+            logger.warning("Generation %s missing .self_improve/score.json", generation)
 
         entry = self._improver.archive.add(
             parent_id=context.get("parent_id"),
