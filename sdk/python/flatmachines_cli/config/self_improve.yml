@@ -37,7 +37,7 @@ data:
     archive_size: 0
 
   agents:
-    coder: ./agents/coder.yml
+    coder: ./agents/agent.yml
 
   states:
     start:
@@ -80,6 +80,11 @@ data:
 
       output_to_context:
         analysis: "{{ output.content }}"
+      transitions:
+        - to: evaluate
+
+    evaluate:
+      action: run_evaluation
       transitions:
         - to: archive_generation
 
