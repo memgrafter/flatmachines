@@ -25,7 +25,9 @@ data:
     Hard rules:
     - Do not stop to ask the user to choose a metric or benchmark.
     - If program.md is vague, choose a concrete measurable metric yourself and proceed.
-    - If no benchmark exists, create one (e.g. .self_improve/benchmark.sh) and run it.
+    - Create and own your benchmark under .self_improve/ (e.g. .self_improve/benchmark.sh).
+      Do not blindly reuse an existing "baseline benchmark" from prior runs.
+      If a benchmark file already exists, treat it as stale until you validate or rewrite it.
     - If tools or Python deps are missing in the worktree, use available alternatives (python3, uv, or host env paths)
       and continue; do not block waiting for clarification.
     - If you must install temporary dependencies for benchmarking/tests, install them in /tmp

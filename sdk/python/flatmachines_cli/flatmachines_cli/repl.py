@@ -460,7 +460,7 @@ class FlatMachinesREPL:
             print(f"  Target:      {target}")
             print(f"  program.md:  {'found' if has_program else 'not found (agent will explore)'}")
             print(f"  Generations: {'unlimited' if generations == 0 else generations}")
-            if generations > 1:
+            if generations == 0 or generations > 1:
                 print(f"  Parent sel:  {parent_selection}")
             print()
 

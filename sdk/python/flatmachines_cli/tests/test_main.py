@@ -86,3 +86,61 @@ class TestRunAsync:
         with pytest.raises(SystemExit) as exc_info:
             _run_async(interrupted())
         assert exc_info.value.code == 130
+
+
+class TestSelfImproveHandlerIsolation:
+    def test_unlimited_generations_enable_isolation(self, monkeypatch):
+        captured = {}
+
+        class DummyImprover:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        class DummyHooks:
+            def __init__(self, improver):
+                self.improver = improver
+
+            def on_action(self, action_name, context):
+                return context
+
+        monkeypatch.setattr("flatmachines_cli.improve.SelfImprover", DummyImprover)
+        monkeypatch.setattr("flatmachines_cli.improve.ConvergedSelfImproveHooks", DummyHooks)
+
+        from flatmachines_cli.main import _make_self_improve_handler
+
+        handler = _make_self_improve_handler()
+        handler("prepare_parent_selection_context", {
+            "max_generations": 0,
+            "working_dir": "/tmp",
+            "git_enabled": False,
+        })
+
+        assert captured["enable_isolation"] is True
+
+    def test_single_generation_disables_isolation(self, monkeypatch):
+        captured = {}
+
+        class DummyImprover:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        class DummyHooks:
+            def __init__(self, improver):
+                self.improver = improver
+
+            def on_action(self, action_name, context):
+                return context
+
+        monkeypatch.setattr("flatmachines_cli.improve.SelfImprover", DummyImprover)
+        monkeypatch.setattr("flatmachines_cli.improve.ConvergedSelfImproveHooks", DummyHooks)
+
+        from flatmachines_cli.main import _make_self_improve_handler
+
+        handler = _make_self_improve_handler()
+        handler("prepare_parent_selection_context", {
+            "max_generations": 1,
+            "working_dir": "/tmp",
+            "git_enabled": False,
+        })
+
+        assert captured["enable_isolation"] is False

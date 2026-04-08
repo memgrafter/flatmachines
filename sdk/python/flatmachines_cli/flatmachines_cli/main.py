@@ -70,14 +70,16 @@ def _make_self_improve_handler():
 
     def handler(action_name, context):
         if state["hooks"] is None:
-            # Auto-enable isolation when max_generations > 1
+            # Auto-enable isolation for multi-generation runs:
+            # - max_generations == 0 => unlimited (always isolate)
+            # - max_generations > 1 => explicit multi-generation
             max_gen = context.get("max_generations", 1)
             if isinstance(max_gen, str):
                 try:
                     max_gen = int(max_gen)
                 except (ValueError, TypeError):
                     max_gen = 1
-            enable_isolation = max_gen > 1
+            enable_isolation = (max_gen == 0) or (max_gen > 1)
 
             improver = SelfImprover(
                 target_dir=context.get("working_dir", "."),
@@ -607,7 +609,7 @@ def main():
         print(f"  Target:    {target}")
         print(f"  program.md: {'found' if has_program else 'not found (agent will explore)'}")
         print(f"  Generations: {'unlimited' if args.generations == 0 else args.generations}")
-        if args.generations > 1:
+        if args.generations == 0 or args.generations > 1:
             print(f"  Parent sel: {args.parent_selection}")
             print(f"  Isolation:  worktree (auto-enabled)")
         print(f"  Git:       {'enabled' if args.git else 'disabled'}")
