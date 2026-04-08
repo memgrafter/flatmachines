@@ -1615,10 +1615,11 @@ class FlatMachine:
             last_content = result.content
 
             # --- No tool calls = loop complete ---
-            if result.finish_reason != "tool_use":
-                break
-
+            # Check actual tool calls, not just finish_reason.
+            # Some providers may return tool calls with finish_reason != "tool_use".
             pending_calls = result.tool_calls or []
+            if not pending_calls:
+                break
 
             # --- Guardrail: tool call count ---
             if tool_calls_count + len(pending_calls) > max_tool_calls:
