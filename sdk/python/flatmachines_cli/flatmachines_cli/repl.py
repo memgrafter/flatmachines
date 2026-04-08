@@ -253,7 +253,7 @@ class FlatMachinesREPL:
     {_cyan('bus')}                        Dump last DataBus snapshot
     {_cyan('stats')}                      Show processor/hook performance stats
     {_cyan('save')} [path]                Save last bus snapshot to JSON file
-    {_cyan('improve')}                    Show self-improvement info
+    {_cyan('improve')}                    Run self-improvement (or: improve status, improve validate)
     {_cyan('experiment')} [cmd] [path]    Experiment tracking (load, summary)
     {_cyan('help')}                       This message
     {_cyan('quit')}                       Exit""")
@@ -425,23 +425,68 @@ class FlatMachinesREPL:
                     print(f"    {name:<20} {st['calls']:>6} {st['total_ms']:>10.3f} {st['avg_ms']:>8.3f}")
 
     def _cmd_improve(self, args: List[str]) -> None:
-        """Show self-improvement status or start improvement loop."""
-        from .improve import SelfImprover, ImprovementRunner, validate_self_improve_config
+        """Run self-improvement or show status."""
+        from .improve import validate_self_improve_config
 
         if not args:
-            print(f"\n  {_bold('Self-Improvement')}")
-            print(f"  {_dim('Subcommands:')}")
-            print(f"    improve status            Show current session info")
-            print(f"    improve history <path>    Show experiment history")
-            print(f"    improve validate [path]   Validate self-improve config")
-            print(f"\n  {_dim('CLI:')}")
-            print(f"    flatmachines improve [dir] --benchmark 'cmd' --run")
-            return
+            # Default: run the improvement loop
+            args = ["run"]
 
         subcmd = args[0]
 
-        if subcmd == "status":
-            # Show self-improve config validation status
+        if subcmd == "run":
+            # Run the self-improvement loop — same as `flatmachines improve . --git --run`
+            target = args[1] if len(args) >= 2 else self._working_dir
+            target = os.path.abspath(target)
+            generations = 0
+            parent_selection = "best"
+
+            # Parse simple flags
+            i = 1
+            while i < len(args):
+                if args[i] in ("-g", "--generations") and i + 1 < len(args):
+                    generations = int(args[i + 1])
+                    i += 2
+                elif args[i] in ("--parent-selection",) and i + 1 < len(args):
+                    parent_selection = args[i + 1]
+                    i += 2
+                else:
+                    i += 1
+
+            from .main import run_once, _run_async, _register_self_improve_actions
+            from pathlib import Path
+
+            config = str(Path(__file__).parent.parent / "config" / "self_improve.yml")
+
+            has_program = os.path.isfile(os.path.join(target, "program.md"))
+            print(f"\n  {_bold('Self-Improvement')}")
+            print(f"  Target:      {target}")
+            print(f"  program.md:  {'found' if has_program else 'not found (agent will explore)'}")
+            print(f"  Generations: {'unlimited' if generations == 0 else generations}")
+            if generations > 1:
+                print(f"  Parent sel:  {parent_selection}")
+            print()
+
+            result = _run_async(run_once(
+                config_file=config,
+                task="",
+                working_dir=target,
+                human_review=False,
+                auto_approve=True,
+                target_dir=target,
+                max_generations=generations,
+                parent_selection=parent_selection,
+                git_enabled=True,
+            ))
+
+            if result:
+                print()
+                print(f"  {_bold('Result:')}")
+                for k, v in result.items():
+                    val = str(v)[:120]
+                    print(f"    {k}: {val}")
+
+        elif subcmd == "status":
             result = validate_self_improve_config()
             if result["valid"]:
                 info = result["info"]
@@ -457,32 +502,6 @@ class FlatMachinesREPL:
                 print(f"\n  {_red('✗')} Config invalid:")
                 for err in result["errors"]:
                     print(f"    {_red(err)}")
-
-        elif subcmd == "history" and len(args) >= 2:
-            from .experiment import ExperimentTracker
-            path = args[1]
-            try:
-                tracker = ExperimentTracker.from_file(path)
-                history = tracker.history
-                if not history:
-                    print("  No experiments yet.")
-                    return
-
-                print(f"\n  {'#':>3s}  {'Status':8s}  {'Metric':>10s}  {'Duration':>8s}  Description")
-                print(f"  {'─' * 3}  {'─' * 8}  {'─' * 10}  {'─' * 8}  {'─' * 30}")
-                for entry in history:
-                    metric_str = f"{entry.primary_metric:10.1f}"
-                    dur_str = f"{entry.result.duration_s:7.1f}s"
-                    desc = entry.description[:40] if entry.description else ""
-                    print(f"  {entry.experiment_id:3d}  {entry.status:8s}  {metric_str}  {dur_str}  {desc}")
-
-                summary = tracker.summary()
-                print()
-                print(f"  Best: {summary['best_metric']}  |  Kept: {summary['kept']}  |  Total: {summary['total_experiments']}")
-            except FileNotFoundError:
-                print(f"  {_red(f'File not found: {path}')}")
-            except Exception as e:
-                print(f"  {_red(f'Error: {e}')}")
 
         elif subcmd == "validate":
             config_path = args[1] if len(args) >= 2 else None
@@ -502,7 +521,7 @@ class FlatMachinesREPL:
 
         else:
             print(f"  Unknown subcommand: {subcmd}")
-            print(f"  Try: improve status | improve history <path> | improve validate")
+            print(f"  Try: improve | improve run [dir] | improve status | improve validate")
 
     def _cmd_experiment(self, args: List[str]) -> None:
         """Show experiment tracking status."""

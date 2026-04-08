@@ -409,8 +409,8 @@ def main():
     improve_parser.add_argument(
         "--generations", "-g",
         type=int,
-        default=1,
-        help="Number of generations (1 = linear, >1 = tree search with worktree isolation)",
+        default=0,
+        help="Number of generations (0 = unlimited, 1 = single pass, >1 = tree search with worktree isolation)",
     )
     improve_parser.add_argument(
         "--parent-selection",
@@ -605,10 +605,10 @@ def main():
         print(f"Self-improvement loop")
         print(f"  Target:    {target}")
         print(f"  program.md: {'found' if has_program else 'not found (agent will explore)'}")
-        print(f"  Generations: {args.generations}")
+        print(f"  Generations: {'unlimited' if args.generations == 0 else args.generations}")
         if args.generations > 1:
             print(f"  Parent sel: {args.parent_selection}")
-            print(f"  Isolation: worktree (auto-enabled)")
+            print(f"  Isolation:  worktree (auto-enabled)")
         print(f"  Git:       {'enabled' if args.git else 'disabled'}")
         print()
 

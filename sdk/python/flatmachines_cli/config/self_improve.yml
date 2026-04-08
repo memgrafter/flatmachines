@@ -9,8 +9,8 @@ data:
     # Target
     working_dir: "{{ input.working_dir | default('.') }}"
 
-    # Outer loop state
-    max_generations: 1
+    # Outer loop state (0 = unlimited)
+    max_generations: 0
     generation: 0
     parent_id: null
     parent_score: null
@@ -74,7 +74,7 @@ data:
 
     outer_budget_check:
       transitions:
-        - condition: "context.generation >= context.max_generations"
+        - condition: "context.max_generations > 0 and context.generation >= context.max_generations"
           to: done
         - to: select_parent
 
