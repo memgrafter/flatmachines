@@ -1,0 +1,3 @@
+METRIC tests_passing=1187
+METRIC tests_failing=9
+METRIC tests_total=1196
