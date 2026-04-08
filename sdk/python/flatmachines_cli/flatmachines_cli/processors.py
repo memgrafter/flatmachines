@@ -472,7 +472,10 @@ class ToolProcessor(Processor):
             args = {}
         if name == "bash":
             cmd = args.get("command", "")
-            return f"bash: {cmd[:80]}" if cmd else "bash"
+            if not cmd:
+                return "bash"
+            # Keep full command for debug fidelity; normalize newlines to one line.
+            return f"bash: {str(cmd).replace(chr(10), '\\n')}"
         elif name == "read":
             return f"read: {args.get('path', '')}"
         elif name == "write":

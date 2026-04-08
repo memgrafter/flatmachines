@@ -641,8 +641,7 @@ def main():
                 print()
                 print("Result:")
                 for k, v in result.items():
-                    val = str(v)[:120]
-                    print(f"  {k}: {val}")
+                    print(f"  {k}: {v}")
 
             sys.exit(0)
         else:

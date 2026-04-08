@@ -9,11 +9,10 @@ class TestSummarizeTool:
         s = ToolProcessor._summarize_tool("bash", {"command": "ls -la /tmp"})
         assert s == "bash: ls -la /tmp"
 
-    def test_bash_truncated(self):
+    def test_bash_not_truncated(self):
         long_cmd = "x" * 200
         s = ToolProcessor._summarize_tool("bash", {"command": long_cmd})
-        assert len(s) < 200  # Should be shorter than original
-        assert s.startswith("bash: ")
+        assert s == f"bash: {long_cmd}"
 
     def test_read_with_path(self):
         s = ToolProcessor._summarize_tool("read", {"path": "/home/user/file.py"})

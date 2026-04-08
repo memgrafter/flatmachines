@@ -190,11 +190,11 @@ class TestToolProcessorEdgeCases:
         }, {}))
         assert "/tmp/failed.py" not in p._snapshot()["files_modified"]
 
-    def test_summarize_bash_truncation(self):
-        """Long bash commands should be truncated in summary."""
+    def test_summarize_bash_not_truncated(self):
+        """Long bash commands should be preserved in full summary."""
         long_cmd = "x" * 200
         summary = ToolProcessor._summarize_tool("bash", {"command": long_cmd})
-        assert len(summary) < 100
+        assert summary == f"bash: {long_cmd}"
 
     def test_summarize_write_zero_content(self):
         summary = ToolProcessor._summarize_tool("write", {"path": "/f", "content": ""})

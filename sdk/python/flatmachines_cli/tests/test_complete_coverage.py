@@ -147,8 +147,9 @@ class TestToolSummarizeEdgeCases:
         assert s == "bash"
 
     def test_bash_long_command(self):
-        s = ToolProcessor._summarize_tool("bash", {"command": "x" * 200})
-        assert len(s) <= 90  # truncated to 80 + "bash: " prefix
+        cmd = "x" * 200
+        s = ToolProcessor._summarize_tool("bash", {"command": cmd})
+        assert s == f"bash: {cmd}"
 
     def test_write_no_path(self):
         s = ToolProcessor._summarize_tool("write", {})

@@ -368,10 +368,7 @@ class FlatMachinesREPL:
         if record.success:
             print(f"\n  {_green('✓')} Completed in {record.duration_s:.1f}s")
             if record.output:
-                # Show output compactly
                 out_str = json.dumps(record.output, indent=2, default=str)
-                if len(out_str) > 500:
-                    out_str = out_str[:497] + "..."
                 print(f"  {_dim(out_str)}")
 
     def _cmd_history(self, args: List[str]) -> None:
@@ -482,8 +479,7 @@ class FlatMachinesREPL:
                 print()
                 print(f"  {_bold('Result:')}")
                 for k, v in result.items():
-                    val = str(v)[:120]
-                    print(f"    {k}: {val}")
+                    print(f"    {k}: {v}")
 
         elif subcmd == "status":
             result = validate_self_improve_config()
