@@ -1,15 +1,21 @@
-# 1-Pager: Add GitHub Copilot OAuth to Accepted Credentials
+# 1-Pager: Add GitHub Copilot as a First-Class FlatAgents Provider (OAuth + Inference)
 
 **Timestamp:** 2026-04-08T17:24:35  
+**Updated:** 2026-04-08T22:10:16  
 **Status:** Proposed
 
 ## Summary
 
-Add `github-copilot` OAuth credentials as a first-class accepted credential in our FlatAgents-based workflow, with login handled by the plugin `run.sh` (not by core FlatAgents login commands).
+Add `github-copilot` as a first-class **FlatAgents Python provider/backend** with:
 
-This mirrors the existing GitHub Copilot device-code flow already implemented in `~/clones/pi-mono` and keeps profile config shape consistent with `sdk/examples/openai_codex_oauth/config/profiles.yml`.
+1. OAuth auth lifecycle (device-code login + refresh + auth.json persistence)
+2. Direct inference client support
 
-Credentials will be stored in:
+Then provide a **small example `run.sh`** in `sdk/examples/github_copilot_oauth/python/` that demonstrates how applications can wire auth/login for their own FlatMachines/FlatAgents usage.
+
+This is based on proven behavior in `~/clones/pi-mono`.
+
+Credentials storage target:
 
 `~/.agents/flatmachines/auth.json`
 
@@ -17,35 +23,38 @@ Credentials will be stored in:
 
 ## Goals
 
-1. Accept `github-copilot` as an OAuth credential provider.
-2. Support a **Copilot model profile** in `profiles.yml` for FlatAgents usage.
-3. Use **device code login only** (no browser callback/local server mode).
-4. Implement login orchestration in plugin `run.sh`.
-5. Persist credentials under provider key `github-copilot` in `~/.agents/flatmachines/auth.json`.
+1. Accept `github-copilot` as an OAuth credential provider in FlatAgents Python.
+2. Add a first-class `copilot` backend in FlatAgents Python (similar to codex-style first-class path).
+3. Support a Copilot profile in `profiles.yml`.
+4. Support **device code login only** (no callback server/browser redirect mode).
+5. Persist credentials under `github-copilot` in `~/.agents/flatmachines/auth.json`.
+6. Ship a minimal reference `run.sh` example for app-level login usage.
 
 ## Non-goals
 
-- No username/password login.
-- No PKCE callback-server login mode.
-- No generic multi-provider OAuth framework redesign in this change.
-- No migration of existing `~/.pi/agent/auth.json` credentials by default.
+- No product/frontend login UI in this change.
+- No username/password flow.
+- No PKCE callback-server flow.
+- No generic multi-provider OAuth framework redesign.
+- No automatic migration from `~/.pi/agent/auth.json`.
 
 ---
 
-## Proposed UX
+## Proposed UX (example-only)
 
-### Login
+### Login (example script)
 
 ```bash
+cd sdk/examples/github_copilot_oauth/python
 ./run.sh --login-copilot
 ```
 
 Flow:
-1. Script starts GitHub device authorization flow.
-2. User opens verification URL and enters user code.
-3. Script polls until authorized.
-4. Script exchanges for Copilot token and writes credentials.
-5. Script prints success + auth file location.
+1. Starts GitHub device authorization flow.
+2. User opens verification URL and enters code.
+3. Polls until authorized.
+4. Exchanges for Copilot token and writes auth file.
+5. Prints success and auth file location.
 
 ### Run with Copilot profile
 
@@ -53,13 +62,11 @@ Flow:
 ./run.sh --profile copilot
 ```
 
-`run.sh` loads/refreshes Copilot credentials from `~/.agents/flatmachines/auth.json` and injects the active token for execution.
+The example demonstrates loading/refreshing Copilot credentials and executing an inference call through FlatAgents.
 
 ---
 
-## Profile shape (reference-aligned)
-
-Following the same OAuth block shape used by the codex example (`provider`, `oauth.auth_file`):
+## Profile shape (target)
 
 ```yaml
 spec: flatprofiles
@@ -69,8 +76,8 @@ data:
   model_profiles:
     copilot:
       provider: github-copilot
+      backend: copilot
       name: gpt-4o
-      backend: litellm
       base_url: https://api.individual.githubcopilot.com
       oauth:
         provider: github-copilot
@@ -80,8 +87,8 @@ data:
 ```
 
 Notes:
-- `oauth` block is included for consistency and explicitness.
-- Runtime token acquisition/refresh remains plugin-managed in `run.sh`.
+- `base_url` is a default; runtime may derive better value from token metadata (`proxy-ep`) for parity.
+- `oauth` block remains explicit and profile-consistent.
 
 ---
 
@@ -101,50 +108,115 @@ Stored under top-level key `github-copilot`:
 }
 ```
 
-This follows the same shape used in `pi-mono` (`refresh`, `access`, `expires`, optional enterprise metadata).
+Parity note: this matches the shape used in `pi-mono` (`refresh`, `access`, `expires`, optional enterprise metadata).
 
 ---
 
-## Technical approach
+## Technical approach (pi-mono parity)
 
-Reuse the proven `pi-mono` Copilot device-code sequence:
-
-1. `POST https://<domain>/login/device/code`
-2. Poll `POST https://<domain>/login/oauth/access_token` with
-   `grant_type=urn:ietf:params:oauth:grant-type:device_code`
-3. Exchange GitHub token for Copilot token via
-   `GET https://api.<domain>/copilot_internal/v2/token`
-4. Save credentials to `~/.agents/flatmachines/auth.json`
-5. On each run, refresh if near expiry before invoking model calls
+1. Device flow:
+   - `POST https://<domain>/login/device/code`
+   - Poll `POST https://<domain>/login/oauth/access_token`
+   - `grant_type=urn:ietf:params:oauth:grant-type:device_code`
+2. Poll behavior:
+   - `authorization_pending` => wait current interval
+   - `slow_down` => increase interval (+5s)
+   - `expired_token` / `access_denied` / unknown => hard fail with clear message
+3. Copilot token exchange:
+   - `GET https://api.<domain>/copilot_internal/v2/token`
+4. Base URL resolution:
+   - prefer token `proxy-ep` (`proxy.*` -> `api.*`)
+   - fallback `https://copilot-api.<enterprise-domain>`
+   - fallback `https://api.individual.githubcopilot.com`
+5. Refresh behavior:
+   - refresh near expiry (5-minute skew)
+   - preserve unrelated auth providers during write
+   - lock + atomic writes for multi-process safety
+6. Optional parity step:
+   - best-effort model enablement: `POST {base_url}/models/{modelId}/policy`
+7. Inference behavior:
+   - first-class backend client for Copilot requests
+   - include required static Copilot headers
+   - include dynamic headers (`X-Initiator`, `Openai-Intent`, `Copilot-Vision-Request` for image input)
 
 Implementation boundary:
-- **Plugin** (`run.sh` + helper script/module): owns login + refresh + file write.
-- **FlatAgents config** (`profiles.yml`): declares provider/auth file location and profile intent.
+- **FlatAgents provider/backend code** owns login primitives, refresh, auth storage, and inference calls.
+- **Example `run.sh`** shows app-level orchestration and diagnostics patterns.
+
+---
+
+## Planned files to create
+
+### Runtime implementation (no tests)
+
+```text
+sdk/
+├── examples/
+│   └── github_copilot_oauth/
+│       ├── README.md
+│       ├── config/
+│       │   ├── agent.yml
+│       │   └── profiles.yml
+│       └── python/
+│           ├── README.md
+│           ├── pyproject.toml
+│           └── run.sh
+└── python/
+    └── flatagents/
+        └── flatagents/
+            └── providers/
+                ├── github_copilot_auth.py
+                ├── github_copilot_client.py
+                ├── github_copilot_login.py
+                └── github_copilot_types.py
+```
+
+### Tests
+
+```text
+sdk/python/tests/
+├── unit/
+│   ├── _github_copilot_test_helpers.py
+│   ├── test_github_copilot_auth.py
+│   ├── test_github_copilot_login.py
+│   ├── test_github_copilot_client_unit.py
+│   ├── test_github_copilot_client_integration_contract.py
+│   └── test_flatagent_github_copilot_backend.py
+└── integration/
+    └── copilot/
+        ├── conftest.py
+        ├── run.sh
+        ├── test_copilot_backend_integration.py
+        └── test_copilot_oauth_live.py
+```
 
 ---
 
 ## Security & reliability
 
 - Create parent directories as needed.
-- Write auth file atomically and preserve unrelated providers.
+- Use auth file lock + atomic write.
+- Preserve unrelated providers in shared auth file.
 - File mode `0600` for secrets.
-- Never print raw tokens to stdout/stderr.
-- Clear error messages for pending/expired/denied device flow states.
+- Never print raw tokens.
+- Clear error text for pending/expired/denied device states.
 
 ---
 
 ## Acceptance criteria
 
-1. `./run.sh --login-copilot` completes device-code login and stores credentials in `~/.agents/flatmachines/auth.json`.
-2. Auth file contains valid `github-copilot` OAuth entry (`type`, `refresh`, `access`, `expires`).
-3. Copilot profile in `profiles.yml` resolves and can be selected for runs.
-4. Expired token is refreshed automatically by plugin on next run.
-5. No non-device-code sign-in path is exposed.
+1. FlatAgents can execute with `backend: copilot` and provider `github-copilot`.
+2. Device-code login flow works and writes valid `github-copilot` oauth credentials.
+3. Refresh works with 5-minute skew and preserves unrelated auth entries.
+4. Runtime requests include required Copilot headers and correct base URL resolution.
+5. Example `run.sh --profile copilot` completes a real end-to-end inference call.
+6. No non-device-code sign-in path is exposed.
 
 ---
 
 ## Open questions
 
-1. Do we want optional enterprise domain prompt now, or github.com-only in v1?
-2. Should we add a `--auth-file` override flag to `run.sh` for CI/dev flexibility?
-3. Should we add a tiny diagnostics command (`--check-copilot-auth`) similar to the codex oauth example?
+1. Should model policy enablement (`POST /models/{id}/policy`) be required or best-effort in v1?
+2. Should example `run.sh` expose `--auth-file` override for CI/dev portability?
+3. Should we include `--check-copilot-auth` diagnostics in v1 example?
+4. Enterprise prompt now vs github.com-only default with later enterprise expansion?

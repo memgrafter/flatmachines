@@ -72,10 +72,10 @@ Common fields supported by the Python runtime:
 - `provider`, `name` (combined into `provider/name` if needed)
 - `temperature`, `max_tokens`, `top_p`, `top_k`
 - `frequency_penalty`, `presence_penalty`, `seed`
-- `base_url` (passed as `api_base` to LiteLLM, or Codex base URL for `backend: codex`)
+- `base_url` (passed as `api_base` to LiteLLM, or direct base URL for `backend: codex` / `backend: copilot`)
 - `stream` (bool), `stream_options`
-- `backend` ("litellm" | "aisuite" | "codex")
-- `oauth` (Codex auth config: `auth_file`, `originator`, `refresh`, `timeout_seconds`, `max_retries`, `token_url`, `client_id`)
+- `backend` ("litellm" | "aisuite" | "codex" | "copilot")
+- `oauth` (provider auth config; Codex fields include `originator`, `token_url`, `client_id`)
 
 ## Python Runtime Behavior
 
@@ -116,6 +116,7 @@ The Python SDK supports:
 - **LiteLLMBackend** (default; `litellm`)
 - **AISuiteBackend** (`aisuite`)
 - **Codex OAuth backend** (`codex`)
+- **GitHub Copilot OAuth backend** (`copilot`)
 - **LLMBackend** protocol for custom providers
 
 Backend selection order:
@@ -124,11 +125,12 @@ Backend selection order:
 3. `FLATAGENTS_BACKEND` env var ("litellm" or "aisuite")
 4. Auto-detect installed backend (prefers litellm)
 
-Codex is never auto-detected; configure it explicitly via `backend: codex`.
+Codex and Copilot are never auto-detected; configure them explicitly via `backend: codex` / `backend: copilot`.
 
-Codex login helper:
+Login helpers:
 ```bash
 python -m flatagents.providers.openai_codex_login --auth-file ~/.pi/agent/auth.json
+python -m flatagents.providers.github_copilot_login --auth-file ~/.agents/flatmachines/auth.json
 ```
 
 ## MCP Tooling

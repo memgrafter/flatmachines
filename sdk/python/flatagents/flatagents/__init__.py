@@ -79,6 +79,14 @@ from .providers import (
     CodexResult,
     CodexToolCall,
     CodexUsage,
+    CopilotAuthError,
+    CopilotClient,
+    CopilotClientError,
+    CopilotHTTPError,
+    CopilotOAuthCredential,
+    CopilotResult,
+    CopilotToolCall,
+    CopilotUsage,
 )
 
 __all__ = [
@@ -129,6 +137,14 @@ __all__ = [
     "CodexResult",
     "CodexToolCall",
     "CodexUsage",
+    "CopilotAuthError",
+    "CopilotClient",
+    "CopilotClientError",
+    "CopilotHTTPError",
+    "CopilotOAuthCredential",
+    "CopilotResult",
+    "CopilotToolCall",
+    "CopilotUsage",
     # Validation
     "validate_flatagent_config",
     "get_flatagent_schema",

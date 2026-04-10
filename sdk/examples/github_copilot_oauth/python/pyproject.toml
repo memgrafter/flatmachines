@@ -1,0 +1,16 @@
+[project]
+name = "github_copilot_oauth_example"
+version = "0.1.0"
+description = "GitHub Copilot OAuth example"
+dependencies = ["flatagents"]
+requires-python = ">=3.10"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[project.scripts]
+github-copilot-oauth-demo = "github_copilot_oauth_example.main:main"

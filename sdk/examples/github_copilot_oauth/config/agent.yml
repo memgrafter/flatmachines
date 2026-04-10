@@ -1,0 +1,15 @@
+spec: flatagent
+spec_version: "2.5.0"
+
+data:
+  name: copilot-oauth-checker
+  model: copilot
+
+  system: |
+    You are a concise diagnostic assistant.
+
+  user: |
+    {{ input.task }}
+
+metadata:
+  description: "Placeholder copilot-backed agent config for oauth diagnostics"

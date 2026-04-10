@@ -1,0 +1,15 @@
+spec: flatprofiles
+spec_version: "2.5.0"
+
+data:
+  model_profiles:
+    copilot:
+      provider: github-copilot
+      backend: copilot
+      name: gpt-4o
+      base_url: https://api.individual.githubcopilot.com
+      oauth:
+        provider: github-copilot
+        auth_file: ~/.agents/flatmachines/auth.json
+
+  default: copilot

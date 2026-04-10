@@ -46,8 +46,8 @@
  * presence_penalty  - Presence penalty (-2.0 to 2.0)
  * seed              - Random seed for reproducibility
  * base_url          - Custom API base URL (for local models/proxies)
- * backend           - Runtime backend override (litellm, aisuite, codex)
- * oauth             - OAuth settings (used by codex backend)
+ * backend           - Runtime backend override (litellm, aisuite, codex, copilot)
+ * oauth             - OAuth settings (used by codex/copilot backends)
  *
  * MODEL PROFILES:
  * ---------------
@@ -222,7 +222,7 @@ export interface ModelConfig {
   presence_penalty?: number;
   seed?: number;
   base_url?: string;
-  backend?: "litellm" | "aisuite" | "codex";
+  backend?: "litellm" | "aisuite" | "codex" | "copilot";
   api?: string;
   oauth?: OAuthConfig;
 }

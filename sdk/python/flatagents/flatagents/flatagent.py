@@ -41,6 +41,8 @@ from .baseagent import (
     extract_status_code,
     is_retryable_error,
 )
+from .providers.github_copilot_client import CopilotClient
+from .providers.github_copilot_types import CopilotResult
 from .providers.openai_codex_client import CodexClient
 from .providers.openai_codex_types import CodexResult
 
@@ -201,8 +203,10 @@ class FlatAgent:
                 raise ImportError("litellm backend selected but not installed. Install with: pip install litellm")
         elif self._backend == "codex":
             self._codex_client = CodexClient(self._model_config_raw, config_dir=self._config_dir)
+        elif self._backend == "copilot":
+            self._copilot_client = CopilotClient(self._model_config_raw, config_dir=self._config_dir)
         else:
-            raise ValueError(f"Unknown backend: {self._backend}. Use 'aisuite', 'litellm', or 'codex'.")
+            raise ValueError(f"Unknown backend: {self._backend}. Use 'aisuite', 'litellm', 'codex', or 'copilot'.")
 
     async def _call_llm(self, params: Dict[str, Any]) -> Any:
         """Call the LLM using the selected backend."""
@@ -216,6 +220,12 @@ class FlatAgent:
             if isinstance(codex_result, CodexResult):
                 return self._adapt_codex_result(codex_result)
             return codex_result
+
+        if self._backend == "copilot":
+            copilot_result = await self._copilot_client.call(params)
+            if isinstance(copilot_result, CopilotResult):
+                return self._adapt_copilot_result(copilot_result)
+            return copilot_result
 
         if params.get("stream"):
             stream = await litellm.acompletion(**params)
@@ -317,6 +327,44 @@ class FlatAgent:
             choices=[choice],
             usage=usage,
             _raw=result.raw_events,
+            _response_headers=result.response_headers or {},
+            _response_status_code=result.response_status_code,
+            _request_meta=result.request_meta or {},
+        )
+
+    def _adapt_copilot_result(self, result: CopilotResult) -> Any:
+        usage = SimpleNamespace(
+            prompt_tokens=result.usage.input_tokens,
+            completion_tokens=result.usage.output_tokens,
+            total_tokens=result.usage.total_tokens,
+            prompt_tokens_details=SimpleNamespace(cached_tokens=0),
+        )
+
+        tool_calls = []
+        for tool_call in result.tool_calls:
+            tool_calls.append(
+                SimpleNamespace(
+                    id=tool_call.id,
+                    function=SimpleNamespace(
+                        name=tool_call.name,
+                        arguments=self._normalize_codex_tool_arguments(tool_call.arguments_json),
+                    ),
+                )
+            )
+
+        message = SimpleNamespace(
+            content=result.content,
+            tool_calls=tool_calls or None,
+        )
+        choice = SimpleNamespace(
+            message=message,
+            finish_reason=result.finish_reason,
+        )
+
+        return SimpleNamespace(
+            choices=[choice],
+            usage=usage,
+            _raw=result.raw_response,
             _response_headers=result.response_headers or {},
             _response_status_code=result.response_status_code,
             _request_meta=result.request_meta or {},
@@ -806,7 +854,7 @@ class FlatAgent:
         if self.seed is not None:
             params["seed"] = self.seed
         if self.base_url is not None:
-            if self._backend == "codex":
+            if self._backend in ("codex", "copilot"):
                 params["base_url"] = self.base_url
             else:
                 params["api_base"] = self.base_url  # litellm uses api_base
@@ -829,6 +877,12 @@ class FlatAgent:
                 'codex_timeout_seconds', 'codex_max_retries', 'codex_token_url',
                 'codex_client_id', 'codex_session_id', 'codex_reasoning_effort',
                 'codex_reasoning_summary', 'codex_text_verbosity'
+            })
+        elif self._backend == "copilot":
+            _KNOWN_MODEL_FIELDS.update({
+                'api', 'oauth', 'auth', 'headers', 'service_tier',
+                'copilot_auth_file', 'copilot_refresh', 'copilot_timeout_seconds',
+                'copilot_max_retries', 'enterprise_url'
             })
         for key, value in self._model_config_raw.items():
             if key not in _KNOWN_MODEL_FIELDS and key not in params and value is not None:

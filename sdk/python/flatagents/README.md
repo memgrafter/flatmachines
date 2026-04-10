@@ -78,6 +78,7 @@ Built-in backends:
 - **LiteLLMBackend** (default, `litellm`)
 - **AISuiteBackend** (`aisuite`)
 - **Codex OAuth backend** (`codex`)
+- **GitHub Copilot OAuth backend** (`copilot`)
 
 Selection order:
 1. `backend` argument to `FlatAgent(...)`
@@ -85,7 +86,7 @@ Selection order:
 3. `FLATAGENTS_BACKEND` env var ("litellm" or "aisuite")
 4. Auto-detect installed backend (prefers litellm)
 
-Codex is explicit only (not auto-detected):
+Codex and Copilot are explicit only (not auto-detected):
 
 ```yaml
 model:
@@ -96,10 +97,20 @@ model:
     auth_file: ~/.pi/agent/auth.json
 ```
 
-Login helper:
+```yaml
+model:
+  provider: github-copilot
+  name: gpt-4o
+  backend: copilot
+  oauth:
+    auth_file: ~/.agents/flatmachines/auth.json
+```
+
+Login helpers:
 
 ```bash
 python -m flatagents.providers.openai_codex_login --auth-file ~/.pi/agent/auth.json
+python -m flatagents.providers.github_copilot_login --auth-file ~/.agents/flatmachines/auth.json
 ```
 
 ## MCP Tools
