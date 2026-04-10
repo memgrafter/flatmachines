@@ -42,8 +42,7 @@ def run(statement: str, working_dir: str):
     print("=" * 60)
     content = result.get("result") if isinstance(result, dict) else result
     if content:
-        clean = str(content).replace("<<AGENT_EXIT>>", "").strip()
-        print(clean)
+        print(str(content).strip())
 
     interp_path = os.path.join(working_dir, "INTERPRETATIONS.md")
     if os.path.exists(interp_path):

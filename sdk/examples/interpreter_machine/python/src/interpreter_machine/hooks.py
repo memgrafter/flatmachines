@@ -21,24 +21,6 @@ def _cyan(text: str) -> str:
     return f"\033[36m{text}\033[0m"
 
 
-def _summarize_tool_input(name: str, input_data: Dict[str, Any]) -> str:
-    """Summarize tool input for one-line display."""
-    if name == "Bash":
-        return input_data.get("command", "")
-    if name == "Read":
-        return input_data.get("file_path", input_data.get("path", ""))
-    if name == "Write":
-        path = input_data.get("file_path", input_data.get("path", ""))
-        content = input_data.get("content", "")
-        return f"{path} ({len(content)} bytes)"
-    if name == "Edit":
-        return input_data.get("file_path", input_data.get("path", ""))
-    for v in input_data.values():
-        if isinstance(v, str) and len(v) < 80:
-            return v
-    return ""
-
-
 class InterpreterHooks(MachineHooks):
     """Display hooks for the interpreter machine."""
 
@@ -56,40 +38,16 @@ class InterpreterHooks(MachineHooks):
         context: Dict[str, Any],
         output: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
-        if not output:
+        if state_name != "interpret" or not output:
             return output
 
-        events = context.get("_claude_code_stream_events", [])
-        if not events:
-            return output
+        thread_id = context.get("thread_id", "")
+        if thread_id:
+            print(f"  {_dim(f'thread: {thread_id}')}")
 
-        tool_count = 0
-        for event in events:
-            etype = event.get("type")
-
-            if etype == "assistant":
-                message = event.get("message", {})
-                for block in message.get("content", []):
-                    if block.get("type") == "tool_use":
-                        name = block.get("name", "?")
-                        input_data = block.get("input", {})
-                        label = _summarize_tool_input(name, input_data)
-                        print(f"  ✓ {_bold(name)}: {label}")
-                        tool_count += 1
-
-            elif etype == "result":
-                usage = event.get("usage", {})
-                cost = event.get("total_cost_usd")
-                parts = []
-                in_tok = usage.get("input_tokens")
-                out_tok = usage.get("output_tokens")
-                if in_tok is not None or out_tok is not None:
-                    parts.append(f"tokens: {in_tok or 0}→{out_tok or 0}")
-                if cost:
-                    parts.append(f"${cost:.4f}")
-                if tool_count:
-                    parts.append(f"{tool_count} tools")
-                if parts:
-                    print(f"  {_dim(' | '.join(parts))}")
+        result = context.get("result", "")
+        if isinstance(result, str) and result.strip():
+            preview = result.strip().splitlines()[0][:180]
+            print(f"  {_dim(preview)}")
 
         return output
