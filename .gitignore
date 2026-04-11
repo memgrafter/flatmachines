@@ -8,6 +8,8 @@ dist
 
 .claude
 
+.self_improve
+
 local
 data
 .checkpoints
