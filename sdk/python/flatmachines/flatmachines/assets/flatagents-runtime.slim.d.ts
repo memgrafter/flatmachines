@@ -252,7 +252,7 @@ export interface BackendConfig {
     dynamodb_table?: string;
     aws_region?: string;
 }
-export const SPEC_VERSION = "2.5.0";
+export const SPEC_VERSION = "2.6.0";
 export interface SDKRuntimeWrapper {
     spec: "flatagents-runtime";
     spec_version: typeof SPEC_VERSION;
