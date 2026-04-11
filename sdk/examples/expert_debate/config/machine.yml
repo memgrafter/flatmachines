@@ -43,6 +43,7 @@ data:
     last_master_b_statement: ""
 
     transcript: []
+    history_text: ""
 
     session_id: ""
     debate_complete: false
@@ -187,6 +188,8 @@ data:
         rounds_remaining: "{{ context.rounds_remaining }}"
         round_focus: "{{ context.current_round_focus }}"
         last_master_b_statement: "{{ context.last_master_b_statement }}"
+        history_text: "{{ context.history_text }}"
+        session_id: "{{ context.session_id }}::master_a"
       output_to_context:
         current_master_a_statement: "{{ output.content }}"
       transitions:
@@ -204,6 +207,8 @@ data:
         rounds_remaining: "{{ context.rounds_remaining }}"
         round_focus: "{{ context.current_round_focus }}"
         master_a_statement: "{{ context.current_master_a_statement }}"
+        history_text: "{{ context.history_text }}"
+        session_id: "{{ context.session_id }}::master_b"
       output_to_context:
         current_master_b_statement: "{{ output.content }}"
       transitions:
@@ -231,6 +236,7 @@ data:
         master_b_domain: "{{ context.master_b_domain }}"
         master_b_viewpoint: "{{ context.master_b_viewpoint }}"
         round_count: "context.round_count"
+        history_text: "{{ context.history_text }}"
         transcript: "context.transcript"
       output_to_context:
         recorder_output: "output"

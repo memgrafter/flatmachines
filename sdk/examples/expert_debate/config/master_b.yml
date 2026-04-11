@@ -24,6 +24,9 @@ data:
     Master A statement this round:
     {{ input.master_a_statement }}
 
+    Conversation history so far (all prior turns):
+    {{ input.history_text }}
+
     Write 1-3 concise paragraphs that:
     1) Explain your framework for this round focus,
     2) Respond to Master A from your own stable viewpoint,

@@ -50,12 +50,16 @@ class ExpertDebateHooks(MachineHooks):
         context["must_cover"] = self._ensure_list(context.get("must_cover"))
         context["avoid"] = self._ensure_list(context.get("avoid"))
         context.setdefault("transcript", [])
+        context.setdefault("history_text", "")
         return context
 
     def _collect_topic(self, context: Dict[str, Any]) -> Dict[str, Any]:
         topic = str(context.get("topic") or "").strip()
         while not topic:
-            topic = input("Debate topic: ").strip()
+            try:
+                topic = input("Debate topic: ").strip()
+            except EOFError as exc:
+                raise ValueError("No interactive stdin for topic prompt. Pass --topic.") from exc
         context["topic"] = topic
         return context
 
@@ -68,11 +72,17 @@ class ExpertDebateHooks(MachineHooks):
             print(question)
             print("=" * 72)
 
-        response = input("Your answer: ").strip()
-        ready = input("Satisfied and ready to run the debate? [y/N]: ").strip().lower()
+        try:
+            response = input("Your answer: ").strip()
+            ready = input("Satisfied and ready to run the debate? [y/N]: ").strip().lower()
+            satisfied = ready in {"y", "yes"}
+        except EOFError:
+            # Non-interactive execution (e.g., CI/agent harness)
+            response = str(context.get("latest_user_response") or "Proceed with current framing.").strip()
+            satisfied = True
 
         context["latest_user_response"] = response
-        context["user_satisfied"] = ready in {"y", "yes"}
+        context["user_satisfied"] = satisfied
         return context
 
     def _build_master_prompts(self, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -111,6 +121,7 @@ class ExpertDebateHooks(MachineHooks):
         context["rounds_remaining"] = round_count
         context["topic_slices"] = self._ensure_list(context.get("topic_slices"))
         context["transcript"] = []
+        context["history_text"] = ""
         context["last_master_a_statement"] = ""
         context["last_master_b_statement"] = ""
         context["debate_complete"] = round_count < 1
@@ -155,8 +166,17 @@ class ExpertDebateHooks(MachineHooks):
         )
 
         context["transcript"] = transcript
-        context["last_master_a_statement"] = context.get("current_master_a_statement", "")
-        context["last_master_b_statement"] = context.get("current_master_b_statement", "")
+        a_stmt = str(context.get("current_master_a_statement", "")).strip()
+        b_stmt = str(context.get("current_master_b_statement", "")).strip()
+        context["last_master_a_statement"] = a_stmt
+        context["last_master_b_statement"] = b_stmt
+
+        prior_history = str(context.get("history_text") or "").strip()
+        round_block = (
+            f"Round {round_index} — {context.get('master_a_name', 'Master A')}:\n{a_stmt}\n\n"
+            f"Round {round_index} — {context.get('master_b_name', 'Master B')}:\n{b_stmt}"
+        ).strip()
+        context["history_text"] = (f"{prior_history}\n\n{round_block}" if prior_history else round_block)
 
         next_round = round_index + 1
         context["round_index"] = next_round

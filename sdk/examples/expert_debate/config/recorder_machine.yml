@@ -21,6 +21,7 @@ data:
     master_b_viewpoint: "{{ input.master_b_viewpoint }}"
 
     round_count: "input.round_count"
+    history_text: "{{ input.history_text }}"
     transcript: "input.transcript"
 
     markdown: ""
