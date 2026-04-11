@@ -217,6 +217,43 @@ class MachineHooks(ABC):
         """
         return context
 
+    def on_agent_stream_event(
+        self,
+        state_name: str,
+        event: Dict[str, Any],
+        context: Dict[str, Any],
+    ) -> None:
+        """
+        Called in real-time as stream events arrive from CLI adapters.
+
+        Fires once per NDJSON event during subprocess execution.
+        Supported by adapters that own their own tool loop and stream
+        structured events (e.g. claude-code, codex-cli).
+
+        The hook is fire-and-forget — return value is ignored.
+        Implementations MUST NOT mutate context.
+        Implementations SHOULD be fast (non-blocking) to avoid
+        slowing the stream read loop.
+
+        Common event types (adapter-specific):
+        - "system":    Session metadata (session_id, model, etc.)
+        - "assistant":  Model response (text blocks, tool_use blocks)
+        - "user":      Tool results fed back to the model
+        - "result":    Final summary (usage, cost, duration)
+
+        Use cases:
+        - Real-time terminal display (tool calls, progress, text)
+        - Stream to file/websocket for external UIs
+        - Cost/token monitoring during long runs
+        - Audit logging of all agent activity
+
+        Args:
+            state_name: Current state name
+            event: Raw stream event dict from the adapter
+            context: Current context (read-only — do not mutate)
+        """
+        pass
+
     def get_tool_provider(self, state_name: str):
         """Return tool provider for a state. None = use machine default."""
         return None
@@ -264,6 +301,10 @@ class LoggingHooks(MachineHooks):
         status = "ERROR" if is_error else "OK"
         logger.log(self.log_level, f"Tool result in {state_name}: {name} [{status}]")
         return context
+
+    def on_agent_stream_event(self, state_name: str, event: Dict[str, Any], context: Dict[str, Any]) -> None:
+        etype = event.get("type", "unknown")
+        logger.log(self.log_level, f"Stream event in {state_name}: {etype}")
 
 
 class MetricsHooks(MachineHooks):
@@ -356,6 +397,10 @@ class CompositeHooks(MachineHooks):
         for hook in self.hooks:
             context = hook.on_tool_result(state_name, tool_result, context)
         return context
+
+    def on_agent_stream_event(self, state_name: str, event: Dict[str, Any], context: Dict[str, Any]) -> None:
+        for hook in self.hooks:
+            hook.on_agent_stream_event(state_name, event, context)
 
     def get_tool_provider(self, state_name: str):
         for hook in self.hooks:
@@ -472,6 +517,11 @@ class WebhookHooks(MachineHooks):
         if resp and "context" in resp:
             return resp["context"]
         return context
+
+    async def on_agent_stream_event(self, state_name: str, event: Dict[str, Any], context: Dict[str, Any]) -> None:
+        # Fire-and-forget — don't block the stream loop waiting for webhook
+        # response. We still await to handle backpressure but ignore the result.
+        await self._send("agent_stream_event", {"state": state_name, "event": event})
 
 
 class HooksRegistry:

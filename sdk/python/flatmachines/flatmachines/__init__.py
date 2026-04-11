@@ -56,6 +56,7 @@ from .agents import (
     AgentAdapter,
     AgentAdapterContext,
     AgentAdapterRegistry,
+    StreamEventCallback,
     normalize_agent_ref,
     coerce_agent_result,
     # Rate limit helpers
@@ -152,6 +153,7 @@ __all__ = [
     "AgentAdapter",
     "AgentAdapterContext",
     "AgentAdapterRegistry",
+    "StreamEventCallback",
     "normalize_agent_ref",
     "coerce_agent_result",
     "build_rate_limit_windows",

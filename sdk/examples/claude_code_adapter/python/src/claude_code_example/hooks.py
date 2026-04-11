@@ -1,11 +1,11 @@
 """
 Claude Code display hooks.
 
-Replays stream events from AgentResult metadata to show tool use
-in the terminal, similar to CLIToolHooks from coding_machine_cli.
+Real-time stream event display for tool use in the terminal,
+using on_agent_stream_event for live output as it happens.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from flatmachines import MachineHooks
 
@@ -44,13 +44,58 @@ def _summarize_tool_input(name: str, input_data: Dict[str, Any]) -> str:
 
 
 class ClaudeCodeHooks(MachineHooks):
-    """Display hooks that replay Claude Code stream events for terminal output."""
+    """Display hooks that stream Claude Code events to the terminal in real-time."""
+
+    def __init__(self) -> None:
+        self._tool_count = 0
 
     def on_state_enter(self, state_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         print(f"\n{'─' * 60}")
         print(f"  State: {_bold(state_name)}")
         print(f"{'─' * 60}")
+        self._tool_count = 0
         return context
+
+    def on_agent_stream_event(
+        self,
+        state_name: str,
+        event: Dict[str, Any],
+        context: Dict[str, Any],
+    ) -> None:
+        """Real-time display of Claude Code stream events."""
+        etype = event.get("type")
+
+        if etype == "assistant":
+            message = event.get("message", {})
+            for block in message.get("content", []):
+                if block.get("type") == "tool_use":
+                    name = block.get("name", "?")
+                    input_data = block.get("input", {})
+                    label = _summarize_tool_input(name, input_data)
+                    print(f"  ✓ {_bold(name)}: {label}")
+                    self._tool_count += 1
+                elif block.get("type") == "text":
+                    text = block.get("text", "").strip()
+                    if text and len(text) < 200:
+                        print(f"  {_dim(text)}")
+
+        elif etype == "result":
+            usage = event.get("usage", {})
+            cost = event.get("total_cost_usd")
+            parts = []
+            in_tok = usage.get("input_tokens")
+            out_tok = usage.get("output_tokens")
+            cache_read = usage.get("cache_read_input_tokens")
+            if in_tok is not None or out_tok is not None:
+                parts.append(f"tokens: {in_tok or 0}→{out_tok or 0}")
+            if cache_read:
+                parts.append(f"cache: {cache_read}")
+            if cost:
+                parts.append(f"${cost:.4f}")
+            if self._tool_count:
+                parts.append(f"{self._tool_count} tools")
+            if parts:
+                print(f"  {_dim(' | '.join(parts))}")
 
     def on_state_exit(
         self,
@@ -58,52 +103,5 @@ class ClaudeCodeHooks(MachineHooks):
         context: Dict[str, Any],
         output: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
-        if not output:
-            return output
-
-        # Get stream events from the agent result metadata
-        # The machine stores output from output_to_context, but we need
-        # the raw stream events which are in the AgentResult metadata.
-        # For display, we parse context for any session info.
-        events = context.get("_claude_code_stream_events", [])
-
-        if not events:
-            return output
-
-        tool_count = 0
-        for event in events:
-            etype = event.get("type")
-
-            if etype == "assistant":
-                message = event.get("message", {})
-                for block in message.get("content", []):
-                    if block.get("type") == "tool_use":
-                        name = block.get("name", "?")
-                        input_data = block.get("input", {})
-                        label = _summarize_tool_input(name, input_data)
-                        print(f"  ✓ {_bold(name)}: {label}")
-                        tool_count += 1
-                    elif block.get("type") == "text":
-                        text = block.get("text", "").strip()
-                        if text and len(text) < 200:
-                            print(f"  {_dim(text)}")
-
-            elif etype == "result":
-                usage = event.get("usage", {})
-                cost = event.get("total_cost_usd")
-                parts = []
-                in_tok = usage.get("input_tokens")
-                out_tok = usage.get("output_tokens")
-                cache_read = usage.get("cache_read_input_tokens")
-                if in_tok is not None or out_tok is not None:
-                    parts.append(f"tokens: {in_tok or 0}→{out_tok or 0}")
-                if cache_read:
-                    parts.append(f"cache: {cache_read}")
-                if cost:
-                    parts.append(f"${cost:.4f}")
-                if tool_count:
-                    parts.append(f"{tool_count} tools")
-                if parts:
-                    print(f"  {_dim(' | '.join(parts))}")
-
+        # All display now happens in real-time via on_agent_stream_event.
         return output

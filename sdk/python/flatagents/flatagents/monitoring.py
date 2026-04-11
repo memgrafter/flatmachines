@@ -476,14 +476,19 @@ class AgentMonitor:
         # Log completion with optional details
         log_parts = [f"Agent {self.agent_id} completed in {duration_ms:.2f}ms - {status}"]
         
-        # Add token breakdown if available
-        if "input_tokens" in self.metrics or "output_tokens" in self.metrics:
+        # Add token breakdown if available (compact + explicit cache fields)
+        if (
+            "input_tokens" in self.metrics
+            or "output_tokens" in self.metrics
+            or "cache_read_tokens" in self.metrics
+            or "cache_write_tokens" in self.metrics
+        ):
             in_tok = self.metrics.get("input_tokens", 0)
             out_tok = self.metrics.get("output_tokens", 0)
-            tok_str = f"tokens: {in_tok}→{out_tok}"
-            cached = self.metrics.get("cache_read_tokens", 0)
-            if cached:
-                tok_str += f" (cached: {cached})"
+            cache_in = self.metrics.get("cache_read_tokens", 0)
+            cache_out = self.metrics.get("cache_write_tokens", 0)
+            # ci=cached input, i=input, co=cached output, o=output
+            tok_str = f"tok ci={cache_in} i={in_tok} co={cache_out} o={out_tok}"
             log_parts.append(tok_str)
         
         # Add rate limit info if available

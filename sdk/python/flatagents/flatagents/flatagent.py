@@ -450,6 +450,11 @@ class FlatAgent:
         self._jinja_env = jinja2.Environment()
         self._compiled_system = self._jinja_env.from_string(self._system_prompt_template)
         self._compiled_user = self._jinja_env.from_string(self._user_prompt_template)
+        self._compiled_instruction_suffix = (
+            self._jinja_env.from_string(self._instruction_suffix)
+            if self._instruction_suffix
+            else None
+        )
 
         # Output schema (stored for reference, extraction uses json_object mode)
         self.output_schema = data.get('output', {})
@@ -695,8 +700,15 @@ class FlatAgent:
             tools=tools or [],
             model=model_config
         )
-        if self._instruction_suffix:
-            prompt = f"{prompt}\n\n{self._instruction_suffix}"
+        if self._compiled_instruction_suffix is not None:
+            suffix = self._compiled_instruction_suffix.render(
+                input=input_data,
+                tools_prompt=tools_prompt,
+                tools=tools or [],
+                model=model_config,
+            )
+            if suffix:
+                prompt = f"{prompt}\n\n{suffix}"
         return prompt
 
     # ─────────────────────────────────────────────────────────────────────────

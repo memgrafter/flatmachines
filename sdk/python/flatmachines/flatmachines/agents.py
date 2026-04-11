@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Protocol, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Union
+
+# Callback type for real-time stream events from CLI adapters.
+# Signature: (event: dict) -> None
+# Must be non-blocking / fast.
+StreamEventCallback = Optional[Callable[[Dict[str, Any]], None]]
 
 # TypedDict requires Python 3.8+, use regular dicts with documentation for compatibility
 # These type aliases document the expected structure
@@ -234,6 +239,10 @@ class AgentAdapterRegistry:
             context=context,
         )
 
+
+# Sentinel for executors that support stream event callbacks.
+# The engine checks for this attribute via duck-typing.
+SUPPORTS_STREAM_EVENTS = "_stream_event_callback"
 
 DEFAULT_AGENT_TYPE = "flatagent"
 

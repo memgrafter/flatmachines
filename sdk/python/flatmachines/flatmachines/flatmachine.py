@@ -678,6 +678,52 @@ class FlatMachine:
         self._agents[agent_name] = executor
         return executor
 
+    def _bind_stream_callback(
+        self,
+        executor: AgentExecutor,
+        state_name: str,
+        context: Dict[str, Any],
+    ) -> None:
+        """Bind a stream event callback to an executor if it supports one.
+
+        Executors opt in by defining a ``_stream_event_callback`` attribute
+        (e.g. ClaudeCodeExecutor, CodexCliExecutor).  The callback routes
+        each event to ``hooks.on_agent_stream_event()`` in real-time.
+
+        The hook receives a *snapshot* of the context dict reference at bind
+        time.  Hooks MUST NOT mutate it.
+        """
+        if not hasattr(executor, "_stream_event_callback"):
+            return
+
+        hooks = self._hooks
+
+        # Check if the hook is overridden (skip wiring for base no-op)
+        method = getattr(type(hooks), "on_agent_stream_event", None)
+        base_method = getattr(MachineHooks, "on_agent_stream_event", None)
+        if method is base_method:
+            # Default no-op — don't add overhead to the hot stream loop
+            executor._stream_event_callback = None
+            return
+
+        def _callback(event: Dict[str, Any]) -> None:
+            result = hooks.on_agent_stream_event(state_name, event, context)
+            # Support async hooks (WebhookHooks) — schedule coroutine
+            if asyncio.iscoroutine(result):
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(result)
+                else:
+                    loop.run_until_complete(result)
+
+        executor._stream_event_callback = _callback
+
+    @staticmethod
+    def _unbind_stream_callback(executor: AgentExecutor) -> None:
+        """Clear the stream event callback after execution completes."""
+        if hasattr(executor, "_stream_event_callback"):
+            executor._stream_event_callback = None
+
     # Pattern for bare path references: output, output.foo, context.bar.baz
     _PATH_PATTERN = re.compile(r'^(output|context|input)(\.[a-zA-Z_][a-zA-Z0-9_]*)*$')
 
@@ -1300,18 +1346,28 @@ class FlatMachine:
         agent_name = state.get('agent')
         if agent_name:
             if state.get('tool_loop'):
-                context, output = await self._execute_tool_loop(
-                    state_name, state, agent_name, context
-                )
+                # Bind stream callback for adapters that support it
+                _tl_executor = self._get_executor(agent_name)
+                self._bind_stream_callback(_tl_executor, state_name, context)
+                try:
+                    context, output = await self._execute_tool_loop(
+                        state_name, state, agent_name, context
+                    )
+                finally:
+                    self._unbind_stream_callback(_tl_executor)
             else:
                 executor = self._get_executor(agent_name)
-                input_spec = state.get('input', {})
-                variables = {"context": context, "input": context}
-                agent_input = self._render_dict(input_spec, variables)
+                self._bind_stream_callback(executor, state_name, context)
+                try:
+                    input_spec = state.get('input', {})
+                    variables = {"context": context, "input": context}
+                    agent_input = self._render_dict(input_spec, variables)
 
-                execution_config = state.get('execution')
-                execution_type = get_execution_type(execution_config)
-                result = await execution_type.execute(executor, agent_input, context=context)
+                    execution_config = state.get('execution')
+                    execution_type = get_execution_type(execution_config)
+                    result = await execution_type.execute(executor, agent_input, context=context)
+                finally:
+                    self._unbind_stream_callback(executor)
                 agent_result = coerce_agent_result(result)
 
                 if agent_result.error:

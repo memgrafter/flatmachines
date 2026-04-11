@@ -55,6 +55,7 @@ from ..agents import (
     AgentExecutor,
     AgentRef,
     AgentResult,
+    StreamEventCallback,
 )
 from .call_throttle import CallThrottle, throttle_from_config
 
@@ -311,6 +312,10 @@ class ClaudeCodeExecutor(AgentExecutor):
 
         # Running subprocess reference for cancellation
         self._process: Optional[asyncio.subprocess.Process] = None
+
+        # Stream event callback — set by the engine to route events
+        # to hooks.on_agent_stream_event() in real-time.
+        self._stream_event_callback: StreamEventCallback = None
 
     @property
     def metadata(self) -> Dict[str, Any]:
@@ -740,6 +745,15 @@ class ClaudeCodeExecutor(AgentExecutor):
             try:
                 event = json.loads(line_str)
                 collector.ingest(event)
+                # Fire real-time stream event callback (set by engine)
+                if self._stream_event_callback is not None:
+                    try:
+                        self._stream_event_callback(event)
+                    except Exception:
+                        # Never let a callback error kill the stream loop
+                        logger.debug(
+                            "Stream event callback error", exc_info=True
+                        )
             except json.JSONDecodeError:
                 logger.warning("Claude Code: unparseable NDJSON line: %s", line_str)
 
