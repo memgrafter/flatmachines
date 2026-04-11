@@ -15,6 +15,8 @@ from flatmachines import MachineHooks
 class ExpertDebateHooks(MachineHooks):
     """Implements interactive and non-LLM action states for expert_debate."""
 
+    CACHE_PREFIX_TOKENS = 5200
+
     def __init__(self, output_dir: str | None = None):
         # .../expert_debate/python/src/expert_debate/hooks.py -> parents[3] == .../expert_debate
         base_dir = Path(__file__).resolve().parents[3]
@@ -33,6 +35,10 @@ class ExpertDebateHooks(MachineHooks):
             return self._initialize_debate_state(context)
         if action_name == "set_round_focus":
             return self._set_round_focus(context)
+        if action_name == "append_master_a_to_history":
+            return self._append_master_a_to_history(context)
+        if action_name == "append_master_b_to_history":
+            return self._append_master_b_to_history(context)
         if action_name == "record_round":
             return self._record_round(context)
         if action_name == "render_markdown":
@@ -51,6 +57,8 @@ class ExpertDebateHooks(MachineHooks):
         context["avoid"] = self._ensure_list(context.get("avoid"))
         context.setdefault("transcript", [])
         context.setdefault("history_text", "")
+        if not context.get("cache_prefix"):
+            context["cache_prefix"] = self._build_cache_prefix()
         return context
 
     def _collect_topic(self, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -148,6 +156,32 @@ class ExpertDebateHooks(MachineHooks):
         context["debate_complete"] = False
         return context
 
+    def _append_master_a_to_history(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        round_index = self._as_int(context.get("round_index", 1), default=1)
+        statement = str(context.get("current_master_a_statement", "")).strip()
+        speaker = str(context.get("master_a_name", "Master A"))
+        context["history_text"] = self._append_history_block(
+            context.get("history_text"),
+            round_index,
+            speaker,
+            statement,
+        )
+        context["last_master_a_statement"] = statement
+        return context
+
+    def _append_master_b_to_history(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        round_index = self._as_int(context.get("round_index", 1), default=1)
+        statement = str(context.get("current_master_b_statement", "")).strip()
+        speaker = str(context.get("master_b_name", "Master B"))
+        context["history_text"] = self._append_history_block(
+            context.get("history_text"),
+            round_index,
+            speaker,
+            statement,
+        )
+        context["last_master_b_statement"] = statement
+        return context
+
     def _record_round(self, context: Dict[str, Any]) -> Dict[str, Any]:
         transcript: List[Dict[str, Any]] = self._ensure_dict_list(context.get("transcript"))
 
@@ -170,13 +204,6 @@ class ExpertDebateHooks(MachineHooks):
         b_stmt = str(context.get("current_master_b_statement", "")).strip()
         context["last_master_a_statement"] = a_stmt
         context["last_master_b_statement"] = b_stmt
-
-        prior_history = str(context.get("history_text") or "").strip()
-        round_block = (
-            f"Round {round_index} — {context.get('master_a_name', 'Master A')}:\n{a_stmt}\n\n"
-            f"Round {round_index} — {context.get('master_b_name', 'Master B')}:\n{b_stmt}"
-        ).strip()
-        context["history_text"] = (f"{prior_history}\n\n{round_block}" if prior_history else round_block)
 
         next_round = round_index + 1
         context["round_index"] = next_round
@@ -257,6 +284,16 @@ class ExpertDebateHooks(MachineHooks):
         return max(1, min(20, n))
 
     @staticmethod
+    def _append_history_block(history_text: Any, round_index: int, speaker: str, statement: str) -> str:
+        prior = str(history_text or "").strip()
+        block = f"Round {round_index} — {speaker}:\n{str(statement or '').strip()}".strip()
+        if not prior:
+            return block
+        if not block:
+            return prior
+        return f"{prior}\n\n{block}"
+
+    @staticmethod
     def _ensure_list(value: Any) -> List[str]:
         if value is None:
             return []
@@ -280,6 +317,10 @@ class ExpertDebateHooks(MachineHooks):
             return [part.strip() for part in text.split(",") if part.strip()]
 
         return [text]
+
+    def _build_cache_prefix(self) -> str:
+        # No synthetic prefix: rely on real debate context/history for cache behavior.
+        return ""
 
     @staticmethod
     def _ensure_dict_list(value: Any) -> List[Dict[str, Any]]:

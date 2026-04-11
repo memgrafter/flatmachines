@@ -44,6 +44,7 @@ data:
 
     transcript: []
     history_text: ""
+    cache_prefix: ""
 
     session_id: ""
     debate_complete: false
@@ -54,8 +55,7 @@ data:
     quiz_master: ./quiz_master.yml
     quiz_refiner: ./quiz_refiner.yml
     topic_slicer: ./topic_slicer.yml
-    master_a: ./master_a.yml
-    master_b: ./master_b.yml
+    master: ./master_shared.yml
 
   machines:
     recorder: ./recorder_machine.yml
@@ -177,9 +177,14 @@ data:
         - to: master_a_turn
 
     master_a_turn:
-      agent: master_a
+      agent: master
       input:
+        role_name: "{{ context.master_a_name }}"
+        role_domain: "{{ context.master_a_domain }}"
+        role_viewpoint: "{{ context.master_a_viewpoint }}"
         persona_prompt: "{{ context.master_a_prompt_template }}"
+        opponent_name: "{{ context.master_b_name }}"
+        opponent_statement: "{{ context.last_master_b_statement }}"
         topic: "{{ context.topic }}"
         audience: "{{ context.audience }}"
         learning_goal: "{{ context.learning_goal }}"
@@ -187,18 +192,28 @@ data:
         round_count: "{{ context.round_count }}"
         rounds_remaining: "{{ context.rounds_remaining }}"
         round_focus: "{{ context.current_round_focus }}"
-        last_master_b_statement: "{{ context.last_master_b_statement }}"
         history_text: "{{ context.history_text }}"
-        session_id: "{{ context.session_id }}::master_a"
+        cache_prefix: "{{ context.cache_prefix }}"
+        session_id: "{{ context.session_id }}"
       output_to_context:
         current_master_a_statement: "{{ output.content }}"
+      transitions:
+        - to: append_master_a_to_history
+
+    append_master_a_to_history:
+      action: append_master_a_to_history
       transitions:
         - to: master_b_turn
 
     master_b_turn:
-      agent: master_b
+      agent: master
       input:
+        role_name: "{{ context.master_b_name }}"
+        role_domain: "{{ context.master_b_domain }}"
+        role_viewpoint: "{{ context.master_b_viewpoint }}"
         persona_prompt: "{{ context.master_b_prompt_template }}"
+        opponent_name: "{{ context.master_a_name }}"
+        opponent_statement: "{{ context.current_master_a_statement }}"
         topic: "{{ context.topic }}"
         audience: "{{ context.audience }}"
         learning_goal: "{{ context.learning_goal }}"
@@ -206,11 +221,16 @@ data:
         round_count: "{{ context.round_count }}"
         rounds_remaining: "{{ context.rounds_remaining }}"
         round_focus: "{{ context.current_round_focus }}"
-        master_a_statement: "{{ context.current_master_a_statement }}"
         history_text: "{{ context.history_text }}"
-        session_id: "{{ context.session_id }}::master_b"
+        cache_prefix: "{{ context.cache_prefix }}"
+        session_id: "{{ context.session_id }}"
       output_to_context:
         current_master_b_statement: "{{ output.content }}"
+      transitions:
+        - to: append_master_b_to_history
+
+    append_master_b_to_history:
+      action: append_master_b_to_history
       transitions:
         - to: record_round
 

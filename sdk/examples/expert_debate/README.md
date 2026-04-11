@@ -13,7 +13,7 @@ This example implements an `expert_debate` FlatMachine with:
 - `config/quiz_master.yml` — asks one high-leverage quiz question
 - `config/quiz_refiner.yml` — updates structured debate config
 - `config/topic_slicer.yml` — plans round topic slices
-- `config/master_a.yml`, `config/master_b.yml` — debate participants
+- `config/master_shared.yml` — shared debate participant prompt (used for both turns)
 
 ## Python runner
 
