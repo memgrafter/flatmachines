@@ -1,6 +1,6 @@
 {
   "name": "@memgrafter/flatmachines",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "description": "TypeScript SDK for FlatMachines — state-machine orchestration for agent workflows",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -36,7 +36,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@memgrafter/flatagents": "2.5.0",
+    "@memgrafter/flatagents": "2.6.0",
     "cel-js": "^0.8.2",
     "yaml": "^2.4.0"
   },

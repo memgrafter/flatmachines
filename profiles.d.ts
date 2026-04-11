@@ -106,11 +106,11 @@
  * seed              - Random seed for reproducibility
  * base_url          - Custom base URL for the API (e.g., for local models or proxies)
  * stream            - Enable streaming responses (default: false)
- * backend           - Runtime backend override (litellm, aisuite, codex)
- * oauth             - OAuth settings (used by codex backend)
+ * backend           - Runtime backend override (litellm, aisuite, codex, copilot)
+ * oauth             - OAuth settings (used by codex/copilot backends)
  */
 
-export const SPEC_VERSION = "2.5.0";
+export const SPEC_VERSION = "2.6.0";
 
 export interface ProfilesWrapper {
   spec: "flatprofiles";
@@ -148,7 +148,7 @@ export interface ModelProfileConfig {
   seed?: number;
   base_url?: string;
   stream?: boolean;
-  backend?: "litellm" | "aisuite" | "codex";
+  backend?: "litellm" | "aisuite" | "codex" | "copilot";
   api?: string;
   oauth?: OAuthConfig;
 }

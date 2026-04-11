@@ -251,7 +251,8 @@
           "enum": [
             "litellm",
             "aisuite",
-            "codex"
+            "codex",
+            "copilot"
           ]
         },
         "api": {
@@ -334,7 +335,8 @@
           "enum": [
             "litellm",
             "aisuite",
-            "codex"
+            "codex",
+            "copilot"
           ]
         },
         "api": {

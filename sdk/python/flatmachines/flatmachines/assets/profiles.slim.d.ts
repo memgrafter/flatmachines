@@ -32,7 +32,7 @@ export interface ModelProfileConfig {
     seed?: number;
     base_url?: string;
     stream?: boolean;
-    backend?: "litellm" | "aisuite" | "codex";
+    backend?: "litellm" | "aisuite" | "codex" | "copilot";
     api?: string;
     oauth?: OAuthConfig;
 }

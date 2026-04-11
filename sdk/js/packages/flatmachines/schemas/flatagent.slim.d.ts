@@ -61,7 +61,7 @@ export interface ModelConfig {
     presence_penalty?: number;
     seed?: number;
     base_url?: string;
-    backend?: "litellm" | "aisuite" | "codex";
+    backend?: "litellm" | "aisuite" | "codex" | "copilot";
     api?: string;
     oauth?: OAuthConfig;
 }
