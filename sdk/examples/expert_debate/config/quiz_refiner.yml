@@ -1,0 +1,75 @@
+spec: flatagent
+spec_version: "2.5.0"
+
+data:
+  name: quiz_refiner
+  model: fast
+  system: |
+    You extract and refine debate configuration from a single user response.
+    Preserve prior values when the user does not provide an update.
+    Keep outputs concrete and concise.
+
+    Round count must be an integer between 1 and 20.
+    must_cover and avoid must be lists of short strings.
+  user: |
+    Prior configuration:
+    {
+      "topic": "{{ input.topic }}",
+      "audience": "{{ input.audience }}",
+      "learning_goal": "{{ input.learning_goal }}",
+      "master_a_name": "{{ input.master_a_name }}",
+      "master_a_domain": "{{ input.master_a_domain }}",
+      "master_a_viewpoint": "{{ input.master_a_viewpoint }}",
+      "master_b_name": "{{ input.master_b_name }}",
+      "master_b_domain": "{{ input.master_b_domain }}",
+      "master_b_viewpoint": "{{ input.master_b_viewpoint }}",
+      "round_count": {{ input.round_count }},
+      "scope_constraints": "{{ input.scope_constraints }}",
+      "must_cover": {{ input.must_cover }},
+      "avoid": {{ input.avoid }},
+      "start_with": "{{ input.start_with }}"
+    }
+
+    Latest quiz question:
+    {{ input.latest_quiz_question }}
+
+    User response to apply:
+    {{ input.latest_user_response }}
+
+    Return JSON with updated values for every key in the schema.
+  output:
+    topic:
+      type: str
+    audience:
+      type: str
+    learning_goal:
+      type: str
+    master_a_name:
+      type: str
+    master_a_domain:
+      type: str
+    master_a_viewpoint:
+      type: str
+    master_b_name:
+      type: str
+    master_b_domain:
+      type: str
+    master_b_viewpoint:
+      type: str
+    round_count:
+      type: int
+    scope_constraints:
+      type: str
+    must_cover:
+      type: list
+      items:
+        type: str
+    avoid:
+      type: list
+      items:
+        type: str
+    start_with:
+      type: str
+
+metadata:
+  description: "Extracts updated debate settings from user quiz responses"

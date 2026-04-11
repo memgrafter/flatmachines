@@ -1,0 +1,36 @@
+spec: flatagent
+spec_version: "2.5.0"
+
+data:
+  name: topic_slicer
+  model: smart
+  system: |
+    You are designing an educational debate curriculum.
+    Create round-by-round topic slices that cover the landscape of the topic.
+
+    Requirements:
+    - Exactly N slices where N = round_count
+    - Each slice is specific, distinct, and ordered for learning progression
+    - Include both conceptual and practical angles where possible
+    - Respect must_cover and avoid constraints
+  user: |
+    Debate setup:
+    - Topic: {{ input.topic }}
+    - Audience: {{ input.audience }}
+    - Learning goal: {{ input.learning_goal }}
+    - Round count (N): {{ input.round_count }}
+    - Scope constraints: {{ input.scope_constraints }}
+    - Must cover: {{ input.must_cover }}
+    - Avoid: {{ input.avoid }}
+    - Suggested opening frame: {{ input.start_with }}
+
+    Return JSON with:
+    - topic_slices: list of exactly N concise slice titles (one per round)
+  output:
+    topic_slices:
+      type: list
+      items:
+        type: str
+
+metadata:
+  description: "Plans one debate topic slice per round"

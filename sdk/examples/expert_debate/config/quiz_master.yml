@@ -1,0 +1,40 @@
+spec: flatagent
+spec_version: "2.5.0"
+
+data:
+  name: quiz_master
+  model: smart
+  system: |
+    You are a debate architect.
+    Ask exactly ONE high-leverage clarification question that helps design an educational expert debate.
+    The debate goal is breadth + clarity for a reader observing two masters with stable viewpoints.
+
+    Always suggest a concrete opening contrast between the two masters (shared ground + key disagreement).
+  user: |
+    Current debate design context:
+    - Topic: {{ input.topic }}
+    - Audience: {{ input.audience }}
+    - Learning goal: {{ input.learning_goal }}
+    - Master A: {{ input.master_a_name }} ({{ input.master_a_domain }}, viewpoint: {{ input.master_a_viewpoint }})
+    - Master B: {{ input.master_b_name }} ({{ input.master_b_domain }}, viewpoint: {{ input.master_b_viewpoint }})
+    - Round count target: {{ input.round_count }}
+    - Scope constraints: {{ input.scope_constraints }}
+    - Must-cover topics: {{ input.must_cover }}
+    - Avoid topics: {{ input.avoid }}
+
+    Latest user response: {{ input.latest_user_response }}
+
+    Return JSON with:
+    - question: one concise question only
+    - suggested_start: a concrete opening frame in this format:
+      "Shared ground: ... | Primary disagreement: ..."
+  output:
+    question:
+      type: str
+      description: Single clarification question for the user
+    suggested_start:
+      type: str
+      description: Opening frame with shared ground and disagreement
+
+metadata:
+  description: "Asks one refinement question at a time for debate configuration"

@@ -1,0 +1,252 @@
+spec: flatmachine
+spec_version: "2.5.0"
+
+data:
+  name: expert_debate
+  hooks: expert_debate_hooks
+
+  context:
+    topic: "{{ input.topic | default('') }}"
+    audience: "{{ input.audience | default('curious generalist') }}"
+    learning_goal: "{{ input.learning_goal | default('understand breadth, nuance, and tradeoffs') }}"
+
+    master_a_name: "{{ input.master_a_name | default('Master A') }}"
+    master_a_domain: "{{ input.master_a_domain | default('systems thinking') }}"
+    master_a_viewpoint: "{{ input.master_a_viewpoint | default('emphasize structural constraints and first principles') }}"
+
+    master_b_name: "{{ input.master_b_name | default('Master B') }}"
+    master_b_domain: "{{ input.master_b_domain | default('historical and empirical analysis') }}"
+    master_b_viewpoint: "{{ input.master_b_viewpoint | default('emphasize evidence, context, and practical outcomes') }}"
+
+    round_count: "{{ input.round_count | default(2) }}"
+    round_index: 1
+    rounds_remaining: "{{ input.round_count | default(2) }}"
+
+    latest_quiz_question: ""
+    latest_user_response: ""
+    user_satisfied: false
+
+    scope_constraints: "{{ input.scope_constraints | default('') }}"
+    must_cover: "input.must_cover"
+    avoid: "input.avoid"
+    start_with: ""
+
+    master_a_prompt_template: ""
+    master_b_prompt_template: ""
+
+    topic_slices: []
+    current_round_focus: ""
+
+    current_master_a_statement: ""
+    current_master_b_statement: ""
+    last_master_a_statement: ""
+    last_master_b_statement: ""
+
+    transcript: []
+
+    session_id: ""
+    debate_complete: false
+
+    recorder_output: {}
+
+  agents:
+    quiz_master: ./quiz_master.yml
+    quiz_refiner: ./quiz_refiner.yml
+    topic_slicer: ./topic_slicer.yml
+    master_a: ./master_a.yml
+    master_b: ./master_b.yml
+
+  machines:
+    recorder: ./recorder_machine.yml
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: bootstrap_session
+
+    bootstrap_session:
+      action: bootstrap_session
+      transitions:
+        - to: collect_topic
+
+    collect_topic:
+      action: collect_topic
+      transitions:
+        - to: ask_quiz_question
+
+    ask_quiz_question:
+      agent: quiz_master
+      input:
+        topic: "{{ context.topic }}"
+        audience: "{{ context.audience }}"
+        learning_goal: "{{ context.learning_goal }}"
+        master_a_name: "{{ context.master_a_name }}"
+        master_a_domain: "{{ context.master_a_domain }}"
+        master_a_viewpoint: "{{ context.master_a_viewpoint }}"
+        master_b_name: "{{ context.master_b_name }}"
+        master_b_domain: "{{ context.master_b_domain }}"
+        master_b_viewpoint: "{{ context.master_b_viewpoint }}"
+        round_count: "{{ context.round_count }}"
+        scope_constraints: "{{ context.scope_constraints }}"
+        must_cover: "{{ context.must_cover }}"
+        avoid: "{{ context.avoid }}"
+        latest_user_response: "{{ context.latest_user_response }}"
+      output_to_context:
+        latest_quiz_question: "{{ output.question }}"
+        start_with: "{{ output.suggested_start }}"
+      transitions:
+        - to: collect_quiz_response
+
+    collect_quiz_response:
+      action: collect_quiz_response
+      transitions:
+        - to: refine_quiz_response
+
+    refine_quiz_response:
+      agent: quiz_refiner
+      input:
+        topic: "{{ context.topic }}"
+        audience: "{{ context.audience }}"
+        learning_goal: "{{ context.learning_goal }}"
+        master_a_name: "{{ context.master_a_name }}"
+        master_a_domain: "{{ context.master_a_domain }}"
+        master_a_viewpoint: "{{ context.master_a_viewpoint }}"
+        master_b_name: "{{ context.master_b_name }}"
+        master_b_domain: "{{ context.master_b_domain }}"
+        master_b_viewpoint: "{{ context.master_b_viewpoint }}"
+        round_count: "{{ context.round_count }}"
+        scope_constraints: "{{ context.scope_constraints }}"
+        must_cover: "{{ context.must_cover }}"
+        avoid: "{{ context.avoid }}"
+        start_with: "{{ context.start_with }}"
+        latest_quiz_question: "{{ context.latest_quiz_question }}"
+        latest_user_response: "{{ context.latest_user_response }}"
+      output_to_context:
+        topic: "{{ output.topic }}"
+        audience: "{{ output.audience }}"
+        learning_goal: "{{ output.learning_goal }}"
+        master_a_name: "{{ output.master_a_name }}"
+        master_a_domain: "{{ output.master_a_domain }}"
+        master_a_viewpoint: "{{ output.master_a_viewpoint }}"
+        master_b_name: "{{ output.master_b_name }}"
+        master_b_domain: "{{ output.master_b_domain }}"
+        master_b_viewpoint: "{{ output.master_b_viewpoint }}"
+        round_count: "{{ output.round_count }}"
+        scope_constraints: "{{ output.scope_constraints }}"
+        must_cover: "output.must_cover"
+        avoid: "output.avoid"
+        start_with: "{{ output.start_with }}"
+      transitions:
+        - condition: "context.user_satisfied == true"
+          to: build_master_prompts
+        - to: ask_quiz_question
+
+    build_master_prompts:
+      action: build_master_prompts
+      transitions:
+        - to: prepare_topic_slices
+
+    prepare_topic_slices:
+      agent: topic_slicer
+      input:
+        topic: "{{ context.topic }}"
+        audience: "{{ context.audience }}"
+        learning_goal: "{{ context.learning_goal }}"
+        round_count: "{{ context.round_count }}"
+        scope_constraints: "{{ context.scope_constraints }}"
+        must_cover: "{{ context.must_cover }}"
+        avoid: "{{ context.avoid }}"
+        start_with: "{{ context.start_with }}"
+      output_to_context:
+        topic_slices: "output.topic_slices"
+      transitions:
+        - to: initialize_debate_state
+
+    initialize_debate_state:
+      action: initialize_debate_state
+      transitions:
+        - to: set_round_focus
+
+    set_round_focus:
+      action: set_round_focus
+      transitions:
+        - condition: "context.debate_complete == true"
+          to: record_session_markdown
+        - to: master_a_turn
+
+    master_a_turn:
+      agent: master_a
+      input:
+        persona_prompt: "{{ context.master_a_prompt_template }}"
+        topic: "{{ context.topic }}"
+        audience: "{{ context.audience }}"
+        learning_goal: "{{ context.learning_goal }}"
+        round_index: "{{ context.round_index }}"
+        round_count: "{{ context.round_count }}"
+        rounds_remaining: "{{ context.rounds_remaining }}"
+        round_focus: "{{ context.current_round_focus }}"
+        last_master_b_statement: "{{ context.last_master_b_statement }}"
+      output_to_context:
+        current_master_a_statement: "{{ output.content }}"
+      transitions:
+        - to: master_b_turn
+
+    master_b_turn:
+      agent: master_b
+      input:
+        persona_prompt: "{{ context.master_b_prompt_template }}"
+        topic: "{{ context.topic }}"
+        audience: "{{ context.audience }}"
+        learning_goal: "{{ context.learning_goal }}"
+        round_index: "{{ context.round_index }}"
+        round_count: "{{ context.round_count }}"
+        rounds_remaining: "{{ context.rounds_remaining }}"
+        round_focus: "{{ context.current_round_focus }}"
+        master_a_statement: "{{ context.current_master_a_statement }}"
+      output_to_context:
+        current_master_b_statement: "{{ output.content }}"
+      transitions:
+        - to: record_round
+
+    record_round:
+      action: record_round
+      transitions:
+        - condition: "context.debate_complete == true"
+          to: record_session_markdown
+        - to: set_round_focus
+
+    record_session_markdown:
+      machine: recorder
+      input:
+        session_id: "{{ context.session_id }}"
+        topic: "{{ context.topic }}"
+        audience: "{{ context.audience }}"
+        learning_goal: "{{ context.learning_goal }}"
+        start_with: "{{ context.start_with }}"
+        master_a_name: "{{ context.master_a_name }}"
+        master_a_domain: "{{ context.master_a_domain }}"
+        master_a_viewpoint: "{{ context.master_a_viewpoint }}"
+        master_b_name: "{{ context.master_b_name }}"
+        master_b_domain: "{{ context.master_b_domain }}"
+        master_b_viewpoint: "{{ context.master_b_viewpoint }}"
+        round_count: "context.round_count"
+        transcript: "context.transcript"
+      output_to_context:
+        recorder_output: "output"
+      transitions:
+        - to: done
+
+    done:
+      type: final
+      output:
+        session_id: "{{ context.session_id }}"
+        topic: "{{ context.topic }}"
+        rounds_completed: "{{ context.transcript | length }}"
+        markdown_file: "{{ context.recorder_output.file_path }}"
+        markdown: "{{ context.recorder_output.markdown }}"
+        transcript: "context.transcript"
+
+metadata:
+  description: "Expert debate machine: user refinement loop + two-master round debate + non-LLM recorder"
+  tags: ["debate", "education", "human-in-loop", "recorder"]

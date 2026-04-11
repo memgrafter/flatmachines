@@ -1,0 +1,54 @@
+spec: flatmachine
+spec_version: "2.5.0"
+
+data:
+  name: expert_debate_recorder
+  hooks: expert_debate_hooks
+
+  context:
+    session_id: "{{ input.session_id }}"
+    topic: "{{ input.topic }}"
+    audience: "{{ input.audience }}"
+    learning_goal: "{{ input.learning_goal }}"
+    start_with: "{{ input.start_with }}"
+
+    master_a_name: "{{ input.master_a_name }}"
+    master_a_domain: "{{ input.master_a_domain }}"
+    master_a_viewpoint: "{{ input.master_a_viewpoint }}"
+
+    master_b_name: "{{ input.master_b_name }}"
+    master_b_domain: "{{ input.master_b_domain }}"
+    master_b_viewpoint: "{{ input.master_b_viewpoint }}"
+
+    round_count: "input.round_count"
+    transcript: "input.transcript"
+
+    markdown: ""
+    file_path: ""
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: render_markdown
+
+    render_markdown:
+      action: render_markdown
+      transitions:
+        - to: write_markdown_file
+
+    write_markdown_file:
+      action: write_markdown_file
+      transitions:
+        - to: done
+
+    done:
+      type: final
+      output:
+        file_path: "{{ context.file_path }}"
+        markdown: "{{ context.markdown }}"
+        rounds: "{{ context.transcript | length }}"
+
+metadata:
+  description: "Non-LLM recorder machine for expert debate transcripts"
+  tags: ["recorder", "markdown", "non-llm"]

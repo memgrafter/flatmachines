@@ -1,0 +1,16 @@
+[project]
+name = "expert_debate"
+version = "0.1.0"
+description = "Expert debate FlatMachine demo"
+dependencies = ["flatmachines[flatagents]", "flatagents[litellm]"]
+requires-python = ">=3.10"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[project.scripts]
+expert-debate-demo = "expert_debate.main:main"
