@@ -19,6 +19,8 @@ related interpretations cluster together and contradictions coexist.
 
 ## Usage
 
+Prerequisite: Codex CLI installed and authenticated (`codex` on `$PATH`).
+
 ```bash
 # Basic — interpret a statement
 ./run.sh "I would like to simplify the flatmachines interface."
@@ -65,5 +67,5 @@ Entries are grouped by theme. New themes emerge as needed. Nothing is ever delet
 ## Architecture
 
 This is a single-state FlatMachine (`start → interpret → done`) using the
-`claude-code` agent adapter. The entire logic lives in the system prompt —
-the machine just routes the statement to the agent and captures the result.
+`codex-cli` agent adapter. The Codex runtime profile lives in
+`config/codex-cli.profile.yml` and is referenced by the machine config.

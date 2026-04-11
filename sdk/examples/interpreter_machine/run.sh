@@ -87,10 +87,10 @@ if ! command -v uv &> /dev/null; then
     export PATH="$HOME/.local/bin:$PATH"
 fi
 
-# 1. Ensure claude CLI is installed
-if ! command -v claude &> /dev/null; then
-    echo "❌ Error: 'claude' CLI not found on PATH."
-    echo "   Install Claude Code: https://docs.anthropic.com/en/docs/claude-code"
+# 1. Ensure codex CLI is installed
+if ! command -v codex &> /dev/null; then
+    echo "❌ Error: 'codex' CLI not found on PATH."
+    echo "   Install Codex CLI: npm install -g @openai/codex"
     exit 1
 fi
 

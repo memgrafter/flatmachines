@@ -22,24 +22,6 @@ def _cyan(text: str) -> str:
     return f"\033[36m{text}\033[0m"
 
 
-def _summarize_tool_input(name: str, input_data: Dict[str, Any]) -> str:
-    """Summarize tool input for one-line display."""
-    if name == "Bash":
-        return input_data.get("command", "")
-    if name == "Read":
-        return input_data.get("file_path", input_data.get("path", ""))
-    if name == "Write":
-        path = input_data.get("file_path", input_data.get("path", ""))
-        content = input_data.get("content", "")
-        return f"{path} ({len(content)} bytes)"
-    if name == "Edit":
-        return input_data.get("file_path", input_data.get("path", ""))
-    for v in input_data.values():
-        if isinstance(v, str) and len(v) < 80:
-            return v
-    return ""
-
-
 class InterpreterHooks(MachineHooks):
     """Display hooks for the interpreter machine.
 
