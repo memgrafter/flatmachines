@@ -52,6 +52,21 @@ Resolution: default → profile → overrides → override
 - Inline flatagent config (`spec: flatagent`)
 - Typed adapter ref: `{ type: "flatagent" | "smolagents" | "pi-agent", ref?: "...", config?: {...} }`
 
+## LLM I/O & Formatting (Hard Rules)
+
+- Between LLM stages, default to **plain text/Markdown** handoffs.
+- Avoid JSON/Jinja-shaped model-to-model output unless required by strict schema validation or a boundary contract (API/DB/file format).
+- Why: JSON/Jinja handoffs increase parse fragility and token overhead.
+- Keep `input` / `output_to_context` mappings explicit and shallow.
+- Push heavy transforms to boundary actions only (final save/write steps).
+- Preserve full source text across stages (avoid excerpt-only chains unless explicitly requested).
+- Jinja in config (`input`, `output_to_context`, `transitions`, `foreach`, `wait_for`) must be cross-SDK portable:
+  - use property access, comparisons, simple conditionals
+  - avoid Python-specific features (`.items()`, `|tojson`, `len()`, `isinstance()`, list comprehensions).
+- **Never truncate** LLM inputs/outputs silently.
+  - If size is a problem: ask user, enforce prompt limits, reject+retry, or add a repair/compaction stage.
+- Each transform must have a one-line justification; otherwise remove it.
+
 ## State Fields
 
 | Field | Purpose |
