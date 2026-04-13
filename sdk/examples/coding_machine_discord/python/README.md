@@ -1,92 +1,151 @@
-# Coding Machine Discord Example (Python)
+# tool_use_discord
 
-This example is **copied from `sdk/examples/coding_machine_cli/`** and adapted to run behind a Discord queue pipeline:
+Discord-facing wrapper around a coding-machine workflow.
 
-- same FlatMachine config (`config/machine.yml`, `config/agent.yml`)
-- same tools (`read`, `bash`, `write`, `edit`)
-- new Discord ingress/debounce/respond workers in Python
+This project lets you run a coding assistant in two ways:
 
-## Modes
+- **CLI mode** for direct local prompts
+- **Discord queue mode** with three workers (`ingress`, `debounce`, `respond`)
 
-### 1) Original CLI mode (from coding_machine_cli)
+The README is intentionally operational (how to run/use it), not a code tour.
+
+---
+
+## What you need
+
+- Python **3.10+**
+- `uv` installed
+- A model provider configured for `flatagents`/`litellm` (for real responses)
+- For Discord mode:
+  - `DISCORD_BOT_TOKEN`
+  - `DISCORD_CHANNEL_ID`
+
+---
+
+## Quick start
+
+From this directory:
 
 ```bash
-cd sdk/examples/coding_machine_discord/python
-./run.sh --local cli
-./run.sh --local cli -p "list all Python files"
-./run.sh --local cli --standalone "summarize README.md"
+./run.sh --local cli -p "summarize this repository"
 ```
 
-### 2) Discord queue mode
+`run.sh` will:
 
-Required env:
+1. create `.venv` if needed
+2. install dependencies
+3. run `tool_use_discord.main`
+
+Use `--local` to install `flatagents/flatmachines` from local SDK paths under your repo root.
+
+---
+
+## Discord mode (end-to-end)
+
+Set env vars:
 
 ```bash
 export DISCORD_BOT_TOKEN="..."
 export DISCORD_CHANNEL_ID="123456789012345678"
 ```
 
-Run all workers:
+Run all workers together:
 
 ```bash
 ./run.sh --local all
 ```
 
-By default, ingress **does not backfill old history** on first run. It bootstraps the cursor to the latest message.
+This starts:
 
-If you want historical backfill on first run:
+- **ingress**: polls Discord and enqueues incoming messages
+- **debounce**: groups bursts into batches
+- **respond**: consumes batches and posts assistant replies
 
-```bash
-./run.sh --local all --backfill-on-first-run
-```
+---
 
-Queue behavior defaults:
+## Worker commands
 
-- `--debounce-seconds 15` (ingress burst coalescing)
-- `--queue-wait-seconds 15` (human-loop wait baseline after each model turn)
-- responder leases one batch at a time (`--responder-lease-limit 1`)
-
-or individually:
+Run individually when debugging:
 
 ```bash
 ./run.sh --local ingress
 ./run.sh --local debounce
 ./run.sh --local respond
-```
-
-Inspect queue state:
-
-```bash
 ./run.sh --local status
 ```
 
-## Discord queue flow
+---
 
-1. `ingress` polls channel messages and enqueues into `discord_incoming`
-2. `debounce` batches bursts by conversation into `discord_debounced`
-3. `respond` starts the copied coding machine and keeps it in the human-review loop
-4. while the model is thinking, new user messages can queue
-5. after each model turn, responder waits queue baseline and drains queued feedback into the same loop
-6. replies are posted back to Discord turn-by-turn
+## CLI commands
 
-Use `--echo-only` on `respond` or `all` to skip FlatMachine calls and just echo batches.
+Examples:
 
-Ingress ignores empty-content events unless they include attachments, embeds, or components.
-
-## Package layout
-
+```bash
+./run.sh --local cli
+./run.sh --local cli -p "list python files"
+./run.sh --local cli --standalone "explain run.sh"
 ```
-config/
-  agent.yml
-  machine.yml
-  profiles.yml
 
-python/src/tool_use_discord/
-  tools.py            # copied from coding_machine_cli
-  hooks.py            # copied from coding_machine_cli
-  main.py             # CLI mode + Discord worker modes
-  messages_backend.py # generic SQLite queue
-  discord_ingress.py  # Discord poller -> queue
-  debounce.py         # queue debounce worker
-  responder.py        # queue consumer -> Discord responses
+---
+
+## Important flags
+
+Common queue tuning flags:
+
+- `--debounce-seconds <n>`: message coalescing window
+- `--queue-wait-seconds <n>`: responder wait baseline between turns
+- `--responder-lease-limit <n>`: batches leased per responder iteration
+- `--backfill-on-first-run`: ingest historical messages on initial startup
+
+Safe testing flag:
+
+- `--echo-only` (with `respond` or `all`): skips model calls and echoes batches
+
+Debug logging:
+
+```bash
+CODING_MACHINE_DISCORD_DEBUG=true ./run.sh --local all
+# or
+./run.sh --local --debug all
 ```
+
+---
+
+## Runtime behavior notes
+
+- By default, first ingress run **does not backfill full channel history**.
+- Empty-content Discord events are ignored unless they include useful payloads (attachments/embeds/components).
+- In responder flow, replies may be posted turn-by-turn during human-review loop handling.
+
+---
+
+## Troubleshooting
+
+### `DISCORD_BOT_TOKEN` / `DISCORD_CHANNEL_ID` missing
+Set both env vars before `ingress`/`all`/`respond` in Discord mode.
+
+### Local SDK install fails with `--local`
+`run.sh` expects this repo layout at project root:
+
+- `sdk/python/flatagents`
+- `sdk/python/flatmachines`
+
+If unavailable, run without `--local` to install from PyPI.
+
+### No responses appearing
+
+1. Run `./run.sh --local status`
+2. Enable debug logs
+3. Try `--echo-only` to verify queue plumbing independently from model/provider setup
+
+---
+
+## Project entrypoint
+
+Installed script:
+
+- `tool-use-discord` → `tool_use_discord.main:main`
+
+Primary package:
+
+- `src/tool_use_discord`

@@ -17,12 +17,17 @@ import asyncio
 import logging
 import os
 import signal
-import time
 import warnings
 from pathlib import Path
 from typing import Any, Optional
 
-from flatmachines import FlatMachine
+from flatmachines import (
+    CheckpointManager,
+    FlatMachine,
+    SQLiteCheckpointBackend,
+    SQLiteLeaseLock,
+    SQLiteSignalBackend,
+)
 
 from .debounce import DebounceService
 from .discord_api import DiscordAPI
@@ -43,143 +48,82 @@ for _name in ("flatagents", "flatmachines", "LiteLLM"):
     logging.getLogger(_name).setLevel(_log_level)
 
 
-class DiscordQueueHumanHooks(CLIToolHooks):
-    """Human-review hook backed by the debounced Discord queue.
+class DiscordMachineHooks(CLIToolHooks):
+    """Tool hooks for Discord machine execution.
 
-    Behavior:
-    - post model response to Discord
-    - wait for queue window baseline (minus model latency)
-    - drain queued user batches for this conversation
-    - if messages exist: append to tool-loop chain and continue
-    - otherwise: approve and end machine execution
+    - provides read/write/bash/edit tools (from CLIToolHooks)
+    - posts model result when machine enters `post_result` action state
     """
 
-    def __init__(
-        self,
-        *,
-        working_dir: str,
-        api: DiscordAPI,
-        backend: SQLiteMessageBackend,
-        conversation_key: str,
-        input_queue: str,
-        queue_wait_seconds: float,
-        conversation_idle_timeout_seconds: float,
-        queue_poll_seconds: float,
-        queue_worker_id: str,
-    ):
-        super().__init__(working_dir=working_dir, auto_approve=False)
+    def __init__(self, *, working_dir: str, api: DiscordAPI):
+        super().__init__(working_dir=working_dir, auto_approve=True)
         self.api = api
-        self.backend = backend
-        self.conversation_key = conversation_key
-        self.input_queue = input_queue
-        self.queue_wait_seconds = queue_wait_seconds
-        self.conversation_idle_timeout_seconds = conversation_idle_timeout_seconds
-        self.queue_poll_seconds = queue_poll_seconds
-        self.queue_worker_id = queue_worker_id
-        self._work_started_at: Optional[float] = None
-        self.post_count = 0
-
-    def on_state_enter(self, state_name: str, context: dict[str, Any]) -> dict[str, Any]:
-        if state_name == "work":
-            self._work_started_at = time.monotonic()
-        return context
 
     async def on_action(self, action_name: str, context: dict[str, Any]) -> dict[str, Any]:
-        if action_name == "human_review":
-            return await self._human_review_async(context)
-        return context
+        if action_name == "queue_feedback":
+            messages = context.get("batch_messages")
+            if not isinstance(messages, list):
+                return context
 
-    async def _human_review_async(self, context: dict[str, Any]) -> dict[str, Any]:
-        result_text = str(context.get("result", "")).strip()
-        if result_text:
-            await asyncio.to_thread(self.api.post_channel_message, result_text)
-            self.post_count += 1
+            feedback = build_feedback_from_messages(messages).strip()
+            if not feedback or feedback == "(no new user text)":
+                return context
 
-        elapsed = 0.0
-        if self._work_started_at is not None:
-            elapsed = max(0.0, time.monotonic() - self._work_started_at)
+            chain = context.get("_tool_loop_chain")
+            if not isinstance(chain, list):
+                chain = []
 
-        extra_wait = max(0.0, self.queue_wait_seconds - elapsed)
-        if extra_wait > 0:
-            await asyncio.sleep(extra_wait)
+            if chain:
+                last = chain[-1]
+                if (
+                    isinstance(last, dict)
+                    and str(last.get("role", "")) == "user"
+                    and str(last.get("content", "")).strip() == feedback
+                ):
+                    return context
 
-        queued_batches = await asyncio.to_thread(self._drain_conversation_batches)
-
-        if not queued_batches and self.conversation_idle_timeout_seconds > 0:
-            queued_batches = await self._wait_for_conversation_batches(
-                timeout_seconds=self.conversation_idle_timeout_seconds,
-            )
-
-        if queued_batches:
-            feedback = build_feedback_from_batches(queued_batches)
-            chain = context.get("_tool_loop_chain", [])
             chain.append({"role": "user", "content": feedback})
             context["_tool_loop_chain"] = chain
-            context["human_approved"] = False
-            print(
-                f"[discord-loop] conversation={self.conversation_key} queued_batches={len(queued_batches)} continue",
-                flush=True,
-            )
-        else:
-            context["human_approved"] = True
-            print(
-                f"[discord-loop] conversation={self.conversation_key} no queued feedback within idle timeout; finishing",
-                flush=True,
-            )
+            return context
+
+        if action_name != "post_result":
+            return context
+
+        result_text = str(context.get("result", "")).strip()
+        if not result_text:
+            return context
+
+        for chunk in _split_discord_message(result_text, max_chars=2000):
+            await asyncio.to_thread(self.api.post_channel_message, chunk)
 
         return context
 
-    async def _wait_for_conversation_batches(self, timeout_seconds: float) -> list[dict[str, Any]]:
-        deadline = time.monotonic() + max(0.0, timeout_seconds)
 
-        while True:
-            batches = await asyncio.to_thread(self._drain_conversation_batches)
-            if batches:
-                return batches
+def _split_discord_message(content: str, max_chars: int = 2000) -> list[str]:
+    if max_chars <= 0:
+        raise ValueError("max_chars must be > 0")
+    if len(content) <= max_chars:
+        return [content]
 
-            if time.monotonic() >= deadline:
-                return []
+    parts: list[str] = []
+    start = 0
+    while start < len(content):
+        end = min(len(content), start + max_chars)
+        if end < len(content):
+            newline = content.rfind("\n", start, end)
+            if newline > start:
+                end = newline + 1
+        parts.append(content[start:end])
+        start = end
+    return parts
 
-            await asyncio.sleep(max(0.1, self.queue_poll_seconds))
 
-    def _drain_conversation_batches(self) -> list[dict[str, Any]]:
-        relevant: list[dict[str, Any]] = []
-
-        while True:
-            leased = self.backend.lease(
-                queue=self.input_queue,
-                worker_id=self.queue_worker_id,
-                limit=100,
-                lease_seconds=300.0,
-            )
-            if not leased:
-                break
-
-            ack_ids: list[int] = []
-            return_ids: list[int] = []
-
-            for message in leased:
-                if message.conversation_key == self.conversation_key:
-                    relevant.append(message.payload)
-                    ack_ids.append(message.id)
-                else:
-                    return_ids.append(message.id)
-
-            if ack_ids:
-                self.backend.ack(ack_ids)
-
-            for message_id in return_ids:
-                self.backend.nack(message_id, delay_seconds=0.0)
-
-            # Avoid hot-looping on unrelated leased messages.
-            if not ack_ids:
-                break
-
-        return relevant
+def _conversation_execution_id(conversation_key: str) -> str:
+    return f"discord-machine-{conversation_key}"
 
 
 class CodingMachineBatchResponder(BatchResponder):
-    """Responder that routes debounced Discord batches through the copied coding machine."""
+    """Responder that resumes one FlatMachine execution per Discord conversation."""
 
     def __init__(
         self,
@@ -187,6 +131,7 @@ class CodingMachineBatchResponder(BatchResponder):
         working_dir: str,
         api: DiscordAPI,
         backend: SQLiteMessageBackend,
+        db_path: str,
         input_queue: str,
         queue_wait_seconds: float,
         conversation_idle_timeout_seconds: float,
@@ -195,44 +140,80 @@ class CodingMachineBatchResponder(BatchResponder):
         self.working_dir = os.path.abspath(working_dir)
         self.api = api
         self.backend = backend
+        self.db_path = str(Path(db_path).expanduser().resolve())
+
+        # Retained for CLI compatibility / future tuning knobs.
         self.input_queue = input_queue
         self.queue_wait_seconds = queue_wait_seconds
         self.conversation_idle_timeout_seconds = conversation_idle_timeout_seconds
         self.queue_poll_seconds = queue_poll_seconds
 
+        self.checkpoint_backend = SQLiteCheckpointBackend(db_path=self.db_path)
+        self.signal_backend = SQLiteSignalBackend(db_path=self.db_path)
+        self.machine_lock = SQLiteLeaseLock(
+            db_path=self.db_path,
+            owner_id=f"discord-responder-{os.getpid()}-{id(self)}",
+            phase="machine",
+        )
+
+    async def _has_live_execution(self, execution_id: str) -> bool:
+        manager = CheckpointManager(self.checkpoint_backend, execution_id)
+        status = await manager.load_status()
+        if status is None:
+            return False
+
+        event, _state = status
+        if event == "machine_end":
+            await self.checkpoint_backend.delete_execution(execution_id)
+            return False
+
+        return True
+
     async def compose_reply(self, batch: dict[str, Any]) -> Optional[str]:
         conversation_key = str(batch.get("conversation_key") or self.api.channel_id)
+        execution_id = _conversation_execution_id(conversation_key)
+        wait_channel = f"discord/{conversation_key}"
+
         batch_messages = batch.get("messages")
         if not isinstance(batch_messages, list):
             batch_messages = []
+
         latest_request = extract_latest_request(batch_messages)
+        machine_input = {
+            "task": latest_request,
+            "working_dir": self.working_dir,
+            "latest_user_request": latest_request,
+            "batch_messages": batch_messages,
+            "queued_message_count": int(batch.get("message_count", 0) or 0),
+            "conversation_key": conversation_key,
+        }
 
-        hooks = DiscordQueueHumanHooks(
-            working_dir=self.working_dir,
-            api=self.api,
-            backend=self.backend,
-            conversation_key=conversation_key,
-            input_queue=self.input_queue,
-            queue_wait_seconds=self.queue_wait_seconds,
-            conversation_idle_timeout_seconds=self.conversation_idle_timeout_seconds,
-            queue_poll_seconds=self.queue_poll_seconds,
-            queue_worker_id=f"responder-loop:{conversation_key}",
+        has_live_execution = await self._has_live_execution(execution_id)
+        print(
+            f"[respond] conversation={conversation_key} messages={len(batch_messages)} live_execution={has_live_execution}",
+            flush=True,
         )
 
-        result = await run_machine(
-            latest_request,
-            self.working_dir,
-            human_review=True,
+        if has_live_execution:
+            await self.signal_backend.send(wait_channel, machine_input)
+
+        hooks = DiscordMachineHooks(working_dir=self.working_dir, api=self.api)
+        machine = FlatMachine(
+            config_file=_config_path("discord_machine.yml"),
             hooks=hooks,
-            latest_user_request=latest_request,
-            batch_messages=batch_messages,
-            queued_message_count=int(batch.get("message_count", 0) or 0),
-            conversation_key=conversation_key,
+            persistence=self.checkpoint_backend,
+            lock=self.machine_lock,
+            signal_backend=self.signal_backend,
         )
 
-        # Responses are posted turn-by-turn inside the hook.
-        # Return None to avoid duplicate posting by DiscordResponderService.
-        if hooks.post_count > 0:
+        result = await machine.execute(
+            input=machine_input,
+            resume_from=execution_id,
+        )
+
+        # Discord responses are posted in `post_result` action hook.
+        # If machine is parked waiting for next user batch, avoid duplicate post.
+        if isinstance(result, dict) and result.get("_waiting"):
             return None
 
         if isinstance(result, dict):
@@ -253,23 +234,21 @@ def extract_latest_request(messages: list[Any]) -> str:
     return latest_request
 
 
-def build_feedback_from_batches(batches: list[dict[str, Any]]) -> str:
-    lines: list[str] = []
-    for batch in batches:
-        messages = batch.get("messages")
-        if not isinstance(messages, list):
+def build_feedback_from_messages(messages: list[Any]) -> str:
+    rows: list[str] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            rows.append(str(message))
             continue
-        for message in messages:
-            if not isinstance(message, dict):
-                lines.append(str(message))
-                continue
-            author = str(message.get("author_name") or message.get("author_id") or "user")
-            content = str(message.get("content", "")).strip()
-            if content:
-                lines.append(f"{author}: {content}")
-    if not lines:
+
+        author = str(message.get("author_name") or message.get("author_id") or "user")
+        content = str(message.get("content", "")).strip()
+        if content:
+            rows.append(f"{author}: {content}")
+
+    if not rows:
         return "(no new user text)"
-    return "\n".join(lines)
+    return "\n".join(rows)
 
 
 def _config_path(name: str) -> str:
@@ -312,6 +291,9 @@ async def run_machine(
     batch_messages: Optional[list[Any]] = None,
     queued_message_count: int = 0,
     conversation_key: str = "",
+    tool_loop_chain: Optional[list[Any]] = None,
+    tool_loop_chain_state: Optional[str] = None,
+    tool_loop_chain_agent: Optional[str] = None,
 ):
     """Run a single task via FlatMachine machine-driven tool loop."""
     resolved_hooks = hooks or CLIToolHooks(working_dir=working_dir, auto_approve=not human_review)
@@ -327,6 +309,9 @@ async def run_machine(
         "batch_messages": batch_messages or [],
         "queued_message_count": queued_message_count,
         "conversation_key": conversation_key,
+        "_tool_loop_chain": tool_loop_chain,
+        "_tool_loop_chain_state": tool_loop_chain_state,
+        "_tool_loop_chain_agent": tool_loop_chain_agent,
     })
 
     return result
@@ -436,6 +421,7 @@ async def _run_responder(args: argparse.Namespace) -> int:
             working_dir=args.working_dir,
             api=api,
             backend=backend,
+            db_path=args.db_path,
             input_queue=args.input_queue,
             queue_wait_seconds=args.queue_wait_seconds,
             conversation_idle_timeout_seconds=args.conversation_idle_timeout_seconds,
@@ -493,6 +479,7 @@ async def _run_all(args: argparse.Namespace) -> int:
             working_dir=args.working_dir,
             api=api,
             backend=backend,
+            db_path=args.db_path,
             input_queue=args.debounce_output_queue,
             queue_wait_seconds=args.queue_wait_seconds,
             conversation_idle_timeout_seconds=args.conversation_idle_timeout_seconds,

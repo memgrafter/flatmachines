@@ -2,18 +2,14 @@ spec: flatmachine
 spec_version: "2.6.0"
 
 data:
-  name: discord-tool-loop
+  name: discord-tool-loop-resume
   context:
     task: input.task
     latest_user_request: input.latest_user_request
     batch_messages: input.batch_messages
     queued_message_count: input.queued_message_count
     conversation_key: input.conversation_key
-    _tool_loop_chain: input._tool_loop_chain
-    _tool_loop_chain_state: input._tool_loop_chain_state
-    _tool_loop_chain_agent: input._tool_loop_chain_agent
     working_dir: input.working_dir
-    human_approved: false
 
   agents:
     coder: ./agent.yml
@@ -41,20 +37,28 @@ data:
       output_to_context:
         result: "{{ output.content }}"
       transitions:
-        - to: human_review
+        - to: post_result
 
-    human_review:
-      action: human_review
+    post_result:
+      action: post_result
       transitions:
-        - condition: "context.human_approved == true"
-          to: done
+        - to: wait_for_feedback
+
+    wait_for_feedback:
+      wait_for: "discord/{{ context.conversation_key }}"
+      output_to_context:
+        task: output.latest_user_request
+        latest_user_request: output.latest_user_request
+        batch_messages: output.batch_messages
+        queued_message_count: output.queued_message_count
+      transitions:
+        - to: merge_feedback
+
+    merge_feedback:
+      action: queue_feedback
+      transitions:
         - to: work
 
-    done:
-      type: final
-      output:
-        result: "{{ context.result }}"
-
 metadata:
-  description: "Coding machine tool loop (copied from coding_machine_cli) for Discord queue integration"
-  tags: ["tool-use", "discord", "human-in-loop"]
+  description: "Discord coding machine that waits for external signal and resumes the same execution"
+  tags: ["tool-use", "discord", "resume", "wait-for-signal"]
