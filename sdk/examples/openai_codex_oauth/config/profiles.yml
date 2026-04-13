@@ -10,5 +10,6 @@ data:
       oauth:
         provider: openai-codex
         auth_file: ~/.agents/flatmachines/auth.json
+        originator: flatmachines
 
   default: codex
