@@ -1213,6 +1213,26 @@ class FlatMachine:
             return await result
         return result
 
+    def _resolve_state_session_id(self, state: Dict[str, Any], context: Dict[str, Any]) -> Optional[str]:
+        """Resolve optional state.session_id to a stable string.
+
+        Supports bare path references like ``context.machine.execution_id``
+        without Jinja braces, preserving native type before string coercion.
+        """
+        if "session_id" not in state:
+            return None
+
+        variables = {"context": context, "input": context}
+        resolved = self._render_template(state.get("session_id"), variables)
+        if resolved is None:
+            return None
+
+        if isinstance(resolved, str):
+            resolved = resolved.strip()
+            return resolved or None
+
+        return str(resolved)
+
     async def _execute_state(
         self,
         state_name: str,
@@ -1362,10 +1382,16 @@ class FlatMachine:
                     input_spec = state.get('input', {})
                     variables = {"context": context, "input": context}
                     agent_input = self._render_dict(input_spec, variables)
+                    session_id = self._resolve_state_session_id(state, context)
 
                     execution_config = state.get('execution')
                     execution_type = get_execution_type(execution_config)
-                    result = await execution_type.execute(executor, agent_input, context=context)
+                    result = await execution_type.execute(
+                        executor,
+                        agent_input,
+                        context=context,
+                        session_id=session_id,
+                    )
                 finally:
                     self._unbind_stream_callback(executor)
                 agent_result = coerce_agent_result(result)
@@ -1616,6 +1642,7 @@ class FlatMachine:
         input_spec = state.get('input', {})
         variables = {"context": context, "input": context}
         agent_input = self._render_dict(input_spec, variables)
+        session_id = self._resolve_state_session_id(state, context)
 
         # Restore chain from prior round only when state+agent identity matches.
         # This preserves prefix cache for same-state continuation while preventing
@@ -1655,6 +1682,7 @@ class FlatMachine:
                     tools=tool_defs,
                     messages=None,
                     context=context,
+                    session_id=session_id,
                 )
             else:
                 # Continuation — pass chain (preserves prefix cache)
@@ -1663,6 +1691,7 @@ class FlatMachine:
                     tools=tool_defs,
                     messages=chain,
                     context=context,
+                    session_id=session_id,
                 )
 
             turns += 1
@@ -1846,6 +1875,7 @@ class FlatMachine:
                         tools=[],  # no tools — force text response
                         messages=chain,
                         context=context,
+                        session_id=session_id,
                     )
                     self._accumulate_agent_metrics(final_result)
                     if final_result.content and str(final_result.content).strip():
