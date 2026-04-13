@@ -109,10 +109,13 @@ Safe testing flag:
 
 Debug logging:
 
+- Enabled by default in `run.sh`.
+- Disable by setting `CODING_MACHINE_DISCORD_DEBUG=false`.
+
 ```bash
-CODING_MACHINE_DISCORD_DEBUG=true ./run.sh --local all
-# or
-./run.sh --local --debug all
+./run.sh --local all
+# disable debug
+CODING_MACHINE_DISCORD_DEBUG=false ./run.sh --local all
 ```
 
 ---

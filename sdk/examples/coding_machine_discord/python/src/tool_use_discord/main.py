@@ -21,6 +21,8 @@ import warnings
 from pathlib import Path
 from typing import Any, Optional
 
+import yaml
+
 from flatmachines import (
     CheckpointManager,
     FlatMachine,
@@ -122,6 +124,25 @@ def _conversation_execution_id(conversation_key: str) -> str:
     return f"discord-machine-{conversation_key}"
 
 
+def _agent_config_with_session(session_id: str) -> dict[str, Any]:
+    agent_path = Path(_config_path("agent.yml"))
+    config = yaml.safe_load(agent_path.read_text(encoding="utf-8")) or {}
+
+    data = config.setdefault("data", {})
+    model = data.get("model", "default")
+
+    if isinstance(model, str):
+        data["model"] = {"profile": model, "codex_session_id": session_id}
+    elif isinstance(model, dict):
+        patched = dict(model)
+        patched["codex_session_id"] = session_id
+        data["model"] = patched
+    else:
+        data["model"] = {"profile": "default", "codex_session_id": session_id}
+
+    return config
+
+
 class CodingMachineBatchResponder(BatchResponder):
     """Responder that resumes one FlatMachine execution per Discord conversation."""
 
@@ -200,10 +221,13 @@ class CodingMachineBatchResponder(BatchResponder):
         hooks = DiscordMachineHooks(working_dir=self.working_dir, api=self.api)
         machine = FlatMachine(
             config_file=_config_path("discord_machine.yml"),
+            profiles_file=_config_path("profiles.yml"),
             hooks=hooks,
             persistence=self.checkpoint_backend,
             lock=self.machine_lock,
             signal_backend=self.signal_backend,
+            _execution_id=execution_id,
+            agents={"coder": _agent_config_with_session(execution_id)},
         )
 
         result = await machine.execute(

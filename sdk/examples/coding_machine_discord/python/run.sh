@@ -6,7 +6,8 @@ VENV_PATH=".venv"
 
 # --- Parse Arguments ---
 LOCAL_INSTALL=false
-DEBUG_MODE="${CODING_MACHINE_DISCORD_DEBUG:-false}"
+# Debug is ON by default. Disable with CODING_MACHINE_DISCORD_DEBUG=false
+DEBUG_MODE="${CODING_MACHINE_DISCORD_DEBUG:-true}"
 PASSTHROUGH_ARGS=()
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -16,6 +17,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --debug|-d)
             DEBUG_MODE=true
+            shift
+            ;;
+        --no-debug)
+            DEBUG_MODE=false
             shift
             ;;
         *)
@@ -77,11 +82,12 @@ uv pip install --python "$VENV_PATH/bin/python" -e "$SCRIPT_DIR"
 # 3. Run
 echo "Running..."
 echo "---"
-if [[ "${DEBUG_MODE,,}" == "1" || "${DEBUG_MODE,,}" == "true" || "${DEBUG_MODE,,}" == "yes" ]]; then
-    echo "Debug logging enabled (LOG_LEVEL=DEBUG, FLATAGENTS_LOG_LEVEL=DEBUG)"
-    LOG_LEVEL=DEBUG FLATAGENTS_LOG_LEVEL=DEBUG "$VENV_PATH/bin/python" -m tool_use_discord.main "${PASSTHROUGH_ARGS[@]}"
+if [[ "${DEBUG_MODE,,}" == "0" || "${DEBUG_MODE,,}" == "false" || "${DEBUG_MODE,,}" == "no" || "${DEBUG_MODE,,}" == "off" ]]; then
+    echo "Debug logging disabled"
+    PYTHONUNBUFFERED=1 "$VENV_PATH/bin/python" -u -m tool_use_discord.main "${PASSTHROUGH_ARGS[@]}"
 else
-    "$VENV_PATH/bin/python" -m tool_use_discord.main "${PASSTHROUGH_ARGS[@]}"
+    echo "Debug logging enabled (LOG_LEVEL=DEBUG, FLATAGENTS_LOG_LEVEL=DEBUG)"
+    LOG_LEVEL=DEBUG FLATAGENTS_LOG_LEVEL=DEBUG PYTHONUNBUFFERED=1 "$VENV_PATH/bin/python" -u -m tool_use_discord.main "${PASSTHROUGH_ARGS[@]}"
 fi
 echo "---"
 echo "Done!"

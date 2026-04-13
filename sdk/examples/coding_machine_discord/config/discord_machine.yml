@@ -34,6 +34,7 @@ data:
         batch_messages: context.batch_messages
         queued_message_count: context.queued_message_count
         conversation_key: context.conversation_key
+        session_id: context.machine.execution_id
       output_to_context:
         result: "{{ output.content }}"
       transitions:
