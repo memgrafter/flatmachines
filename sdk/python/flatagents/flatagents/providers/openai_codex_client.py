@@ -14,7 +14,7 @@ from .openai_codex_auth import (
     DEFAULT_PROVIDER,
     OPENAI_CODEX_CLIENT_ID,
     TOKEN_URL,
-    PiAuthStore,
+    CodexAuthStore,
     is_expired,
     load_codex_credential,
     refresh_codex_credential,
@@ -98,7 +98,7 @@ class CodexClient:
         )
 
         self._model_config = model_config
-        self._auth_store = PiAuthStore(self.config.auth_file)
+        self._auth_store = CodexAuthStore(self.config.auth_file)
         self._transport = transport
 
     async def call(self, params: Dict[str, Any]) -> CodexResult:

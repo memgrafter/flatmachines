@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import {
-  PiAuthStore,
+  CodexAuthStore,
   isExpired,
   loadCodexCredential,
   resolveAuthFile,
@@ -64,7 +64,7 @@ async function main(): Promise<void> {
   }
 
   const resolved = resolveAuthFile({ explicitPath: args.authFile });
-  const store = new PiAuthStore(resolved);
+  const store = new CodexAuthStore(resolved);
 
   const output: Record<string, any> = {
     provider: args.provider,

@@ -12,7 +12,7 @@ import {
   DEFAULT_PROVIDER,
   TOKEN_URL,
   OPENAI_CODEX_CLIENT_ID,
-  PiAuthStore,
+  CodexAuthStore,
   isExpired,
   loadCodexCredential,
   refreshCodexCredential,
@@ -65,7 +65,7 @@ function firstNotNull<T>(...values: (T | undefined | null)[]): T | undefined {
 export class CodexClient {
   private config: CodexClientConfig;
   private modelConfig: Record<string, any>;
-  private authStore: PiAuthStore;
+  private authStore: CodexAuthStore;
 
   constructor(modelConfig: Record<string, any>, opts?: { configDir?: string }) {
     const oauthCfg = typeof modelConfig.oauth === 'object' && modelConfig.oauth ? modelConfig.oauth : {};
@@ -89,7 +89,7 @@ export class CodexClient {
     };
 
     this.modelConfig = modelConfig;
-    this.authStore = new PiAuthStore(this.config.authFile);
+    this.authStore = new CodexAuthStore(this.config.authFile);
   }
 
   async call(params: Record<string, any>): Promise<CodexResult> {

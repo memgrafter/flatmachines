@@ -12,7 +12,7 @@ import yaml
 from flatagents import FlatAgent
 from flatagents.providers.openai_codex_auth import (
     DEFAULT_PROVIDER,
-    PiAuthStore,
+    CodexAuthStore,
     is_expired,
     load_codex_credential,
     resolve_auth_file,
@@ -30,7 +30,7 @@ def _config_paths() -> tuple[Path, Path]:
 
 def check_auth(auth_file: str | None, provider: str, require_credential: bool) -> int:
     resolved = resolve_auth_file(explicit_path=auth_file)
-    store = PiAuthStore(resolved)
+    store = CodexAuthStore(resolved)
 
     output: Dict[str, Any] = {
         "provider": provider,

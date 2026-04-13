@@ -7,7 +7,7 @@ import pytest
 
 from flatagents.providers.openai_codex_auth import (
     CodexAuthError,
-    PiAuthStore,
+    CodexAuthStore,
     extract_account_id_from_access_token,
     is_expired,
     load_codex_credential,
@@ -56,7 +56,7 @@ def test_load_codex_credential_and_store_preserves_other_entries(tmp_path: Path)
     auth_file = tmp_path / "auth.json"
     write_auth_file(auth_file, access_token=token_for_account("acc_1"))
 
-    store = PiAuthStore(str(auth_file))
+    store = CodexAuthStore(str(auth_file))
     cred = load_codex_credential(store)
     assert cred.account_id == "acc_1"
 
@@ -113,7 +113,7 @@ def test_missing_provider_credential_prompts_login_guidance(tmp_path: Path) -> N
     auth_file = tmp_path / "auth.json"
     auth_file.write_text(json.dumps({"other": {"type": "api_key", "key": "x"}}), encoding="utf-8")
 
-    store = PiAuthStore(str(auth_file))
+    store = CodexAuthStore(str(auth_file))
     with pytest.raises(CodexAuthError) as exc:
         store.load_provider("openai-codex")
 
@@ -142,7 +142,7 @@ async def test_refresh_codex_credential_updates_auth_file_and_preserves_other_en
         fake_refresh_openai_codex_token,
     )
 
-    store = PiAuthStore(str(auth_file))
+    store = CodexAuthStore(str(auth_file))
     cred = await refresh_codex_credential(store)
 
     assert cred.access == fresh_token
@@ -174,7 +174,7 @@ async def test_refresh_codex_credential_failure_does_not_mutate_auth_file(
         fake_refresh_openai_codex_token,
     )
 
-    store = PiAuthStore(str(auth_file))
+    store = CodexAuthStore(str(auth_file))
     with pytest.raises(CodexAuthError):
         await refresh_codex_credential(store)
 

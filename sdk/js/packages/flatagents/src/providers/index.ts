@@ -1,7 +1,7 @@
 export { CodexClient, CodexClientError, CodexHTTPError  } from './codex_client';
 export {
   CodexAuthError,
-  PiAuthStore,
+  CodexAuthStore,
   resolveAuthFile,
   loadCodexCredential,
   refreshCodexCredential,

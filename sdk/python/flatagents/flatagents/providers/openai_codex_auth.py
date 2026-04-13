@@ -77,7 +77,7 @@ def is_expired(expires_ms: int, skew_ms: int = 60_000) -> bool:
     return int(time.time() * 1000) >= int(expires_ms) - skew_ms
 
 
-class PiAuthStore:
+class CodexAuthStore:
     def __init__(
         self,
         auth_file: Optional[str] = None,
@@ -213,14 +213,14 @@ async def refresh_openai_codex_token(
 
 
 def load_codex_credential(
-    store: PiAuthStore,
+    store: CodexAuthStore,
     provider: str = DEFAULT_PROVIDER,
 ) -> CodexOAuthCredential:
     return _credential_from_dict(store.load_provider(provider))
 
 
 async def refresh_codex_credential(
-    store: PiAuthStore,
+    store: CodexAuthStore,
     provider: str = DEFAULT_PROVIDER,
     *,
     timeout_seconds: float = 20.0,

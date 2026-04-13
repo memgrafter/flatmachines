@@ -8,7 +8,7 @@ import {
   CodexClient,
   CodexClientError,
   OPENAI_CODEX_CLIENT_ID,
-  PiAuthStore,
+  CodexAuthStore,
   TOKEN_URL,
   extractAccountIdFromAccessToken,
   isExpired,
@@ -99,7 +99,7 @@ describe('python parity: openai codex auth/client/login', () => {
     const authFile = join(dir, 'auth.json');
     writeAuthFile(authFile, { accessToken: tokenForAccount('acc_1') });
 
-    const store = new PiAuthStore(authFile);
+    const store = new CodexAuthStore(authFile);
     const cred = loadCodexCredential(store);
     expect(cred.account_id).toBe('acc_1');
 
@@ -157,7 +157,7 @@ describe('python parity: openai codex auth/client/login', () => {
     const authFile = join(dir, 'auth.json');
     writeFileSync(authFile, JSON.stringify({ other: { type: 'api_key', key: 'x' } }), 'utf-8');
 
-    const store = new PiAuthStore(authFile);
+    const store = new CodexAuthStore(authFile);
     expect(() => store.loadProvider('openai-codex')).toThrow(/Run codex login first/);
   });
 
@@ -189,7 +189,7 @@ describe('python parity: openai codex auth/client/login', () => {
         throw new Error(`unexpected url: ${url}`);
       }) as unknown as typeof fetch;
 
-    const store = new PiAuthStore(authFile);
+    const store = new CodexAuthStore(authFile);
     const cred = await refreshCodexCredential(store);
 
     expect(cred.access).toBe(freshToken);
@@ -216,7 +216,7 @@ describe('python parity: openai codex auth/client/login', () => {
     globalThis.fetch = vi
       .fn(async () => new Response('unauthorized', { status: 401 })) as unknown as typeof fetch;
 
-    const store = new PiAuthStore(authFile);
+    const store = new CodexAuthStore(authFile);
     await expect(refreshCodexCredential(store)).rejects.toThrow(CodexAuthError);
 
     const after = readFileSync(authFile, 'utf-8');
