@@ -40,7 +40,7 @@ Resolution: default → profile → overrides → override
 - Backend selection precedence remains: constructor `backend` → resolved `model.backend` → auto-detect (litellm/aisuite only).
 - `oauth` settings are read from resolved model config; works identically whether model came from inline agent config or profile.
 - Auth file precedence:
-  - Codex: `oauth.auth_file` → legacy `codex_auth_file` → legacy `auth.auth_file` → `FLATAGENTS_CODEX_AUTH_FILE` → `~/.pi/agent/auth.json`
+  - Codex: `oauth.auth_file` → legacy `codex_auth_file` → legacy `auth.auth_file` → `FLATAGENTS_CODEX_AUTH_FILE` → `~/.agents/flatmachines/auth.json`
   - Copilot: `oauth.auth_file` → `copilot_auth_file` → legacy `auth.auth_file` → `FLATAGENTS_COPILOT_AUTH_FILE` → `~/.agents/flatmachines/auth.json`
 - Token handling: pre-request refresh on expiry; if refresh fails, re-read auth store once for cross-process refresh; fallback refresh+retry on `401/403`.
 - Retries on `429/500/502/503/504` with exponential backoff (no jitter).

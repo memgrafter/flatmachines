@@ -129,7 +129,7 @@ Codex and Copilot are never auto-detected; configure them explicitly via `backen
 
 Login helpers:
 ```bash
-python -m flatagents.providers.openai_codex_login --auth-file ~/.pi/agent/auth.json
+python -m flatagents.providers.openai_codex_login --auth-file ~/.agents/flatmachines/auth.json
 python -m flatagents.providers.github_copilot_login --auth-file ~/.agents/flatmachines/auth.json
 ```
 

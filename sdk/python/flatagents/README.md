@@ -94,7 +94,7 @@ model:
   name: gpt-5
   backend: codex
   oauth:
-    auth_file: ~/.pi/agent/auth.json
+    auth_file: ~/.agents/flatmachines/auth.json
 ```
 
 ```yaml
@@ -109,7 +109,7 @@ model:
 Login helpers:
 
 ```bash
-python -m flatagents.providers.openai_codex_login --auth-file ~/.pi/agent/auth.json
+python -m flatagents.providers.openai_codex_login --auth-file ~/.agents/flatmachines/auth.json
 python -m flatagents.providers.github_copilot_login --auth-file ~/.agents/flatmachines/auth.json
 ```
 
