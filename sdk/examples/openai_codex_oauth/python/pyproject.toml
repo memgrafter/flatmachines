@@ -1,8 +1,8 @@
 [project]
 name = "openai_codex_oauth_example"
 version = "0.1.0"
-description = "OpenAI Codex OAuth diagnostics example"
-dependencies = ["flatagents[litellm]"]
+description = "OpenAI Codex OAuth example"
+dependencies = ["flatagents"]
 requires-python = ">=3.10"
 
 [build-system]
