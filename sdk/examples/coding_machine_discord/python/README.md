@@ -30,6 +30,12 @@ From this directory:
 ./run.sh --local cli -p "summarize this repository"
 ```
 
+Run tests:
+
+```bash
+./test.sh -q
+```
+
 `run.sh` will:
 
 1. create `.venv` if needed
