@@ -126,7 +126,7 @@ def main() -> None:
     parser.add_argument("--prompt", default="Reply with exactly CODEX_OK", help="Prompt for --run")
     parser.add_argument("--require-credential", action="store_true", help="Exit 1 when credential is missing")
 
-    parser.add_argument("--originator", default="pi")
+    parser.add_argument("--originator", default="flatmachines")
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--no-local-server", action="store_true")
     parser.add_argument(
