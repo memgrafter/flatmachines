@@ -31,7 +31,7 @@ from flatagents import FlatAgent, ValidationWarning
 @pytest.mark.live
 async def test_codex_oauth_cache_continuity_across_post_tool_and_followup() -> None:
     auth_file = os.path.expanduser(
-        os.environ.get("FLATAGENTS_CODEX_AUTH_FILE", "~/.pi/agent/auth.json")
+        os.environ.get("FLATAGENTS_CODEX_AUTH_FILE", "~/.agents/flatmachines/auth.json")
     )
     if not os.path.exists(auth_file):
         pytest.skip(f"Codex auth file not found: {auth_file}")

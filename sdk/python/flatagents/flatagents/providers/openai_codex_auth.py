@@ -13,7 +13,7 @@ import httpx
 
 from .openai_codex_types import CodexOAuthCredential
 
-DEFAULT_AUTH_FILE = "~/.pi/agent/auth.json"
+DEFAULT_AUTH_FILE = "~/.agents/flatmachines/auth.json"
 DEFAULT_PROVIDER = "openai-codex"
 TOKEN_URL = "https://auth.openai.com/oauth/token"
 OPENAI_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
