@@ -6,6 +6,8 @@ import {
   resolveAuthFile,
 } from '@memgrafter/flatagents';
 
+const DEFAULT_AUTH_FILE = '~/.agents/flatmachines/auth.json';
+
 type Args = {
   authFile?: string;
   provider: string;
@@ -15,6 +17,7 @@ type Args = {
 
 function parseArgs(argv: string[]): Args {
   const args: Args = {
+    authFile: DEFAULT_AUTH_FILE,
     provider: 'openai-codex',
     requireCredential: false,
     help: false,
@@ -38,7 +41,7 @@ function usage(): string {
     '',
     'Usage:',
     '  node dist/openai_codex_oauth_example/main.js',
-    '  node dist/openai_codex_oauth_example/main.js --auth-file ~/.pi/agent/auth.json',
+    '  node dist/openai_codex_oauth_example/main.js --auth-file ~/.agents/flatmachines/auth.json',
     '  node dist/openai_codex_oauth_example/main.js --require-credential',
   ].join('\n');
 }

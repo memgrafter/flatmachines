@@ -19,6 +19,8 @@ from flatagents.providers.openai_codex_auth import (
 )
 from flatagents.providers.openai_codex_login import CodexLoginError, login_openai_codex
 
+DEFAULT_AUTH_FILE = "~/.agents/flatmachines/auth.json"
+
 
 def _config_paths() -> tuple[Path, Path]:
     root = Path(__file__).resolve().parents[3]
@@ -118,7 +120,7 @@ def main() -> None:
     parser.add_argument("--check-codex-auth", action="store_true", help="Run auth diagnostics")
     parser.add_argument("--run", action="store_true", help="Run a real FlatAgent call using backend: codex")
 
-    parser.add_argument("--auth-file", default=None, help="Override auth file path")
+    parser.add_argument("--auth-file", default=DEFAULT_AUTH_FILE, help="Override auth file path")
     parser.add_argument("--provider", default=DEFAULT_PROVIDER)
     parser.add_argument("--profile", default="codex", help="Model profile name in config/profiles.yml")
     parser.add_argument("--prompt", default="Reply with exactly CODEX_OK", help="Prompt for --run")

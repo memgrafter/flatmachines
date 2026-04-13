@@ -6,6 +6,8 @@ This example demonstrates:
 2. Credential diagnostics (`--check-codex-auth`)
 3. A real FlatAgent call using `backend: codex` (`--run`)
 
+Default auth file: `~/.agents/flatmachines/auth.json`
+
 ## Run
 
 ```bash
