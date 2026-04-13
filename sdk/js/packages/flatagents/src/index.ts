@@ -178,7 +178,7 @@ export {
   CodexClientError,
   CodexHTTPError,
   CodexAuthError,
-  PiAuthStore,
+  CodexAuthStore,
   resolveAuthFile,
   loadCodexCredential,
   refreshCodexCredential,

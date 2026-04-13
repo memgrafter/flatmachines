@@ -19,7 +19,7 @@ from .openai_codex_auth import (
     DEFAULT_PROVIDER,
     OPENAI_CODEX_CLIENT_ID,
     TOKEN_URL,
-    PiAuthStore,
+    CodexAuthStore,
     extract_account_id_from_access_token,
     resolve_auth_file,
 )
@@ -262,7 +262,7 @@ async def login_openai_codex(
         credentials = await exchange_authorization_code(code=code, verifier=flow.verifier)
 
         resolved_auth_file = resolve_auth_file(explicit_path=auth_file)
-        store = PiAuthStore(resolved_auth_file)
+        store = CodexAuthStore(resolved_auth_file)
         store.save_provider(
             provider,
             {

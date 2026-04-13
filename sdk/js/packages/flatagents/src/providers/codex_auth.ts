@@ -77,10 +77,10 @@ export function isExpired(expiresMs: number, skewMs = 60_000): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PiAuthStore
+// CodexAuthStore
 // ─────────────────────────────────────────────────────────────────────────────
 
-export class PiAuthStore {
+export class CodexAuthStore {
   readonly authFile: string;
 
   constructor(authFile: string) {
@@ -188,14 +188,14 @@ export async function refreshOpenaiCodexToken(
 }
 
 export function loadCodexCredential(
-  store: PiAuthStore,
+  store: CodexAuthStore,
   provider: string = DEFAULT_PROVIDER,
 ): CodexOAuthCredential {
   return credentialFromDict(store.loadProvider(provider));
 }
 
 export async function refreshCodexCredential(
-  store: PiAuthStore,
+  store: CodexAuthStore,
   provider: string = DEFAULT_PROVIDER,
   opts?: { timeoutSeconds?: number; tokenUrl?: string; clientId?: string },
 ): Promise<CodexOAuthCredential> {
