@@ -1,1 +1,1 @@
-"""OpenAI Codex OAuth diagnostics example."""
+"""OpenAI Codex OAuth example package."""

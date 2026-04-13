@@ -1,12 +1,12 @@
 spec: flatagent
-spec_version: "2.0.0"
+spec_version: "2.5.0"
 
 data:
   name: codex-oauth-checker
   model: codex
 
   system: |
-    You are a diagnostic assistant.
+    You are a concise diagnostic assistant.
 
   user: |
     {{ input.task }}

@@ -6,10 +6,17 @@ LOCAL_INSTALL=false
 PASSTHROUGH_ARGS=()
 
 while [[ $# -gt 0 ]]; do
-  case $1 in
+  case "$1" in
     --local|-l)
       LOCAL_INSTALL=true
       shift
+      ;;
+    --)
+      shift
+      while [[ $# -gt 0 ]]; do
+        PASSTHROUGH_ARGS+=("$1")
+        shift
+      done
       ;;
     *)
       PASSTHROUGH_ARGS+=("$1")
@@ -18,7 +25,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-echo "--- OpenAI Codex OAuth Diagnostics (Python) ---"
+echo "--- OpenAI Codex OAuth Example (Python) ---"
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
@@ -34,9 +41,9 @@ fi
 
 if [ "$LOCAL_INSTALL" = true ]; then
   REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
-  uv pip install --python "$VENV_PATH/bin/python" -e "$REPO_ROOT/sdk/python/flatagents[litellm]"
+  uv pip install --python "$VENV_PATH/bin/python" -e "$REPO_ROOT/sdk/python/flatagents"
 else
-  uv pip install --python "$VENV_PATH/bin/python" "flatagents[litellm]"
+  uv pip install --python "$VENV_PATH/bin/python" "flatagents"
 fi
 
 uv pip install --python "$VENV_PATH/bin/python" -e "$SCRIPT_DIR"

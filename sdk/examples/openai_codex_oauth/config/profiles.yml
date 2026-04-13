@@ -7,5 +7,8 @@ data:
       provider: openai-codex
       backend: codex
       name: gpt-5.3-codex
+      oauth:
+        provider: openai-codex
+        auth_file: ~/.pi/agent/auth.json
 
   default: codex
