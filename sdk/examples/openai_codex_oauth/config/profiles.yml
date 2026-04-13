@@ -9,6 +9,6 @@ data:
       name: gpt-5.3-codex
       oauth:
         provider: openai-codex
-        auth_file: ~/.pi/agent/auth.json
+        auth_file: ~/.agents/flatmachines/auth.json
 
   default: codex
