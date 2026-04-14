@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+resolve_script_path() {
+  local src="${BASH_SOURCE[0]}"
+  while [[ -h "$src" ]]; do
+    local dir
+    dir="$(cd -P "$(dirname "$src")" >/dev/null 2>&1 && pwd)"
+    src="$(readlink "$src")"
+    [[ "$src" != /* ]] && src="$dir/$src"
+  done
+  cd -P "$(dirname "$src")" >/dev/null 2>&1 && pwd
+}
+
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
+strip_wrapping_quotes() {
+  local v="$1"
+  if [[ "$v" =~ ^\"(.*)\"$ ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+    return
+  fi
+  if [[ "$v" =~ ^\'(.*)\'$ ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+    return
+  fi
+  printf '%s' "$v"
+}
+
+load_kv_file() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="$(trim "$line")"
+    [[ -z "$line" || "${line:0:1}" == "#" ]] && continue
+
+    if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+      local key="${BASH_REMATCH[1]}"
+      local value="${BASH_REMATCH[2]}"
+      value="$(trim "$value")"
+      value="$(strip_wrapping_quotes "$value")"
+      export "$key=$value"
+    fi
+  done < "$file"
+}
+
+if [[ -n "${MK42_HOME:-}" ]]; then
+  MK42_HOME="$MK42_HOME"
+else
+  SCRIPT_DIR="$(resolve_script_path)"
+  MK42_HOME=""
+
+  for candidate_rel in "../.." "../../.."; do
+    candidate="$(cd "$SCRIPT_DIR/$candidate_rel" >/dev/null 2>&1 && pwd || true)"
+    if [[ -n "$candidate" && ( -e "$candidate/current" || -d "$candidate/releases" ) ]]; then
+      MK42_HOME="$candidate"
+      break
+    fi
+  done
+
+  if [[ -z "$MK42_HOME" ]]; then
+    MK42_HOME="$HOME/.agents/mk42"
+  fi
+fi
+
+DEFAULT_ENV_FILE="$HOME/.agents/flatmachines/mk42.env"
+DEFAULT_CODEX_AUTH_FILE="$HOME/.agents/flatmachines/auth.json"
+
+CONF_FILE="${MK42_CONF:-$MK42_HOME/conf}"
+load_kv_file "$CONF_FILE"
+
+ENV_FILE="${MK42_ENV_FILE:-$DEFAULT_ENV_FILE}"
+load_kv_file "$ENV_FILE"
+
+MK42_CODEX_AUTH_FILE="${MK42_CODEX_AUTH_FILE:-$DEFAULT_CODEX_AUTH_FILE}"
+FLATAGENTS_CODEX_AUTH_FILE="${FLATAGENTS_CODEX_AUTH_FILE:-$MK42_CODEX_AUTH_FILE}"
+
+CURRENT_DIR="$MK42_HOME/current"
+VENV_PYTHON="$MK42_HOME/.venv/bin/python"
+
+DEFAULT_CONFIG_DIR="${TOOL_USE_DISCORD_CONFIG_DIR:-$CURRENT_DIR/config}"
+DEFAULT_DB_PATH="${TOOL_USE_DISCORD_DB_PATH:-$CURRENT_DIR/data/coding_machine_discord.sqlite}"
+DEFAULT_WORKING_DIR="${TOOL_USE_DISCORD_WORKING_DIR:-$CURRENT_DIR}"
+
+mkdir -p "$CURRENT_DIR/data" "$MK42_HOME/logs"
+
+export MK42_HOME
+export MK42_CONF="$CONF_FILE"
+export MK42_ENV_FILE="$ENV_FILE"
+export MK42_CODEX_AUTH_FILE
+export FLATAGENTS_CODEX_AUTH_FILE
+export TOOL_USE_DISCORD_CONFIG_DIR="$DEFAULT_CONFIG_DIR"
+export TOOL_USE_DISCORD_DB_PATH="$DEFAULT_DB_PATH"
+export TOOL_USE_DISCORD_WORKING_DIR="$DEFAULT_WORKING_DIR"
+
+if [[ ! -e "$CURRENT_DIR" ]]; then
+  echo "error: mk42 is not installed at $MK42_HOME (missing current symlink)" >&2
+  echo "run installer first (install.sh --dir '$MK42_HOME')" >&2
+  exit 1
+fi
+
+if [[ ! -f "$TOOL_USE_DISCORD_CONFIG_DIR/discord_machine.yml" ]]; then
+  echo "error: missing config in $TOOL_USE_DISCORD_CONFIG_DIR" >&2
+  exit 1
+fi
+
+if [[ ! -x "$VENV_PYTHON" ]]; then
+  echo "error: python runtime not found at $VENV_PYTHON" >&2
+  echo "run installer again to provision the virtualenv" >&2
+  exit 1
+fi
+
+has_flag() {
+  local flag="$1"
+  shift
+  for arg in "$@"; do
+    if [[ "$arg" == "$flag" || "$arg" == "$flag="* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+cmd="${1:-all}"
+if [[ $# -gt 0 ]]; then
+  shift
+fi
+
+case "$cmd" in
+  run|start)
+    cmd="all"
+    ;;
+  restart)
+    pkill -f "tool_use_discord.main" || true
+    sleep 1
+    cmd="all"
+    ;;
+  cli|ingress|debounce|respond|all|status)
+    ;;
+  *)
+    echo "error: unknown command '$cmd'" >&2
+    echo "usage: mk42 [cli|ingress|debounce|respond|all|status|start|restart] [args...]" >&2
+    exit 1
+    ;;
+esac
+
+args=("$cmd" "$@")
+
+if [[ "$cmd" == "ingress" || "$cmd" == "debounce" || "$cmd" == "respond" || "$cmd" == "all" || "$cmd" == "status" ]]; then
+  if ! has_flag "--db-path" "$@"; then
+    args+=("--db-path" "$TOOL_USE_DISCORD_DB_PATH")
+  fi
+fi
+
+if [[ "$cmd" == "cli" || "$cmd" == "respond" || "$cmd" == "all" ]]; then
+  if ! has_flag "--working-dir" "$@" && ! has_flag "-w" "$@"; then
+    args+=("--working-dir" "$TOOL_USE_DISCORD_WORKING_DIR")
+  fi
+fi
+
+DEBUG_MODE="${CODING_MACHINE_DISCORD_DEBUG:-true}"
+if [[ "${DEBUG_MODE,,}" == "0" || "${DEBUG_MODE,,}" == "false" || "${DEBUG_MODE,,}" == "no" || "${DEBUG_MODE,,}" == "off" ]]; then
+  exec "$VENV_PYTHON" -u -m tool_use_discord.main "${args[@]}"
+else
+  LOG_LEVEL=DEBUG FLATAGENTS_LOG_LEVEL=DEBUG exec "$VENV_PYTHON" -u -m tool_use_discord.main "${args[@]}"
+fi

@@ -10,7 +10,8 @@ data:
       base_url: https://chatgpt.com/backend-api
       oauth:
         provider: openai-codex
-        auth_file: ~/.agents/flatmachines/auth.json
+        # Auth file is provided via FLATAGENTS_CODEX_AUTH_FILE.
+        # Default installer target: ~/.agents/flatmachines/auth.json
         originator: flatagents
         refresh: true
         timeout_seconds: 120

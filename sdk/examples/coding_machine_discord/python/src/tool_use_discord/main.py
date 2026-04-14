@@ -308,13 +308,104 @@ def _read_agents_md(working_dir: str) -> str:
         return ""
 
 
+def _mk42_home() -> Path:
+    return Path(os.environ.get("MK42_HOME", "~/.agents/mk42")).expanduser().resolve()
+
+
+def _parse_kv_file(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return values
+    except Exception as exc:
+        print(f"[mk42] warning: failed to read {path}: {exc}", flush=True)
+        return values
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+
+        if not key:
+            continue
+        if value.startswith('"') and value.endswith('"') and len(value) >= 2:
+            value = value[1:-1]
+        if value.startswith("'") and value.endswith("'") and len(value) >= 2:
+            value = value[1:-1]
+
+        values[key] = value
+
+    return values
+
+
+def _load_runtime_env_from_conf() -> None:
+    mk42_home = _mk42_home()
+    conf_path = Path(os.environ.get("MK42_CONF", str(mk42_home / "conf"))).expanduser().resolve()
+
+    for key, value in _parse_kv_file(conf_path).items():
+        os.environ.setdefault(key, value)
+
+    env_path = Path(
+        os.environ.get(
+            "MK42_ENV_FILE",
+            str(Path("~/.agents/flatmachines/mk42.env").expanduser()),
+        )
+    ).expanduser().resolve()
+
+    for key, value in _parse_kv_file(env_path).items():
+        os.environ.setdefault(key, value)
+
+    codex_auth = Path(
+        os.environ.get(
+            "MK42_CODEX_AUTH_FILE",
+            str(Path("~/.agents/flatmachines/auth.json").expanduser()),
+        )
+    ).expanduser()
+
+    os.environ.setdefault("MK42_CODEX_AUTH_FILE", str(codex_auth))
+    os.environ.setdefault("FLATAGENTS_CODEX_AUTH_FILE", str(codex_auth))
+
+
 def _config_path(name: str) -> str:
+    override = os.environ.get("TOOL_USE_DISCORD_CONFIG_DIR", "").strip()
+    if override:
+        return str((Path(override).expanduser().resolve() / name))
+
     return str(Path(__file__).parent.parent.parent.parent / "config" / name)
 
 
 def _default_db_path() -> str:
+    override = os.environ.get("TOOL_USE_DISCORD_DB_PATH", "").strip()
+    if override:
+        return str(Path(override).expanduser().resolve())
+
+    mk42_home = _mk42_home()
+    mk42_db = mk42_home / "current" / "data" / "coding_machine_discord.sqlite"
+    if mk42_db.exists() or mk42_home.exists():
+        return str(mk42_db)
+
     root = Path(__file__).resolve().parents[3]
     return str((root / "data" / "coding_machine_discord.sqlite").resolve())
+
+
+def _default_working_dir() -> str:
+    override = os.environ.get("TOOL_USE_DISCORD_WORKING_DIR", "").strip()
+    if override:
+        return str(Path(override).expanduser().resolve())
+
+    mk42_home = _mk42_home()
+    mk42_workspace = mk42_home / "current"
+    if mk42_workspace.exists() or mk42_home.exists():
+        return str(mk42_workspace)
+
+    return os.getcwd()
 
 
 def _require_discord_config(args: argparse.Namespace) -> tuple[str, str]:
@@ -596,7 +687,7 @@ def _build_parser() -> argparse.ArgumentParser:
     # Original CLI mode
     cli = sub.add_parser("cli", help="run original coding_machine_cli REPL/single-shot")
     cli.add_argument("-p", "--print", metavar="TASK", dest="task")
-    cli.add_argument("--working-dir", "-w", default=os.getcwd())
+    cli.add_argument("--working-dir", "-w", default=_default_working_dir())
     cli.add_argument("--standalone", "-s", metavar="TASK", nargs="?", const=True)
 
     # Discord workers
@@ -632,7 +723,7 @@ def _build_parser() -> argparse.ArgumentParser:
     respond.add_argument("--conversation-idle-timeout-seconds", type=float, default=300.0)
     respond.add_argument("--queue-poll-seconds", type=float, default=1.0)
     respond.add_argument("--worker-id", default="responder")
-    respond.add_argument("--working-dir", default=os.getcwd())
+    respond.add_argument("--working-dir", default=_default_working_dir())
     respond.add_argument("--echo-only", action="store_true")
 
     all_workers = sub.add_parser("all", help="run ingress + debounce + respond together")
@@ -655,7 +746,7 @@ def _build_parser() -> argparse.ArgumentParser:
     all_workers.add_argument("--queue-wait-seconds", type=float, default=15.0)
     all_workers.add_argument("--conversation-idle-timeout-seconds", type=float, default=300.0)
     all_workers.add_argument("--queue-poll-seconds", type=float, default=1.0)
-    all_workers.add_argument("--working-dir", default=os.getcwd())
+    all_workers.add_argument("--working-dir", default=_default_working_dir())
     all_workers.add_argument("--echo-only", action="store_true")
 
     status = sub.add_parser("status", help="show queue stats and cursor state")
@@ -694,6 +785,7 @@ async def _async_main(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
+    _load_runtime_env_from_conf()
     parser = _build_parser()
     args = parser.parse_args()
     code = asyncio.run(_async_main(args))

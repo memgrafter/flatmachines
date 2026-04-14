@@ -22,6 +22,61 @@ The README is intentionally operational (how to run/use it), not a code tour.
 
 ---
 
+## Production bundle (recommended for self-hosted mk42)
+
+Build a versioned artifact folder under `python/dist/`:
+
+```bash
+./build_bundle.sh
+# release build:
+./build_bundle.sh --release
+```
+
+This creates:
+
+- `dist/<version>/mk42-bundle-<version>.tar.gz`
+- `dist/<version>/install.sh`
+- `dist/<version>/manifest.json`
+- `dist/<version>/checksums.txt`
+
+Install into `~/.agents/mk42`:
+
+```bash
+./dist/<version>/install.sh --bundle ./dist/<version>/mk42-bundle-<version>.tar.gz
+```
+
+Installer onboarding now includes:
+
+- writing runtime config at `~/.agents/mk42/conf`
+- creating Discord env file at `~/.agents/flatmachines/mk42.env` (default)
+- Codex OAuth auth path at `~/.agents/flatmachines/auth.json` (default)
+
+You can override those with installer flags:
+
+```bash
+./dist/<version>/install.sh \
+  --bundle ./dist/<version>/mk42-bundle-<version>.tar.gz \
+  --env-file ~/.agents/flatmachines/mk42.env \
+  --auth-file ~/.agents/flatmachines/auth.json
+```
+
+After install, use:
+
+```bash
+mk42 all
+mk42 cli -p "summarize this workspace"
+```
+
+The launcher defaults to:
+
+- workspace: `~/.agents/mk42/current`
+- state DB: `~/.agents/mk42/current/data/coding_machine_discord.sqlite`
+- conf file: `~/.agents/mk42/conf`
+- env file: `~/.agents/flatmachines/mk42.env`
+- codex auth file: `~/.agents/flatmachines/auth.json`
+
+---
+
 ## Quick start
 
 From this directory:

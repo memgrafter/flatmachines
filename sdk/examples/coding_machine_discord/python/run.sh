@@ -8,6 +8,19 @@ VENV_PATH=".venv"
 LOCAL_INSTALL=false
 # Debug is ON by default. Disable with CODING_MACHINE_DISCORD_DEBUG=false
 DEBUG_MODE="${CODING_MACHINE_DISCORD_DEBUG:-true}"
+# Codex auth path precedence for local run.sh usage:
+# 1) explicit MK42_CODEX_AUTH_FILE
+# 2) explicit FLATAGENTS_CODEX_AUTH_FILE
+# 3) ~/.agents/flatmachines/auth.json
+# 4) legacy ~/.pi/agent/auth.json (fallback)
+DEFAULT_CODEX_AUTH_FILE="$HOME/.agents/flatmachines/auth.json"
+if [[ ! -f "$DEFAULT_CODEX_AUTH_FILE" && -f "$HOME/.pi/agent/auth.json" ]]; then
+    DEFAULT_CODEX_AUTH_FILE="$HOME/.pi/agent/auth.json"
+fi
+MK42_CODEX_AUTH_FILE="${MK42_CODEX_AUTH_FILE:-${FLATAGENTS_CODEX_AUTH_FILE:-$DEFAULT_CODEX_AUTH_FILE}}"
+FLATAGENTS_CODEX_AUTH_FILE="${FLATAGENTS_CODEX_AUTH_FILE:-$MK42_CODEX_AUTH_FILE}"
+export MK42_CODEX_AUTH_FILE
+export FLATAGENTS_CODEX_AUTH_FILE
 COMMAND="run"
 PY_MODULE="tool_use_discord.main"
 PASSTHROUGH_ARGS=()
