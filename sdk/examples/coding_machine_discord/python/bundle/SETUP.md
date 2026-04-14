@@ -40,6 +40,11 @@ Expected file (default):
 
 If missing, authenticate and place/copy auth JSON there.
 
+## Runtime packaging note
+
+Installer uses the vendored wheelhouse in `current/wheels` and installs with `--offline --no-index`.
+No PyPI access is required during install.
+
 ## Run
 
 ```bash

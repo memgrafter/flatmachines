@@ -3,11 +3,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EXAMPLE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-DIST_ROOT="$SCRIPT_DIR/dist"
+DIST_ROOT="$EXAMPLE_DIR/dist/python"
 
 RELEASE_MODE=false
 VERSION_OVERRIDE=""
 MANIFEST_BASE_URL=""
+GITHUB_OWNER="memgrafter"
+GITHUB_REPO="flatmachines"
 
 usage() {
   cat <<'EOF'
@@ -19,8 +21,10 @@ Usage:
 Options:
   --release                 Build release artifact (default: dev artifact)
   --version <value>         Override computed artifact version
-  --dist-root <path>        Dist root (default: python/dist)
+  --dist-root <path>        Dist root (default: dist/python)
   --manifest-base-url <url> Prefix bundle URL in manifest.json
+  --github-owner <name>     GitHub owner for NOTES one-liners (default: memgrafter)
+  --github-repo <name>      GitHub repo for NOTES one-liners (default: flatmachines)
   --help                    Show help
 
 Examples:
@@ -75,6 +79,16 @@ while [[ $# -gt 0 ]]; do
       MANIFEST_BASE_URL="$2"
       shift 2
       ;;
+    --github-owner)
+      [[ $# -ge 2 ]] || fail "--github-owner requires a value"
+      GITHUB_OWNER="$2"
+      shift 2
+      ;;
+    --github-repo)
+      [[ $# -ge 2 ]] || fail "--github-repo requires a value"
+      GITHUB_REPO="$2"
+      shift 2
+      ;;
     --help|-h)
       usage
       exit 0
@@ -86,6 +100,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 need_cmd uv
+need_cmd uvx
 need_cmd python3
 need_cmd tar
 
@@ -155,6 +170,7 @@ log "staging workspace from $EXAMPLE_DIR"
     --exclude='.git' \
     --exclude='python/.venv' \
     --exclude='python/.pytest_cache' \
+    --exclude='dist' \
     --exclude='python/dist' \
     --exclude='python/*.swp' \
     --exclude='python/.install.sh.swp' \
@@ -180,11 +196,21 @@ cp "$SCRIPT_DIR/bundle/bin/mk42" "$BUNDLE_ROOT/bin/mk42"
 chmod +x "$BUNDLE_ROOT/bin/mk42"
 cp "$SCRIPT_DIR/bundle/SETUP.md" "$BUNDLE_ROOT/SETUP.md"
 
-cat > "$BUNDLE_ROOT/constraints.txt" <<EOF
-flatmachines==2.6.0
-flatagents==2.6.0
+RUNTIME_REQ_FILE="$TMP_DIR/runtime-requirements.txt"
+cat > "$RUNTIME_REQ_FILE" <<EOF
+flatmachines[flatagents]==2.6.0
+flatagents[litellm]==2.6.0
 requests==2.33.1
 EOF
+
+cp "$RUNTIME_REQ_FILE" "$BUNDLE_ROOT/runtime-requirements.txt"
+cp "$RUNTIME_REQ_FILE" "$BUNDLE_ROOT/constraints.txt"
+
+log "vendoring dependency wheels"
+uvx pip download \
+  --dest "$BUNDLE_ROOT/wheels" \
+  --requirement "$RUNTIME_REQ_FILE" \
+  --only-binary=:all:
 
 cat > "$BUNDLE_ROOT/VERSION" <<EOF
 $ARTIFACT_VERSION
@@ -230,6 +256,46 @@ cat > "$OUT_DIR/manifest.json" <<EOF
 }
 EOF
 
+cat > "$OUT_DIR/NOTES.md" <<EOF
+# mk42 $ARTIFACT_VERSION
+
+## One-liner install (GitHub Release)
+
+Pinned release:
+
+\`\`\`bash
+curl -fsSL https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/download/$ARTIFACT_VERSION/install.sh | sh -s -- \\
+  --manifest-url https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/download/$ARTIFACT_VERSION/manifest.json
+\`\`\`
+
+Latest release:
+
+\`\`\`bash
+curl -fsSL https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/latest/download/install.sh | sh -s -- \\
+  --manifest-url https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/latest/download/manifest.json
+\`\`\`
+
+## Local install from this folder
+
+\`\`\`bash
+./install.sh --bundle ./$(basename "$BUNDLE_TAR") --sha256 $BUNDLE_SHA
+\`\`\`
+
+## Artifacts
+
+- \`install.sh\`
+- \`manifest.json\`
+- \`checksums.txt\`
+- \`$(basename "$BUNDLE_TAR")\`
+
+## Notes
+
+- Installer uses vendored wheels from bundle (offline install: no PyPI).
+- Runtime config/secrets default outside workspace:
+  - env: \`~/.agents/flatmachines/mk42.env\`
+  - codex auth: \`~/.agents/flatmachines/auth.json\`
+EOF
+
 cat <<EOF
 
 Build complete
@@ -240,5 +306,8 @@ Build complete
 
 Install locally:
   $OUT_DIR/install.sh --bundle $BUNDLE_TAR --sha256 $BUNDLE_SHA
+
+Release notes file:
+  $OUT_DIR/NOTES.md
 
 EOF

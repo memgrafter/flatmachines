@@ -482,17 +482,18 @@ if [[ ! -x "$VENV_DIR/bin/python" ]]; then
   uv venv "$VENV_DIR"
 fi
 
-WHEEL_FILE="$(find "$INSTALL_DIR/current/wheels" -maxdepth 1 -type f -name 'tool_use_discord-*.whl' | sort | tail -n1)"
-[[ -n "$WHEEL_FILE" ]] || fail "tool_use_discord wheel missing in $INSTALL_DIR/current/wheels"
+WHEELS_DIR="$INSTALL_DIR/current/wheels"
+WHEEL_FILE="$(find "$WHEELS_DIR" -maxdepth 1 -type f -name 'tool_use_discord-*.whl' | sort | tail -n1)"
+[[ -n "$WHEEL_FILE" ]] || fail "tool_use_discord wheel missing in $WHEELS_DIR"
 
-install_cmd=(uv pip install --python "$VENV_DIR/bin/python" --upgrade)
-if [[ -f "$INSTALL_DIR/current/constraints.txt" ]]; then
-  install_cmd+=(--constraint "$INSTALL_DIR/current/constraints.txt")
-fi
-install_cmd+=("$WHEEL_FILE")
-
-log "installing runtime dependencies"
-"${install_cmd[@]}"
+log "installing runtime dependencies from vendored wheelhouse (offline)"
+uv pip install \
+  --python "$VENV_DIR/bin/python" \
+  --upgrade \
+  --offline \
+  --no-index \
+  --find-links "$WHEELS_DIR" \
+  "$WHEEL_FILE"
 
 chmod +x "$INSTALL_DIR/current/bin/mk42"
 
