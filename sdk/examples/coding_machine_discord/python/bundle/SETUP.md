@@ -28,6 +28,14 @@ DISCORD_CHANNEL_ID=...
 CODING_MACHINE_DISCORD_DEBUG=true
 ```
 
+Interactive helper:
+
+```bash
+mk42 setup
+```
+
+(Individual command still available: `mk42 setup discord`)
+
 ## Codex OAuth
 
 mk42 uses `FLATAGENTS_CODEX_AUTH_FILE` (wired to `MK42_CODEX_AUTH_FILE`).
@@ -54,7 +62,16 @@ No PyPI access is required during install.
 ## Run
 
 ```bash
-mk42 all
+mk42 setup
+mk42          # same as: mk42 all
 mk42 status
 mk42 cli -p "summarize this workspace"
+```
+
+Individual setup commands (optional):
+
+```bash
+mk42 login codex
+mk42 setup discord
+mk42 --skip-setup all
 ```

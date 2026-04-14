@@ -546,9 +546,13 @@ Installed $APP_NAME
   Auth ready:   $CODEX_AUTH_READY
 
 Run:
-  mk42 login codex   # required once if Codex auth is missing
+  mk42 setup         # required once: codex login + discord setup
   mk42 all
   mk42 cli -p "summarize this workspace"
+
+Individual setup commands (optional):
+  mk42 login codex
+  mk42 setup discord
 
 Setup doc:
   $INSTALL_DIR/current/SETUP.md

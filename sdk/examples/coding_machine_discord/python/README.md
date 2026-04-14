@@ -65,9 +65,14 @@ You can override those with installer flags:
 After install, use:
 
 ```bash
-mk42 login codex   # one-time, if auth is not already configured
-mk42 all
+mk42 setup         # one-time: runs codex login + discord setup
+mk42               # same as: mk42 all
 mk42 cli -p "summarize this workspace"
+
+# individual setup commands are still available:
+# mk42 login codex
+# mk42 setup discord
+# mk42 --skip-setup all   (bypass auto-setup checks)
 ```
 
 The launcher defaults to:

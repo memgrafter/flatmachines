@@ -131,9 +131,43 @@ class DiscordResponderService:
                 processed += 1
             except Exception as exc:
                 print(f"[respond] failed message_id={message.id}: {exc}", flush=True)
+
+                if is_non_retryable_quota_error(exc):
+                    cancelled = self.backend.ack_conversation(
+                        queue=self.input_queue,
+                        conversation_key=message.conversation_key,
+                    )
+                    print(
+                        "[respond] cancelled queued conversation after quota error "
+                        f"conversation={message.conversation_key} cancelled={cancelled}",
+                        flush=True,
+                    )
+                    continue
+
                 self.backend.nack(message.id, delay_seconds=self.retry_delay_seconds)
 
         return processed
+
+
+def is_non_retryable_quota_error(exc: Exception) -> bool:
+    """Detect provider-side quota exhaustion where retries should be cancelled."""
+    text = str(exc).lower()
+    patterns = (
+        "insufficient_quota",
+        "out of quota",
+        "exceeded your current quota",
+        "billing hard limit",
+        "status=402",
+        "status=403",
+    )
+    if any(pattern in text for pattern in patterns):
+        return True
+
+    # Some providers return quota exhaustion under HTTP 429.
+    if "status=429" in text and "quota" in text:
+        return True
+
+    return False
 
 
 def split_discord_message(content: str, max_chars: int = 2000) -> list[str]:

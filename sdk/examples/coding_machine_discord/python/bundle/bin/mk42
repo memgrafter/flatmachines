@@ -185,6 +185,290 @@ run_codex_login() {
   return 1
 }
 
+has_tty() {
+  if (exec 9<>/dev/tty) 2>/dev/null; then
+    exec 9>&- 9<&-
+    return 0
+  fi
+  return 1
+}
+
+mask_value() {
+  local value="$1"
+  local n=${#value}
+  if [[ $n -le 8 ]]; then
+    printf '********'
+    return
+  fi
+  printf '%s***%s' "${value:0:4}" "${value:$((n-4)):4}"
+}
+
+set_kv_file_value() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+
+  "$VENV_PYTHON" - <<'PY' "$file" "$key" "$value"
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1]).expanduser().resolve()
+key = sys.argv[2]
+value = sys.argv[3]
+
+path.parent.mkdir(parents=True, exist_ok=True)
+if path.exists():
+    lines = path.read_text(encoding='utf-8').splitlines()
+else:
+    lines = []
+
+pattern = re.compile(rf'^{re.escape(key)}\s*=')
+replaced = False
+out = []
+for line in lines:
+    if pattern.match(line.strip()):
+        out.append(f"{key}={value}")
+        replaced = True
+    else:
+        out.append(line)
+
+if not replaced:
+    if out and out[-1].strip() != "":
+        out.append("")
+    out.append(f"{key}={value}")
+
+path.write_text("\n".join(out).rstrip() + "\n", encoding='utf-8')
+PY
+}
+
+prompt_tty_value() {
+  local label="$1"
+  local current="$2"
+  local secret="$3"
+  local input=""
+
+  if [[ -n "$current" ]]; then
+    if [[ "$secret" == "true" ]]; then
+      printf '%s [current: %s]: ' "$label" "$(mask_value "$current")" >/dev/tty
+    else
+      printf '%s [current: %s]: ' "$label" "$current" >/dev/tty
+    fi
+  else
+    printf '%s: ' "$label" >/dev/tty
+  fi
+
+  if [[ "$secret" == "true" ]]; then
+    IFS= read -r -s input </dev/tty || input=""
+    printf '\n' >/dev/tty
+  else
+    IFS= read -r input </dev/tty || input=""
+  fi
+
+  if [[ -z "$input" ]]; then
+    printf '%s' "$current"
+  else
+    printf '%s' "$input"
+  fi
+}
+
+run_discord_setup() {
+  if ! has_tty; then
+    echo "error: Discord setup requires an interactive TTY." >&2
+    echo "Edit env file manually: $ENV_FILE" >&2
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$ENV_FILE")"
+  if [[ ! -f "$ENV_FILE" ]]; then
+    cat > "$ENV_FILE" <<'EOF'
+# mk42 runtime environment
+DISCORD_BOT_TOKEN=
+DISCORD_CHANNEL_ID=
+CODING_MACHINE_DISCORD_DEBUG=true
+EOF
+    chmod 600 "$ENV_FILE" || true
+  fi
+
+  local current_token="${DISCORD_BOT_TOKEN:-}"
+  local current_channel="${DISCORD_CHANNEL_ID:-}"
+
+  cat >/dev/tty <<EOF
+
+Discord setup
+  Env file: $ENV_FILE
+
+How to get DISCORD_BOT_TOKEN:
+  1) Open Discord Developer Portal: https://discord.com/developers/applications
+  2) Select your app -> Bot -> Reset Token / Copy Token
+
+How to get DISCORD_CHANNEL_ID:
+  1) Enable Developer Mode in Discord settings
+  2) Right-click channel -> Copy Channel ID
+  Docs: https://support.discord.com/hc/en-us/articles/206346498
+
+Leave a field empty to keep current value.
+EOF
+
+  local token
+  local channel
+  token="$(prompt_tty_value "DISCORD_BOT_TOKEN" "$current_token" true)"
+  channel="$(prompt_tty_value "DISCORD_CHANNEL_ID" "$current_channel" false)"
+
+  if [[ -n "$token" ]]; then
+    set_kv_file_value "$ENV_FILE" "DISCORD_BOT_TOKEN" "$token"
+  fi
+  if [[ -n "$channel" ]]; then
+    set_kv_file_value "$ENV_FILE" "DISCORD_CHANNEL_ID" "$channel"
+  fi
+
+  set_kv_file_value "$ENV_FILE" "CODING_MACHINE_DISCORD_DEBUG" "${CODING_MACHINE_DISCORD_DEBUG:-true}"
+
+  # Refresh current process environment from the updated env file.
+  load_kv_file "$ENV_FILE"
+  export DISCORD_BOT_TOKEN="${DISCORD_BOT_TOKEN:-}"
+  export DISCORD_CHANNEL_ID="${DISCORD_CHANNEL_ID:-}"
+
+  echo "Saved Discord settings to $ENV_FILE"
+  echo "Next: mk42 all"
+}
+
+run_full_setup() {
+  local rc=0
+
+  if ! run_codex_login; then
+    rc=1
+  fi
+
+  if ! run_discord_setup; then
+    rc=1
+  fi
+
+  if [[ $rc -eq 0 ]]; then
+    echo "mk42 setup complete."
+    echo "Run: mk42 all"
+  else
+    echo "mk42 setup finished with issues." >&2
+    echo "You can retry pieces individually:" >&2
+    echo "  mk42 login codex" >&2
+    echo "  mk42 setup discord" >&2
+  fi
+
+  return $rc
+}
+
+missing_setup_items() {
+  local items=()
+
+  if [[ ! -s "$MK42_CODEX_AUTH_FILE" ]]; then
+    items+=("codex_auth")
+  fi
+
+  if [[ -z "${DISCORD_BOT_TOKEN:-}" ]]; then
+    items+=("discord_bot_token")
+  fi
+
+  if [[ -z "${DISCORD_CHANNEL_ID:-}" ]]; then
+    items+=("discord_channel_id")
+  fi
+
+  printf '%s\n' "${items[@]}"
+}
+
+command_needs_setup() {
+  case "$1" in
+    all|cli|respond|ingress)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+auto_setup_if_needed() {
+  local cmd="$1"
+  local skip_setup="$2"
+
+  if ! command_needs_setup "$cmd"; then
+    return 0
+  fi
+
+  local missing
+  missing="$(missing_setup_items)"
+  if [[ -z "$missing" ]]; then
+    return 0
+  fi
+
+  if [[ "$skip_setup" == "true" ]]; then
+    echo "warning: --skip-setup provided, but setup is incomplete:" >&2
+    printf '%s\n' "$missing" | sed 's/^/  - /' >&2
+    return 0
+  fi
+
+  echo "Setup required before running '$cmd'. Missing:" >&2
+  printf '%s\n' "$missing" | sed 's/^/  - /' >&2
+
+  if ! has_tty; then
+    echo "error: setup requires an interactive TTY." >&2
+    echo "Run interactively: mk42 setup" >&2
+    echo "Or bypass with: --skip-setup" >&2
+    return 1
+  fi
+
+  echo "Running: mk42 setup"
+  run_full_setup
+}
+
+print_help() {
+  cat <<EOF
+mk42
+
+Usage:
+  mk42 [--skip-setup] [command] [args]
+
+Commands:
+  setup [all|discord|codex]  Run onboarding setup (default: all)
+  login codex                Run Codex OAuth login only
+  all                        Run ingress + debounce + respond
+  ingress                    Run ingress worker
+  debounce                   Run debounce worker
+  respond                    Run responder worker
+  status                     Show queue stats
+  cli                        Run CLI mode
+  start                      Alias for 'all'
+  run                        Alias for 'all'
+  restart                    Restart and run 'all'
+
+Options:
+  -h, --help                 Show this help
+  --skip-setup               Skip automatic setup checks/prompts
+
+Notes:
+  - Running 'mk42' with no command is the same as 'mk42 all'.
+  - If setup is incomplete, mk42 auto-runs 'mk42 setup' for commands that need it.
+EOF
+}
+
+SKIP_SETUP="false"
+FILTERED_ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help)
+      print_help
+      exit 0
+      ;;
+    --skip-setup)
+      SKIP_SETUP="true"
+      ;;
+    *)
+      FILTERED_ARGS+=("$arg")
+      ;;
+  esac
+done
+
+set -- "${FILTERED_ARGS[@]}"
+
 cmd="${1:-all}"
 if [[ $# -gt 0 ]]; then
   shift
@@ -208,14 +492,39 @@ case "$cmd" in
     run_codex_login
     exit $?
     ;;
+  setup)
+    target="${1:-all}"
+    case "$target" in
+      all)
+        run_full_setup
+        exit $?
+        ;;
+      discord)
+        run_discord_setup
+        exit $?
+        ;;
+      codex)
+        run_codex_login
+        exit $?
+        ;;
+      *)
+        echo "error: unknown setup target '$target' (supported: all|discord|codex)" >&2
+        exit 1
+        ;;
+    esac
+    ;;
   cli|ingress|debounce|respond|all|status)
     ;;
   *)
     echo "error: unknown command '$cmd'" >&2
-    echo "usage: mk42 [login codex|cli|ingress|debounce|respond|all|status|start|restart] [args...]" >&2
+    echo "usage: mk42 [setup [all|discord|codex]|login codex|cli|ingress|debounce|respond|all|status|start|restart] [args...]" >&2
     exit 1
     ;;
 esac
+
+if ! auto_setup_if_needed "$cmd" "$SKIP_SETUP"; then
+  exit 1
+fi
 
 args=("$cmd" "$@")
 

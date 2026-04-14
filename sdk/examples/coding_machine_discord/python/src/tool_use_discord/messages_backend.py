@@ -236,6 +236,29 @@ class SQLiteMessageBackend:
             )
             return cur.rowcount > 0
 
+    def ack_conversation(self, *, queue: str, conversation_key: str, now: Optional[float] = None) -> int:
+        """Acknowledge all active messages in a queue conversation.
+
+        Useful when a permanent upstream error (e.g. out-of-quota) means
+        retrying stale requests would create a response backlog.
+        """
+        t = time.time() if now is None else float(now)
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                UPDATE messages
+                SET acked_at = ?,
+                    lease_owner = NULL,
+                    lease_expires_at = NULL,
+                    leased_at = NULL
+                WHERE queue = ?
+                  AND conversation_key = ?
+                  AND acked_at IS NULL
+                """,
+                (t, str(queue), str(conversation_key)),
+            )
+            return int(cur.rowcount)
+
     def get_state(self, key: str, default: Optional[str] = None) -> Optional[str]:
         with self._connect() as conn:
             row = conn.execute(

@@ -304,10 +304,19 @@ curl -fsSL https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/latest/downloa
 - Runtime config/secrets default outside workspace:
   - env: \`~/.agents/flatmachines/mk42.env\`
   - codex auth: \`~/.agents/flatmachines/auth.json\`
-- If Codex auth is missing after non-interactive install, run:
+- First-run setup (recommended):
+
+\`\`\`bash
+mk42 setup
+mk42          # same as: mk42 all
+\`\`\`
+
+- Individual setup commands (optional):
 
 \`\`\`bash
 mk42 login codex
+mk42 setup discord
+mk42 --skip-setup all
 \`\`\`
 EOF
 
