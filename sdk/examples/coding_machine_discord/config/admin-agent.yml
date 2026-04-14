@@ -20,6 +20,9 @@ data:
     - Use write only for new files or complete rewrites
     - Be concise in your responses
 
+    AGENTS.MD
+    {{ input.agents_md }}
+
   user: |
     New messages:
     {% for msg in input.batch_messages %}

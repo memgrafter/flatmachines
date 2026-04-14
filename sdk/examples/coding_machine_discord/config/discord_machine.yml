@@ -14,9 +14,10 @@ data:
     queued_message_count: input.queued_message_count
     conversation_key: input.conversation_key
     working_dir: input.working_dir
+    agents_md: input.agents_md
 
   agents:
-    coder: ./agent.yml
+    coder: ./admin-agent.yml
     everyone: ./everyone-agent.yml
 
   states:
@@ -44,6 +45,7 @@ data:
         batch_messages: context.admin_batch_messages
         queued_message_count: context.admin_message_count
         conversation_key: context.conversation_key
+        agents_md: context.agents_md
       output_to_context:
         result: "{{ output.content }}"
       transitions:

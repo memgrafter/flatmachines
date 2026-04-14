@@ -13,8 +13,12 @@ PY_MODULE="tool_use_discord.main"
 PASSTHROUGH_ARGS=()
 while [[ $# -gt 0 ]]; do
     case $1 in
-        run|restart)
-            COMMAND="$1"
+        run|start|restart)
+            if [[ "$1" == "start" ]]; then
+                COMMAND="run"
+            else
+                COMMAND="$1"
+            fi
             shift
             ;;
         --local|-l)

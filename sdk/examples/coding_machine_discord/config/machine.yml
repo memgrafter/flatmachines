@@ -16,7 +16,7 @@ data:
     human_approved: false
 
   agents:
-    coder: ./agent.yml
+    coder: ./admin-agent.yml
 
   states:
     start:

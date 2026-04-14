@@ -201,6 +201,9 @@ class CodingMachineBatchResponder(BatchResponder):
         }
 
         has_live_execution = await self._has_live_execution(execution_id)
+        if not has_live_execution:
+            machine_input["agents_md"] = _read_agents_md(self.working_dir)
+
         print(
             "[respond] "
             f"conversation={conversation_key} "
@@ -292,6 +295,17 @@ def build_feedback_from_messages(messages: list[Any]) -> str:
     if not rows:
         return "(no new user text)"
     return "\n".join(rows)
+
+
+def _read_agents_md(working_dir: str) -> str:
+    agents_path = Path(working_dir).resolve() / "AGENTS.md"
+    try:
+        return agents_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+    except Exception as exc:
+        print(f"[respond] warning: failed to read {agents_path}: {exc}", flush=True)
+        return ""
 
 
 def _config_path(name: str) -> str:
