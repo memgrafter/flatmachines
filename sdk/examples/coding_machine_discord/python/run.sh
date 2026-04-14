@@ -75,6 +75,10 @@ PROJECT_ROOT="$(find_project_root "$SCRIPT_DIR")"
 FLATAGENTS_SDK_PATH="$PROJECT_ROOT/sdk/python/flatagents"
 FLATMACHINES_SDK_PATH="$PROJECT_ROOT/sdk/python/flatmachines"
 
+to_lower() {
+    printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
 echo "📁 Project root: $PROJECT_ROOT"
 
 cd "$SCRIPT_DIR"
@@ -115,7 +119,8 @@ uv pip install --python "$VENV_PATH/bin/python" -e "$SCRIPT_DIR"
 # 3. Run
 echo "Running..."
 echo "---"
-if [[ "${DEBUG_MODE,,}" == "0" || "${DEBUG_MODE,,}" == "false" || "${DEBUG_MODE,,}" == "no" || "${DEBUG_MODE,,}" == "off" ]]; then
+DEBUG_MODE_LOWER="$(to_lower "$DEBUG_MODE")"
+if [[ "$DEBUG_MODE_LOWER" == "0" || "$DEBUG_MODE_LOWER" == "false" || "$DEBUG_MODE_LOWER" == "no" || "$DEBUG_MODE_LOWER" == "off" ]]; then
     echo "Debug logging disabled"
     PYTHONUNBUFFERED=1 "$VENV_PATH/bin/python" -u -m "$PY_MODULE" "${PASSTHROUGH_ARGS[@]}"
 else

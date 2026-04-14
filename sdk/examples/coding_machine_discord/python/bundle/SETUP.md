@@ -38,7 +38,13 @@ Expected file (default):
 ~/.agents/flatmachines/auth.json
 ```
 
-If missing, authenticate and place/copy auth JSON there.
+If missing, run:
+
+```bash
+mk42 login codex
+```
+
+This runs Codex OAuth and copies auth JSON into the configured auth path.
 
 ## Runtime packaging note
 

@@ -10,6 +10,7 @@ VERSION_OVERRIDE=""
 MANIFEST_BASE_URL=""
 GITHUB_OWNER="memgrafter"
 GITHUB_REPO="flatmachines"
+RELEASE_TAG_PREFIX="${MK42_RELEASE_TAG_PREFIX:-mk42_}"
 
 usage() {
   cat <<'EOF'
@@ -26,6 +27,9 @@ Options:
   --github-owner <name>     GitHub owner for NOTES one-liners (default: memgrafter)
   --github-repo <name>      GitHub repo for NOTES one-liners (default: flatmachines)
   --help                    Show help
+
+Env:
+  MK42_RELEASE_TAG_PREFIX   Prefix for GitHub release tag in NOTES one-liners (default: mk42_)
 
 Examples:
   ./build_bundle.sh
@@ -143,6 +147,8 @@ else
   ARTIFACT_VERSION="dev-$BASE_VERSION-$UTC_TS-$GIT_SHA"
 fi
 
+RELEASE_TAG="${RELEASE_TAG_PREFIX}${ARTIFACT_VERSION}"
+
 DIST_ROOT="$(python3 - <<'PY' "$DIST_ROOT"
 from pathlib import Path
 import sys
@@ -259,20 +265,24 @@ EOF
 cat > "$OUT_DIR/NOTES.md" <<EOF
 # mk42 $ARTIFACT_VERSION
 
+GitHub release tag expected by these one-liners: \`$RELEASE_TAG\`
+
 ## One-liner install (GitHub Release)
 
 Pinned release:
 
 \`\`\`bash
-curl -fsSL https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/download/$ARTIFACT_VERSION/install.sh | sh -s -- \\
-  --manifest-url https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/download/$ARTIFACT_VERSION/manifest.json
+curl -fsSL https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/download/$RELEASE_TAG/install.sh | bash -s -- \\
+  --manifest-url https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/download/$RELEASE_TAG/manifest.json \\
+  --yes
 \`\`\`
 
 Latest release:
 
 \`\`\`bash
-curl -fsSL https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/latest/download/install.sh | sh -s -- \\
-  --manifest-url https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/latest/download/manifest.json
+curl -fsSL https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/latest/download/install.sh | bash -s -- \\
+  --manifest-url https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/latest/download/manifest.json \\
+  --yes
 \`\`\`
 
 ## Local install from this folder
@@ -294,15 +304,21 @@ curl -fsSL https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/latest/downloa
 - Runtime config/secrets default outside workspace:
   - env: \`~/.agents/flatmachines/mk42.env\`
   - codex auth: \`~/.agents/flatmachines/auth.json\`
+- If Codex auth is missing after non-interactive install, run:
+
+\`\`\`bash
+mk42 login codex
+\`\`\`
 EOF
 
 cat <<EOF
 
 Build complete
-  Version:   $ARTIFACT_VERSION
-  Folder:    $OUT_DIR
-  Bundle:    $BUNDLE_TAR
-  SHA256:    $BUNDLE_SHA
+  Version:      $ARTIFACT_VERSION
+  Release tag:  $RELEASE_TAG
+  Folder:       $OUT_DIR
+  Bundle:       $BUNDLE_TAR
+  SHA256:       $BUNDLE_SHA
 
 Install locally:
   $OUT_DIR/install.sh --bundle $BUNDLE_TAR --sha256 $BUNDLE_SHA

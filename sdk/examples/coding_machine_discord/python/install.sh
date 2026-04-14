@@ -17,6 +17,7 @@ LINK_BIN=true
 SKIP_AUTH_SETUP=false
 ENV_FILE="$DEFAULT_ENV_FILE"
 AUTH_FILE="$DEFAULT_AUTH_FILE"
+CODEX_AUTH_READY=false
 
 usage() {
   cat <<'EOF'
@@ -104,6 +105,10 @@ print(Path(sys.argv[1]).expanduser().resolve())
 PY
 }
 
+to_lower() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
 select_bundle_from_manifest() {
   local manifest_file="$1"
   python3 - "$manifest_file" "$REQUESTED_VERSION" <<'PY'
@@ -179,6 +184,15 @@ path.write_text("\n".join(out).rstrip() + "\n", encoding='utf-8')
 PY
 }
 
+has_tty() {
+  if (exec 9<>/dev/tty) 2>/dev/null; then
+    exec 9>&- 9<&-
+    return 0
+  fi
+
+  return 1
+}
+
 prompt_yes_no() {
   local prompt="$1"
   local default_yes="$2"
@@ -193,7 +207,7 @@ prompt_yes_no() {
   fi
 
   read -r -p "$prompt $suffix " reply
-  reply="${reply,,}"
+  reply="$(to_lower "$reply")"
 
   if [[ -z "$reply" ]]; then
     [[ "$default_yes" == "yes" ]] && return 0 || return 1
@@ -217,8 +231,12 @@ copy_auth_if_present() {
 
 setup_codex_auth() {
   local auth_file="$1"
+  CODEX_AUTH_READY=false
 
   if [[ "$SKIP_AUTH_SETUP" == true ]]; then
+    if [[ -s "$auth_file" ]]; then
+      CODEX_AUTH_READY=true
+    fi
     warn "skipping Codex auth setup (--skip-auth-setup)"
     return 0
   fi
@@ -228,66 +246,17 @@ setup_codex_auth() {
   if [[ -s "$auth_file" ]]; then
     log "Codex auth already present: $auth_file"
     chmod 600 "$auth_file" || true
+    CODEX_AUTH_READY=true
     return 0
   fi
 
   if copy_auth_if_present "$HOME/.pi/agent/auth.json" "$auth_file"; then
+    CODEX_AUTH_READY=true
     return 0
   fi
 
-  if [[ "$ASSUME_YES" == true ]]; then
-    warn "Codex auth missing: $auth_file"
-    warn "Run login later, then rerun installer or copy auth into this path."
-    return 0
-  fi
-
-  cat <<EOF
-
-Codex OAuth setup
-  Target auth file: $auth_file
-
-No auth file found yet.
-You can authenticate now (recommended) or do it later.
-EOF
-
-  local login_attempted=false
-  if command -v codex >/dev/null 2>&1; then
-    if prompt_yes_no "Run 'codex login' now?" yes; then
-      login_attempted=true
-      codex login || warn "'codex login' exited non-zero; continuing"
-    fi
-  else
-    warn "'codex' CLI not found on PATH; cannot auto-run OAuth login"
-  fi
-
-  if [[ -s "$auth_file" ]]; then
-    chmod 600 "$auth_file" || true
-    return 0
-  fi
-
-  # Common fallback locations after interactive auth.
-  for candidate in \
-    "$HOME/.pi/agent/auth.json" \
-    "$HOME/.codex/auth.json" \
-    "$HOME/.config/codex/auth.json"; do
-    if copy_auth_if_present "$candidate" "$auth_file"; then
-      return 0
-    fi
-  done
-
-  if [[ "$login_attempted" == true ]]; then
-    warn "Codex login completed, but auth file was not discovered automatically."
-  fi
-
-  cat <<EOF
-
-Manual auth step still required:
-  1) Authenticate with your Codex/OpenAI flow
-  2) Ensure auth file exists at:
-       $auth_file
-
-mk42 will read this path via FLATAGENTS_CODEX_AUTH_FILE.
-EOF
+  warn "Codex auth missing: $auth_file"
+  warn "Run 'mk42 login codex' after install to complete OAuth setup."
 }
 
 while [[ $# -gt 0 ]]; do
@@ -366,9 +335,17 @@ if [[ "$ASSUME_YES" != true ]]; then
   log "install directory: $INSTALL_DIR"
   log "env file: $ENV_FILE"
   log "auth file: $AUTH_FILE"
-  read -r -p "Continue? [y/N] " reply
-  if [[ "${reply,,}" != "y" && "${reply,,}" != "yes" ]]; then
-    fail "aborted"
+
+  if [[ ! -t 0 ]]; then
+    warn "no interactive stdin; continuing in non-interactive mode"
+    warn "Tip: pass --yes to suppress this warning in curl|bash installs"
+    ASSUME_YES=true
+  else
+    read -r -p "Continue? [y/N] " reply
+    reply="$(to_lower "$reply")"
+    if [[ "$reply" != "y" && "$reply" != "yes" ]]; then
+      fail "aborted by user"
+    fi
   fi
 fi
 
@@ -377,7 +354,7 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 BUNDLE_FILE=""
-EXPECTED_SHA="${BUNDLE_SHA256,,}"
+EXPECTED_SHA="$(to_lower "$BUNDLE_SHA256")"
 
 if [[ -n "$BUNDLE_SOURCE" ]]; then
   if [[ "$BUNDLE_SOURCE" =~ ^https?:// ]]; then
@@ -392,19 +369,20 @@ else
   local_bundles=("$SCRIPT_DIR"/mk42-bundle-*.tar.gz)
   shopt -u nullglob
   if [[ ${#local_bundles[@]} -gt 0 ]]; then
-    BUNDLE_FILE="${local_bundles[-1]}"
+    last_index=$((${#local_bundles[@]} - 1))
+    BUNDLE_FILE="${local_bundles[$last_index]}"
   else
     [[ -n "$MANIFEST_URL" ]] || fail "no bundle found next to installer; provide --bundle or --manifest-url"
     MANIFEST_FILE="$TMP_DIR/manifest.json"
     log "downloading manifest: $MANIFEST_URL"
     download_to "$MANIFEST_URL" "$MANIFEST_FILE"
 
-    mapfile -t selected < <(select_bundle_from_manifest "$MANIFEST_FILE")
-    [[ ${#selected[@]} -ge 2 ]] || fail "invalid manifest selection"
+    selected_output="$(select_bundle_from_manifest "$MANIFEST_FILE")"
+    MANIFEST_VERSION="$(printf '%s\n' "$selected_output" | sed -n '1p')"
+    MANIFEST_BUNDLE="$(printf '%s\n' "$selected_output" | sed -n '2p')"
+    MANIFEST_SHA="$(to_lower "$(printf '%s\n' "$selected_output" | sed -n '3p')")"
 
-    MANIFEST_VERSION="${selected[0]}"
-    MANIFEST_BUNDLE="${selected[1]}"
-    MANIFEST_SHA="${selected[2],,}"
+    [[ -n "$MANIFEST_VERSION" && -n "$MANIFEST_BUNDLE" ]] || fail "invalid manifest selection"
 
     if [[ -z "$EXPECTED_SHA" && -n "$MANIFEST_SHA" ]]; then
       EXPECTED_SHA="$MANIFEST_SHA"
@@ -529,6 +507,26 @@ fi
 
 setup_codex_auth "$AUTH_FILE"
 
+if [[ "$CODEX_AUTH_READY" != true ]]; then
+  warn "Codex auth is not configured yet."
+
+  if has_tty; then
+    log "Starting Codex OAuth now (mk42 login codex)..."
+    if "$INSTALL_DIR/current/bin/mk42" login codex </dev/tty >/dev/tty 2>&1; then
+      if [[ -s "$AUTH_FILE" ]]; then
+        CODEX_AUTH_READY=true
+        log "Codex auth configured: $AUTH_FILE"
+      else
+        warn "Codex login completed but auth file is still missing: $AUTH_FILE"
+      fi
+    else
+      warn "Codex login failed or was cancelled. Run: mk42 login codex"
+    fi
+  else
+    warn "No TTY available to run Codex OAuth now; run later: mk42 login codex"
+  fi
+fi
+
 if [[ "$LINK_BIN" == true ]]; then
   BIN_DIR="$HOME/.local/bin"
   mkdir -p "$BIN_DIR"
@@ -545,8 +543,10 @@ Installed $APP_NAME
   Config file:  $CONF_FILE
   Env file:     $ENV_FILE
   Codex auth:   $AUTH_FILE
+  Auth ready:   $CODEX_AUTH_READY
 
 Run:
+  mk42 login codex   # required once if Codex auth is missing
   mk42 all
   mk42 cli -p "summarize this workspace"
 

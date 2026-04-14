@@ -65,6 +65,7 @@ You can override those with installer flags:
 After install, use:
 
 ```bash
+mk42 login codex   # one-time, if auth is not already configured
 mk42 all
 mk42 cli -p "summarize this workspace"
 ```

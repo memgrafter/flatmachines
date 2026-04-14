@@ -32,6 +32,10 @@ strip_wrapping_quotes() {
   printf '%s' "$v"
 }
 
+to_lower() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
 load_kv_file() {
   local file="$1"
   [[ -f "$file" ]] || return 0
@@ -127,6 +131,60 @@ has_flag() {
   return 1
 }
 
+copy_auth_candidate_if_present() {
+  local src="$1"
+  local dst="$2"
+
+  if [[ -s "$src" ]]; then
+    mkdir -p "$(dirname "$dst")"
+    cp "$src" "$dst"
+    chmod 600 "$dst" || true
+    echo "Copied Codex auth: $src -> $dst"
+    return 0
+  fi
+
+  return 1
+}
+
+run_codex_login() {
+  local target="$MK42_CODEX_AUTH_FILE"
+  mkdir -p "$(dirname "$target")"
+
+  if [[ -s "$target" ]]; then
+    chmod 600 "$target" || true
+    echo "Codex auth already configured: $target"
+    return 0
+  fi
+
+  echo "Running FlatAgents Codex OAuth login..."
+  echo "Command: $VENV_PYTHON -m flatagents.providers.openai_codex_login --auth-file $target"
+
+  if ! "$VENV_PYTHON" -m flatagents.providers.openai_codex_login --auth-file "$target"; then
+    echo "error: FlatAgents Codex login module failed" >&2
+    return 1
+  fi
+
+  if [[ -s "$target" ]]; then
+    chmod 600 "$target" || true
+    echo "Codex auth configured: $target"
+    return 0
+  fi
+
+  for candidate in \
+    "$HOME/.pi/agent/auth.json" \
+    "$HOME/.codex/auth.json" \
+    "$HOME/.config/codex/auth.json"; do
+    if copy_auth_candidate_if_present "$candidate" "$target"; then
+      return 0
+    fi
+  done
+
+  echo "error: Codex login finished, but auth file was not found." >&2
+  echo "Expected target: $target" >&2
+  echo "Copy your auth JSON there, then rerun mk42 login codex." >&2
+  return 1
+}
+
 cmd="${1:-all}"
 if [[ $# -gt 0 ]]; then
   shift
@@ -141,11 +199,20 @@ case "$cmd" in
     sleep 1
     cmd="all"
     ;;
+  login)
+    provider="${1:-codex}"
+    if [[ "$provider" != "codex" ]]; then
+      echo "error: unknown login provider '$provider' (supported: codex)" >&2
+      exit 1
+    fi
+    run_codex_login
+    exit $?
+    ;;
   cli|ingress|debounce|respond|all|status)
     ;;
   *)
     echo "error: unknown command '$cmd'" >&2
-    echo "usage: mk42 [cli|ingress|debounce|respond|all|status|start|restart] [args...]" >&2
+    echo "usage: mk42 [login codex|cli|ingress|debounce|respond|all|status|start|restart] [args...]" >&2
     exit 1
     ;;
 esac
@@ -165,7 +232,8 @@ if [[ "$cmd" == "cli" || "$cmd" == "respond" || "$cmd" == "all" ]]; then
 fi
 
 DEBUG_MODE="${CODING_MACHINE_DISCORD_DEBUG:-true}"
-if [[ "${DEBUG_MODE,,}" == "0" || "${DEBUG_MODE,,}" == "false" || "${DEBUG_MODE,,}" == "no" || "${DEBUG_MODE,,}" == "off" ]]; then
+DEBUG_MODE_LOWER="$(to_lower "$DEBUG_MODE")"
+if [[ "$DEBUG_MODE_LOWER" == "0" || "$DEBUG_MODE_LOWER" == "false" || "$DEBUG_MODE_LOWER" == "no" || "$DEBUG_MODE_LOWER" == "off" ]]; then
   exec "$VENV_PYTHON" -u -m tool_use_discord.main "${args[@]}"
 else
   LOG_LEVEL=DEBUG FLATAGENTS_LOG_LEVEL=DEBUG exec "$VENV_PYTHON" -u -m tool_use_discord.main "${args[@]}"
