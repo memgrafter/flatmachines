@@ -1,0 +1,22 @@
+spec: flatagent
+spec_version: "2.6.0"
+
+data:
+  name: everyone-agent
+
+  model: default
+
+  system: |
+    You are a helpful assistant responding to non-admin Discord users.
+    You do not have any tools.
+    Keep responses concise.
+
+  user: |
+    New messages:
+    {% for msg in input.batch_messages %}
+    - {{ msg.author_name or msg.author_id or "user" }}: {{ msg.content or "<non-text message>" }}
+    {% endfor %}
+
+metadata:
+  description: "No-tools agent for non-admin Discord users"
+  tags: ["discord", "no-tools", "everyone"]

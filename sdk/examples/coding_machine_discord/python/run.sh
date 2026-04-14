@@ -8,9 +8,15 @@ VENV_PATH=".venv"
 LOCAL_INSTALL=false
 # Debug is ON by default. Disable with CODING_MACHINE_DISCORD_DEBUG=false
 DEBUG_MODE="${CODING_MACHINE_DISCORD_DEBUG:-true}"
+COMMAND="run"
+PY_MODULE="tool_use_discord.main"
 PASSTHROUGH_ARGS=()
 while [[ $# -gt 0 ]]; do
     case $1 in
+        run|restart)
+            COMMAND="$1"
+            shift
+            ;;
         --local|-l)
             LOCAL_INSTALL=true
             shift
@@ -56,6 +62,16 @@ echo "📁 Project root: $PROJECT_ROOT"
 
 cd "$SCRIPT_DIR"
 
+if [[ ${#PASSTHROUGH_ARGS[@]} -eq 0 ]]; then
+    PASSTHROUGH_ARGS=("all" "--db-path" "../data/coding_machine_discord.sqlite")
+fi
+
+if [[ "$COMMAND" == "restart" ]]; then
+    echo "Restart requested: stopping existing $PY_MODULE processes..."
+    pkill -f "$PY_MODULE" || true
+    sleep 1
+fi
+
 # 1. Create Virtual Environment
 echo "Ensuring virtual environment..."
 if [ ! -d "$VENV_PATH" ]; then
@@ -84,10 +100,10 @@ echo "Running..."
 echo "---"
 if [[ "${DEBUG_MODE,,}" == "0" || "${DEBUG_MODE,,}" == "false" || "${DEBUG_MODE,,}" == "no" || "${DEBUG_MODE,,}" == "off" ]]; then
     echo "Debug logging disabled"
-    PYTHONUNBUFFERED=1 "$VENV_PATH/bin/python" -u -m tool_use_discord.main "${PASSTHROUGH_ARGS[@]}"
+    PYTHONUNBUFFERED=1 "$VENV_PATH/bin/python" -u -m "$PY_MODULE" "${PASSTHROUGH_ARGS[@]}"
 else
     echo "Debug logging enabled (LOG_LEVEL=DEBUG, FLATAGENTS_LOG_LEVEL=DEBUG)"
-    LOG_LEVEL=DEBUG FLATAGENTS_LOG_LEVEL=DEBUG PYTHONUNBUFFERED=1 "$VENV_PATH/bin/python" -u -m tool_use_discord.main "${PASSTHROUGH_ARGS[@]}"
+    LOG_LEVEL=DEBUG FLATAGENTS_LOG_LEVEL=DEBUG PYTHONUNBUFFERED=1 "$VENV_PATH/bin/python" -u -m "$PY_MODULE" "${PASSTHROUGH_ARGS[@]}"
 fi
 echo "---"
 echo "Done!"

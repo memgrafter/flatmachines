@@ -61,7 +61,9 @@ class DiscordMachineHooks(CLIToolHooks):
 
     async def on_action(self, action_name: str, context: dict[str, Any]) -> dict[str, Any]:
         if action_name == "queue_feedback":
-            messages = context.get("batch_messages")
+            messages = context.get("admin_batch_messages")
+            if not isinstance(messages, list):
+                messages = context.get("batch_messages")
             if not isinstance(messages, list):
                 return context
 
@@ -130,7 +132,7 @@ class CodingMachineBatchResponder(BatchResponder):
         *,
         working_dir: str,
         api: DiscordAPI,
-        backend: SQLiteMessageBackend,
+        backend: Optional[SQLiteMessageBackend],
         db_path: str,
         input_queue: str,
         queue_wait_seconds: float,
@@ -174,23 +176,37 @@ class CodingMachineBatchResponder(BatchResponder):
         execution_id = _conversation_execution_id(conversation_key)
         wait_channel = f"discord/{conversation_key}"
 
-        batch_messages = batch.get("messages")
-        if not isinstance(batch_messages, list):
-            batch_messages = []
+        batch_messages_raw = batch.get("messages")
+        if not isinstance(batch_messages_raw, list):
+            batch_messages_raw = []
 
-        latest_request = extract_latest_request(batch_messages)
+        admin_batch_messages, everyone_batch_messages = split_batch_messages_by_admin(
+            batch_messages_raw,
+            backend=self.backend,
+        )
+
+        latest_request = extract_latest_request(batch_messages_raw)
+
         machine_input = {
             "task": latest_request,
             "working_dir": self.working_dir,
             "latest_user_request": latest_request,
-            "batch_messages": batch_messages,
+            "batch_messages": batch_messages_raw,
+            "admin_batch_messages": admin_batch_messages,
+            "everyone_batch_messages": everyone_batch_messages,
+            "admin_message_count": len(admin_batch_messages),
+            "everyone_message_count": len(everyone_batch_messages),
             "queued_message_count": int(batch.get("message_count", 0) or 0),
             "conversation_key": conversation_key,
         }
 
         has_live_execution = await self._has_live_execution(execution_id)
         print(
-            f"[respond] conversation={conversation_key} messages={len(batch_messages)} live_execution={has_live_execution}",
+            "[respond] "
+            f"conversation={conversation_key} "
+            f"admin_messages={len(admin_batch_messages)} "
+            f"everyone_messages={len(everyone_batch_messages)} "
+            f"live_execution={has_live_execution}",
             flush=True,
         )
 
@@ -234,6 +250,31 @@ def extract_latest_request(messages: list[Any]) -> str:
             if content:
                 latest_request = content
     return latest_request
+
+
+def split_batch_messages_by_admin(
+    messages: list[Any],
+    *,
+    backend: Optional[SQLiteMessageBackend],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    normalized = [message for message in messages if isinstance(message, dict)]
+
+    # Backward-compatible fallback for tests / standalone use.
+    if backend is None:
+        return normalized, []
+
+    admin_messages: list[dict[str, Any]] = []
+    everyone_messages: list[dict[str, Any]] = []
+
+    for message in normalized:
+        author_id = str(message.get("author_id", "")).strip()
+        is_admin = backend.is_discord_user_admin(author_id)
+        if is_admin:
+            admin_messages.append(message)
+        else:
+            everyone_messages.append(message)
+
+    return admin_messages, everyone_messages
 
 
 def build_feedback_from_messages(messages: list[Any]) -> str:

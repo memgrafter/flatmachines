@@ -5,7 +5,7 @@ data:
   model_profiles:
     default:
       provider: openai-codex
-      name: gpt-5.3-codex
+      name: gpt-5.4-mini
       backend: codex
       base_url: https://chatgpt.com/backend-api
       oauth:

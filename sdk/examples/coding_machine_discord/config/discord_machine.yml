@@ -7,20 +7,29 @@ data:
     task: input.task
     latest_user_request: input.latest_user_request
     batch_messages: input.batch_messages
+    admin_batch_messages: input.admin_batch_messages
+    everyone_batch_messages: input.everyone_batch_messages
+    admin_message_count: input.admin_message_count
+    everyone_message_count: input.everyone_message_count
     queued_message_count: input.queued_message_count
     conversation_key: input.conversation_key
     working_dir: input.working_dir
 
   agents:
     coder: ./agent.yml
+    everyone: ./everyone-agent.yml
 
   states:
     start:
       type: initial
       transitions:
-        - to: work
+        - condition: "(context.admin_message_count or 0) > 0"
+          to: admin_work
+        - condition: "(context.everyone_message_count or 0) > 0"
+          to: everyone_work
+        - to: wait_for_feedback
 
-    work:
+    admin_work:
       agent: coder
       session_id: context.machine.execution_id
       tool_loop:
@@ -30,17 +39,38 @@ data:
         tool_timeout: 60
         total_timeout: 600
       input:
-        task: context.task
+        task: context.latest_user_request
         latest_user_request: context.latest_user_request
-        batch_messages: context.batch_messages
-        queued_message_count: context.queued_message_count
+        batch_messages: context.admin_batch_messages
+        queued_message_count: context.admin_message_count
         conversation_key: context.conversation_key
       output_to_context:
         result: "{{ output.content }}"
       transitions:
-        - to: post_result
+        - to: post_admin_result
 
-    post_result:
+    post_admin_result:
+      action: post_result
+      transitions:
+        - condition: "(context.everyone_message_count or 0) > 0"
+          to: everyone_work
+        - to: wait_for_feedback
+
+    everyone_work:
+      agent: everyone
+      session_id: context.machine.execution_id
+      input:
+        task: context.latest_user_request
+        latest_user_request: context.latest_user_request
+        batch_messages: context.everyone_batch_messages
+        queued_message_count: context.everyone_message_count
+        conversation_key: context.conversation_key
+      output_to_context:
+        result: "{{ output.content }}"
+      transitions:
+        - to: post_everyone_result
+
+    post_everyone_result:
       action: post_result
       transitions:
         - to: wait_for_feedback
@@ -51,6 +81,10 @@ data:
         task: output.latest_user_request
         latest_user_request: output.latest_user_request
         batch_messages: output.batch_messages
+        admin_batch_messages: output.admin_batch_messages
+        everyone_batch_messages: output.everyone_batch_messages
+        admin_message_count: output.admin_message_count
+        everyone_message_count: output.everyone_message_count
         queued_message_count: output.queued_message_count
       transitions:
         - to: merge_feedback
@@ -58,8 +92,8 @@ data:
     merge_feedback:
       action: queue_feedback
       transitions:
-        - to: work
+        - to: start
 
 metadata:
-  description: "Discord coding machine that waits for external signal and resumes the same execution"
-  tags: ["tool-use", "discord", "resume", "wait-for-signal"]
+  description: "Discord coding machine that routes admin vs everyone messages in one execution"
+  tags: ["tool-use", "discord", "resume", "wait-for-signal", "admin", "everyone"]

@@ -86,6 +86,16 @@ class SQLiteMessageBackend:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS discord_users (
+                    user_id TEXT PRIMARY KEY,
+                    username TEXT,
+                    is_admin INTEGER NOT NULL DEFAULT 0,
+                    updated_at REAL NOT NULL
+                )
+                """
+            )
 
     def enqueue(
         self,
@@ -249,6 +259,44 @@ class SQLiteMessageBackend:
                 """,
                 (key, value, t),
             )
+
+    def upsert_discord_user(
+        self,
+        *,
+        user_id: str,
+        is_admin: bool,
+        username: Optional[str] = None,
+        now: Optional[float] = None,
+    ) -> None:
+        t = time.time() if now is None else float(now)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO discord_users(user_id, username, is_admin, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    username = COALESCE(excluded.username, discord_users.username),
+                    is_admin = excluded.is_admin,
+                    updated_at = excluded.updated_at
+                """,
+                (str(user_id), username, 1 if is_admin else 0, t),
+            )
+
+    def is_discord_user_admin(self, user_id: Optional[str]) -> bool:
+        if user_id is None:
+            return False
+        normalized = str(user_id).strip()
+        if not normalized:
+            return False
+
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT is_admin FROM discord_users WHERE user_id = ?",
+                (normalized,),
+            ).fetchone()
+            if row is None:
+                return False
+            return bool(int(row["is_admin"]))
 
     def queue_counts(self) -> dict[str, dict[str, int]]:
         with self._connect() as conn:

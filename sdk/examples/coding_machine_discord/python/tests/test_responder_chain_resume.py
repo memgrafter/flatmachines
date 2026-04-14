@@ -97,3 +97,33 @@ def test_queue_feedback_action_appends_to_tool_loop_chain() -> None:
     updated = asyncio.run(hooks.on_action("queue_feedback", context))
 
     assert updated["_tool_loop_chain"][-1] == {"role": "user", "content": "alice: tell me more"}
+
+
+def test_queue_feedback_prefers_admin_batch_messages() -> None:
+    hooks = main.DiscordMachineHooks(working_dir=".", api=_FakeAPI())
+    context = {
+        "batch_messages": [{"author_name": "bob", "content": "public"}],
+        "admin_batch_messages": [{"author_name": "alice", "content": "admin only"}],
+        "_tool_loop_chain": [],
+    }
+
+    updated = asyncio.run(hooks.on_action("queue_feedback", context))
+
+    assert updated["_tool_loop_chain"][-1] == {"role": "user", "content": "alice: admin only"}
+
+
+def test_split_batch_messages_by_admin_with_backend():
+    class _Backend:
+        def is_discord_user_admin(self, user_id):
+            return user_id == "admin-user"
+
+    admin, everyone = main.split_batch_messages_by_admin(
+        [
+            {"author_id": "admin-user", "content": "a"},
+            {"author_id": "normal-user", "content": "b"},
+        ],
+        backend=_Backend(),
+    )
+
+    assert [m["author_id"] for m in admin] == ["admin-user"]
+    assert [m["author_id"] for m in everyone] == ["normal-user"]

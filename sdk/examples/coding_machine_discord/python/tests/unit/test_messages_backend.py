@@ -118,3 +118,15 @@ def test_state_roundtrip(tmp_path):
 
     backend.set_state("cursor", "12346", now=2)
     assert backend.get_state("cursor") == "12346"
+
+
+def test_discord_user_admin_mapping(tmp_path):
+    backend = SQLiteMessageBackend(str(tmp_path / "queue.sqlite"))
+
+    assert backend.is_discord_user_admin("u1") is False
+
+    backend.upsert_discord_user(user_id="u1", username="trent", is_admin=True, now=1)
+    assert backend.is_discord_user_admin("u1") is True
+
+    backend.upsert_discord_user(user_id="u1", username="trent", is_admin=False, now=2)
+    assert backend.is_discord_user_admin("u1") is False
