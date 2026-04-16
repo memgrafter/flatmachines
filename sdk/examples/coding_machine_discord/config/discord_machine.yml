@@ -32,7 +32,7 @@ data:
 
     admin_work:
       agent: coder
-      session_id: context.machine.execution_id
+      session_id: "{{ context.conversation_key }}::admin"
       tool_loop:
         max_turns: 30
         max_tool_calls: 100
@@ -44,7 +44,7 @@ data:
         latest_user_request: context.latest_user_request
         batch_messages: context.admin_batch_messages
         queued_message_count: context.admin_message_count
-        conversation_key: context.conversation_key
+        conversation_key: "{{ context.conversation_key }}::admin"
         agents_md: context.agents_md
       output_to_context:
         result: "{{ output.content }}"
@@ -60,13 +60,19 @@ data:
 
     everyone_work:
       agent: everyone
-      session_id: context.machine.execution_id
+      session_id: "{{ context.conversation_key }}::everyone"
+      tool_loop:
+        max_turns: 30
+        max_tool_calls: 100
+        max_cost: 2.00
+        tool_timeout: 60
+        total_timeout: 600
       input:
         task: context.latest_user_request
         latest_user_request: context.latest_user_request
         batch_messages: context.everyone_batch_messages
         queued_message_count: context.everyone_message_count
-        conversation_key: context.conversation_key
+        conversation_key: "{{ context.conversation_key }}::everyone"
       output_to_context:
         result: "{{ output.content }}"
       transitions:

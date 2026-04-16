@@ -55,16 +55,55 @@ class DiscordMachineHooks(CLIToolHooks):
     - posts model result when machine enters `post_result` action state
     """
 
+    _SHARED_TOOL_LOOP_AGENT_BY_STATE = {
+        "admin_work": "coder",
+        "everyone_work": "everyone",
+    }
+
     def __init__(self, *, working_dir: str, api: DiscordAPI):
         super().__init__(working_dir=working_dir, auto_approve=True)
         self.api = api
 
+    def on_state_enter(self, state_name: str, context: dict[str, Any]) -> dict[str, Any]:
+        """Allow admin/everyone states to share one full tool-loop chain.
+
+        FlatMachine's default tool-loop continuation chain is scoped to
+        (state_name, agent_name). We deliberately re-tag the existing chain for
+        whichever role state is entering so both roles continue the same full
+        history, including assistant tool calls and tool results.
+        """
+        agent_name = self._SHARED_TOOL_LOOP_AGENT_BY_STATE.get(state_name)
+        if not agent_name:
+            return context
+
+        chain = context.get("_tool_loop_chain")
+        if isinstance(chain, list) and chain:
+            context["_tool_loop_chain_state"] = state_name
+            context["_tool_loop_chain_agent"] = agent_name
+        return context
+
+    def get_tool_provider(self, state_name: str):
+        # Keep everyone_work on the same tool-loop continuation mechanics,
+        # but with no tools available.
+        if state_name == "everyone_work":
+            return None
+        return super().get_tool_provider(state_name)
+
     async def on_action(self, action_name: str, context: dict[str, Any]) -> dict[str, Any]:
         if action_name == "queue_feedback":
-            messages = context.get("admin_batch_messages")
+            messages = context.get("batch_messages")
             if not isinstance(messages, list):
-                messages = context.get("batch_messages")
-            if not isinstance(messages, list):
+                messages = []
+
+            if not messages:
+                admin_messages = context.get("admin_batch_messages")
+                everyone_messages = context.get("everyone_batch_messages")
+                if isinstance(admin_messages, list):
+                    messages.extend(admin_messages)
+                if isinstance(everyone_messages, list):
+                    messages.extend(everyone_messages)
+
+            if not messages:
                 return context
 
             feedback = build_feedback_from_messages(messages).strip()

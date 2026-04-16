@@ -99,17 +99,58 @@ def test_queue_feedback_action_appends_to_tool_loop_chain() -> None:
     assert updated["_tool_loop_chain"][-1] == {"role": "user", "content": "alice: tell me more"}
 
 
-def test_queue_feedback_prefers_admin_batch_messages() -> None:
+def test_queue_feedback_uses_batch_messages_when_present() -> None:
     hooks = main.DiscordMachineHooks(working_dir=".", api=_FakeAPI())
     context = {
         "batch_messages": [{"author_name": "bob", "content": "public"}],
         "admin_batch_messages": [{"author_name": "alice", "content": "admin only"}],
+        "everyone_batch_messages": [{"author_name": "charlie", "content": "everyone only"}],
         "_tool_loop_chain": [],
     }
 
     updated = asyncio.run(hooks.on_action("queue_feedback", context))
 
-    assert updated["_tool_loop_chain"][-1] == {"role": "user", "content": "alice: admin only"}
+    assert updated["_tool_loop_chain"][-1] == {"role": "user", "content": "bob: public"}
+
+
+def test_queue_feedback_falls_back_to_role_batches_when_full_batch_missing() -> None:
+    hooks = main.DiscordMachineHooks(working_dir=".", api=_FakeAPI())
+    context = {
+        "admin_batch_messages": [{"author_name": "alice", "content": "admin only"}],
+        "everyone_batch_messages": [{"author_name": "charlie", "content": "everyone only"}],
+        "_tool_loop_chain": [],
+    }
+
+    updated = asyncio.run(hooks.on_action("queue_feedback", context))
+
+    assert updated["_tool_loop_chain"][-1] == {
+        "role": "user",
+        "content": "alice: admin only\ncharlie: everyone only",
+    }
+
+
+def test_on_state_enter_retags_shared_chain_identity_for_role_states() -> None:
+    hooks = main.DiscordMachineHooks(working_dir=".", api=_FakeAPI())
+    context = {
+        "_tool_loop_chain": [{"role": "assistant", "content": "hello"}],
+        "_tool_loop_chain_state": "admin_work",
+        "_tool_loop_chain_agent": "coder",
+    }
+
+    updated_everyone = hooks.on_state_enter("everyone_work", dict(context))
+    assert updated_everyone["_tool_loop_chain_state"] == "everyone_work"
+    assert updated_everyone["_tool_loop_chain_agent"] == "everyone"
+
+    updated_admin = hooks.on_state_enter("admin_work", dict(context))
+    assert updated_admin["_tool_loop_chain_state"] == "admin_work"
+    assert updated_admin["_tool_loop_chain_agent"] == "coder"
+
+
+def test_get_tool_provider_disables_tools_for_everyone() -> None:
+    hooks = main.DiscordMachineHooks(working_dir=".", api=_FakeAPI())
+
+    assert hooks.get_tool_provider("everyone_work") is None
+    assert hooks.get_tool_provider("admin_work") is not None
 
 
 def test_split_batch_messages_by_admin_with_backend():
