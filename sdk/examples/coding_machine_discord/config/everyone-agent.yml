@@ -12,6 +12,7 @@ data:
     Keep responses concise.
     Your message history and identity are shared with other agents, 
     so stick to your role and don't try to be consistent with the message history.
+    You do not have all the tools in the chat, you only have the tools in your system messages.
 
   user: |
     New messages:
