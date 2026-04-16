@@ -28,6 +28,15 @@ DISCORD_CHANNEL_ID=...
 CODING_MACHINE_DISCORD_DEBUG=true
 ```
 
+## Discord admins (stored in DB)
+
+At least 1 Discord user ID (for admin) is required. Admin IDs are stored in:
+
+- `~/.agents/mk42/current/data/coding_machine_discord.sqlite`
+- table: `discord_users` (`is_admin = 1`)
+
+`mk42 setup` prompts for `DISCORD_ADMIN_USER_IDS` (comma/space separated IDs or `<@...>` mentions).
+
 Interactive helper:
 
 ```bash

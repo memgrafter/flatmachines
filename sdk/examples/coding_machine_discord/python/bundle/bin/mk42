@@ -242,6 +242,125 @@ path.write_text("\n".join(out).rstrip() + "\n", encoding='utf-8')
 PY
 }
 
+get_discord_admin_ids_csv() {
+  mkdir -p "$(dirname "$TOOL_USE_DISCORD_DB_PATH")"
+
+  "$VENV_PYTHON" - <<'PY' "$TOOL_USE_DISCORD_DB_PATH"
+from pathlib import Path
+import sqlite3
+import sys
+
+db_path = Path(sys.argv[1]).expanduser().resolve()
+db_path.parent.mkdir(parents=True, exist_ok=True)
+
+conn = sqlite3.connect(str(db_path))
+conn.row_factory = sqlite3.Row
+conn.execute(
+    """
+    CREATE TABLE IF NOT EXISTS discord_users (
+        user_id TEXT PRIMARY KEY,
+        username TEXT,
+        is_admin INTEGER NOT NULL DEFAULT 0,
+        updated_at REAL NOT NULL
+    )
+    """
+)
+rows = conn.execute(
+    "SELECT user_id FROM discord_users WHERE is_admin = 1 ORDER BY updated_at DESC, user_id ASC"
+).fetchall()
+print(",".join(str(row["user_id"]) for row in rows))
+PY
+}
+
+get_discord_admin_count() {
+  mkdir -p "$(dirname "$TOOL_USE_DISCORD_DB_PATH")"
+
+  "$VENV_PYTHON" - <<'PY' "$TOOL_USE_DISCORD_DB_PATH"
+from pathlib import Path
+import sqlite3
+import sys
+
+db_path = Path(sys.argv[1]).expanduser().resolve()
+db_path.parent.mkdir(parents=True, exist_ok=True)
+
+conn = sqlite3.connect(str(db_path))
+conn.row_factory = sqlite3.Row
+conn.execute(
+    """
+    CREATE TABLE IF NOT EXISTS discord_users (
+        user_id TEXT PRIMARY KEY,
+        username TEXT,
+        is_admin INTEGER NOT NULL DEFAULT 0,
+        updated_at REAL NOT NULL
+    )
+    """
+)
+row = conn.execute("SELECT COUNT(*) AS n FROM discord_users WHERE is_admin = 1").fetchone()
+print(int(row["n"] if row is not None else 0))
+PY
+}
+
+upsert_discord_admin_ids() {
+  local raw="$1"
+  mkdir -p "$(dirname "$TOOL_USE_DISCORD_DB_PATH")"
+
+  "$VENV_PYTHON" - <<'PY' "$TOOL_USE_DISCORD_DB_PATH" "$raw"
+from pathlib import Path
+import re
+import sqlite3
+import sys
+import time
+
+db_path = Path(sys.argv[1]).expanduser().resolve()
+raw = sys.argv[2]
+
+tokens = [token for token in re.split(r"[,\s]+", raw.strip()) if token]
+admin_ids: list[str] = []
+for token in tokens:
+    mention = re.fullmatch(r"<@!?(\d+)>", token)
+    if mention:
+        token = mention.group(1)
+    if token.isdigit() and token not in admin_ids:
+        admin_ids.append(token)
+
+if not admin_ids:
+    print(
+        "error: provide at least 1 valid Discord user ID (for admin; digits, comma/space separated, or <@...> mention)",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
+
+conn = sqlite3.connect(str(db_path))
+conn.row_factory = sqlite3.Row
+conn.execute(
+    """
+    CREATE TABLE IF NOT EXISTS discord_users (
+        user_id TEXT PRIMARY KEY,
+        username TEXT,
+        is_admin INTEGER NOT NULL DEFAULT 0,
+        updated_at REAL NOT NULL
+    )
+    """
+)
+
+now = time.time()
+for user_id in admin_ids:
+    conn.execute(
+        """
+        INSERT INTO discord_users(user_id, username, is_admin, updated_at)
+        VALUES (?, NULL, 1, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            is_admin = 1,
+            updated_at = excluded.updated_at
+        """,
+        (user_id, now),
+    )
+
+conn.commit()
+print(",".join(admin_ids))
+PY
+}
+
 prompt_tty_value() {
   local label="$1"
   local current="$2"
@@ -270,6 +389,70 @@ prompt_tty_value() {
   else
     printf '%s' "$input"
   fi
+}
+
+prompt_tty_raw() {
+  local label="$1"
+  local current="$2"
+  local input=""
+
+  if [[ -n "$current" ]]; then
+    printf '%s [current: %s]: ' "$label" "$current" >/dev/tty
+  else
+    printf '%s: ' "$label" >/dev/tty
+  fi
+
+  IFS= read -r input </dev/tty || input=""
+  if [[ -z "$input" ]]; then
+    printf '%s' "$current"
+  else
+    printf '%s' "$input"
+  fi
+}
+
+run_discord_admin_setup() {
+  if ! has_tty; then
+    echo "error: Discord admin setup requires an interactive TTY." >&2
+    echo "Edit DB manually: $TOOL_USE_DISCORD_DB_PATH (discord_users table)" >&2
+    return 1
+  fi
+
+  local current_admins
+  current_admins="$(get_discord_admin_ids_csv)"
+
+  cat >/dev/tty <<EOF
+
+Discord admin setup
+  DB path: $TOOL_USE_DISCORD_DB_PATH
+
+Add at least 1 Discord user ID (for admin).
+Accepted input: comma/space separated Discord user IDs (or <@...> mentions).
+
+How to get Discord user IDs:
+  1) Enable Developer Mode in Discord settings
+  2) Right-click user -> Copy User ID
+  Docs: https://support.discord.com/hc/en-us/articles/206346498
+EOF
+
+  local admins_input=""
+  local saved=""
+
+  while true; do
+    admins_input="$(prompt_tty_raw "DISCORD_ADMIN_USER_IDS" "$current_admins")"
+
+    if [[ -z "$(trim "$admins_input")" ]]; then
+      echo "Please provide at least 1 Discord user ID (for admin)." >/dev/tty
+      continue
+    fi
+
+    if saved="$(upsert_discord_admin_ids "$admins_input" 2>&1)"; then
+      break
+    fi
+
+    printf '%s\n' "$saved" >/dev/tty
+  done
+
+  echo "Saved Discord admin IDs: $saved"
 }
 
 run_discord_setup() {
@@ -329,7 +512,12 @@ EOF
   export DISCORD_BOT_TOKEN="${DISCORD_BOT_TOKEN:-}"
   export DISCORD_CHANNEL_ID="${DISCORD_CHANNEL_ID:-}"
 
+  if ! run_discord_admin_setup; then
+    return 1
+  fi
+
   echo "Saved Discord settings to $ENV_FILE"
+  echo "Saved Discord admins to $TOOL_USE_DISCORD_DB_PATH"
   echo "Next: mk42 all"
 }
 
@@ -370,6 +558,10 @@ missing_setup_items() {
 
   if [[ -z "${DISCORD_CHANNEL_ID:-}" ]]; then
     items+=("discord_channel_id")
+  fi
+
+  if [[ "$(get_discord_admin_count)" == "0" ]]; then
+    items+=("discord_admin_user_ids")
   fi
 
   printf '%s\n' "${items[@]}"
@@ -428,7 +620,7 @@ Usage:
   mk42 [--skip-setup] [command] [args]
 
 Commands:
-  setup [all|discord|codex]  Run onboarding setup (default: all)
+  setup [all|discord|codex]  Run onboarding setup (codex + Discord env + admin IDs)
   login codex                Run Codex OAuth login only
   all                        Run ingress + debounce + respond
   ingress                    Run ingress worker
@@ -446,6 +638,7 @@ Options:
 
 Notes:
   - Running 'mk42' with no command is the same as 'mk42 all'.
+  - Setup requires Codex auth, Discord token/channel, and at least 1 Discord user ID (for admin).
   - If setup is incomplete, mk42 auto-runs 'mk42 setup' for commands that need it.
 EOF
 }

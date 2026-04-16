@@ -65,7 +65,7 @@ You can override those with installer flags:
 After install, use:
 
 ```bash
-mk42 setup         # one-time: runs codex login + discord setup
+mk42 setup         # one-time: codex login + discord setup + at least 1 Discord user ID (for admin)
 mk42               # same as: mk42 all
 mk42 cli -p "summarize this workspace"
 
@@ -78,7 +78,7 @@ mk42 cli -p "summarize this workspace"
 The launcher defaults to:
 
 - workspace: `~/.agents/mk42/current`
-- state DB: `~/.agents/mk42/current/data/coding_machine_discord.sqlite`
+- state DB: `~/.agents/mk42/current/data/coding_machine_discord.sqlite` (includes Discord admin mappings)
 - conf file: `~/.agents/mk42/conf`
 - env file: `~/.agents/flatmachines/mk42.env`
 - codex auth file: `~/.agents/flatmachines/auth.json`

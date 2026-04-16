@@ -304,7 +304,7 @@ curl -fsSL https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/latest/downloa
 - Runtime config/secrets default outside workspace:
   - env: \`~/.agents/flatmachines/mk42.env\`
   - codex auth: \`~/.agents/flatmachines/auth.json\`
-- First-run setup (recommended):
+- First-run setup (recommended; includes Discord admin ID prompt):
 
 \`\`\`bash
 mk42 setup
