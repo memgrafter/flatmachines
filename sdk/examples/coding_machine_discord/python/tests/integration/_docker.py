@@ -75,10 +75,10 @@ def build_test_image(*, dockerfile_name: str, tag_prefix: str) -> str:
     return tag
 
 
-def run_container(*, image: str, volumes: dict[Path, str], env: dict[str, str] | None = None) -> DockerRunResult:
+def run_container(*, image: str, volumes: dict[Path, str] | None = None, env: dict[str, str] | None = None) -> DockerRunResult:
     command = ["docker", "run", "--rm"]
 
-    for host_path, container_path in volumes.items():
+    for host_path, container_path in (volumes or {}).items():
         command.extend(["-v", f"{host_path}:{container_path}"])
 
     for key, value in (env or {}).items():

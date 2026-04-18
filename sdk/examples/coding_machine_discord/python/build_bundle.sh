@@ -272,6 +272,14 @@ cat > "$OUT_DIR/NOTES.md" <<EOF
 
 GitHub release tag expected by these one-liners: \`$RELEASE_TAG\`
 
+## Requirements
+
+Ensure you have the following:
+
+\`\`\`bash
+apt install ca-certificates curl
+\`\`\`
+
 ## One-liner install (GitHub Release)
 
 Pinned release:
