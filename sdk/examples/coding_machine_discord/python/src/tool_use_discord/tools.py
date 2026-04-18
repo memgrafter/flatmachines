@@ -474,7 +474,7 @@ class EveryoneTimestampToolProvider(ToolProvider):
     def __init__(self, history_dir: Optional[str] = None):
         resolved_history_dir = history_dir or os.environ.get(
             "TOOL_USE_DISCORD_HISTORY_DIR",
-            "~/.agents/flatmachines/history",
+            "~/.agents/flatmachines/history/mk42",
         )
         self._history_dir = str(Path(resolved_history_dir).expanduser().resolve())
         self._conversation_key = ""

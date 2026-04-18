@@ -87,7 +87,7 @@ def test_compose_reply_resumes_existing_execution_with_signal(monkeypatch):
     assert sent_signals[0][0] == "discord/chan-1"
     assert sent_signals[0][1]["latest_user_request"] == "follow up"
     assert sent_signals[0][1]["chat_rollover_token_limit"] == 50000
-    assert sent_signals[0][1]["history_dir"].endswith(".agents/flatmachines/history")
+    assert sent_signals[0][1]["history_dir"].endswith(".agents/flatmachines/history/mk42")
 
 
 def test_queue_feedback_action_appends_to_tool_loop_chain() -> None:

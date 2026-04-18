@@ -82,7 +82,7 @@ The launcher defaults to:
 - conf file: `~/.agents/mk42/conf`
 - env file: `~/.agents/flatmachines/mk42.env`
 - codex auth file: `~/.agents/flatmachines/auth.json`
-- history dir: `~/.agents/flatmachines/history`
+- history dir: `~/.agents/flatmachines/history/mk42`
 - chat rollover token limit: `50000`
 
 ---
@@ -189,7 +189,7 @@ CODING_MACHINE_DISCORD_DEBUG=false ./run.sh --local all
 
 - By default, first ingress run **does not backfill full channel history**.
 - Active chat context rolls over instead of compacting once it reaches `MK42_CHAT_ROLLOVER_TOKEN_LIMIT` (default `50000`).
-- Older turns remain searchable from `TOOL_USE_DISCORD_HISTORY_DIR` (default `~/.agents/flatmachines/history`).
+- Older turns remain searchable from `TOOL_USE_DISCORD_HISTORY_DIR` (default `~/.agents/flatmachines/history/mk42`).
 - The everyone agent gets a read-only `history_grep` tool for recovering older conversational context on demand.
 - Empty-content Discord events are ignored unless they include useful payloads (attachments/embeds/components).
 - In responder flow, replies may be posted turn-by-turn during human-review loop handling.

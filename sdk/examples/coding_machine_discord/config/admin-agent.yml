@@ -34,7 +34,7 @@ data:
     - Use edit for precise changes (old text must match exactly, including whitespace)
     - Use write only for new files or complete rewrites
     - Active chat context may roll over after about {{ input.chat_rollover_token_limit or 50000 }} tokens.
-    - Older chat history is persisted under {{ input.history_dir or "~/.agents/flatmachines/history" }}.
+    - Older chat history is persisted under {{ input.history_dir or "~/.agents/flatmachines/history/mk42" }}.
     - If earlier conversational context seems missing, inspect history files before claiming you lack context.
     - Before asserting filesystem/process facts, verify with tools when possible
     - Be concise in responses
@@ -44,7 +44,7 @@ data:
 
   user: |
     {% if input.chat_context_rolled_over %}
-    Note: active chat context was rolled over earlier. If you need older context, inspect history under {{ input.history_dir or "~/.agents/flatmachines/history" }}.
+    Note: active chat context was rolled over earlier. If you need older context, inspect history under {{ input.history_dir or "~/.agents/flatmachines/history/mk42" }}.
 
     {% endif %}
     New messages:

@@ -55,7 +55,7 @@ def _default_history_dir() -> str:
         Path(
             os.environ.get(
                 "TOOL_USE_DISCORD_HISTORY_DIR",
-                "~/.agents/flatmachines/history",
+                "~/.agents/flatmachines/history/mk42",
             )
         ).expanduser().resolve()
     )
