@@ -51,6 +51,12 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
 }
 
+UV_PYTHON_REQUEST="${MK42_UV_PYTHON_VERSION:-3.13}"
+
+uv_python() {
+  uv run --managed-python --no-project --python "$UV_PYTHON_REQUEST" python "$@"
+}
+
 sha256_file() {
   local file="$1"
   if command -v sha256sum >/dev/null 2>&1; then
@@ -105,7 +111,6 @@ done
 
 need_cmd uv
 need_cmd uvx
-need_cmd python3
 need_cmd tar
 
 [[ -d "$EXAMPLE_DIR/config" ]] || fail "config directory not found: $EXAMPLE_DIR/config"
@@ -114,7 +119,7 @@ need_cmd tar
 [[ -f "$SCRIPT_DIR/bundle/bin/mk42" ]] || fail "launcher template missing: $SCRIPT_DIR/bundle/bin/mk42"
 [[ -f "$SCRIPT_DIR/bundle/SETUP.md" ]] || fail "setup doc missing: $SCRIPT_DIR/bundle/SETUP.md"
 
-BASE_VERSION="$(python3 - <<'PY' "$SCRIPT_DIR/pyproject.toml"
+BASE_VERSION="$(uv_python - <<'PY' "$SCRIPT_DIR/pyproject.toml"
 import pathlib
 import sys
 
@@ -149,7 +154,7 @@ fi
 
 RELEASE_TAG="${RELEASE_TAG_PREFIX}${ARTIFACT_VERSION}"
 
-DIST_ROOT="$(python3 - <<'PY' "$DIST_ROOT"
+DIST_ROOT="$(uv_python - <<'PY' "$DIST_ROOT"
 from pathlib import Path
 import sys
 print(Path(sys.argv[1]).expanduser().resolve())
@@ -191,7 +196,7 @@ log "staging workspace from $EXAMPLE_DIR"
 mkdir -p "$BUNDLE_ROOT/bin" "$BUNDLE_ROOT/wheels"
 
 log "building wheel"
-uv build --wheel --out-dir "$TMP_DIR/wheels" "$SCRIPT_DIR"
+uv build --managed-python --python "$UV_PYTHON_REQUEST" --wheel --out-dir "$TMP_DIR/wheels" "$SCRIPT_DIR"
 
 WHEEL_FILE="$(find "$TMP_DIR/wheels" -maxdepth 1 -type f -name 'tool_use_discord-*.whl' | sort | tail -n1)"
 [[ -n "$WHEEL_FILE" ]] || fail "wheel build failed"

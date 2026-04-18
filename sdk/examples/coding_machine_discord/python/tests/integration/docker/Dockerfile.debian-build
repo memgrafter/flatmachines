@@ -1,0 +1,11 @@
+FROM debian:stable-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+WORKDIR /workspace
+
+COPY provision_build_env.sh /usr/local/bin/provision_build_env.sh
+COPY run_build_bundle.sh /usr/local/bin/run_build_bundle.sh
+RUN chmod +x /usr/local/bin/provision_build_env.sh /usr/local/bin/run_build_bundle.sh \
+    && /usr/local/bin/provision_build_env.sh
+
+ENTRYPOINT ["/usr/local/bin/run_build_bundle.sh"]

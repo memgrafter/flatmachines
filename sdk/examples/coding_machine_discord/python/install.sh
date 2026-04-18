@@ -63,6 +63,12 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
 }
 
+UV_PYTHON_REQUEST="${MK42_UV_PYTHON_VERSION:-3.13}"
+
+uv_python() {
+  uv run --managed-python --no-project --python "$UV_PYTHON_REQUEST" python "$@"
+}
+
 sha256_file() {
   local file="$1"
   if command -v sha256sum >/dev/null 2>&1; then
@@ -98,7 +104,7 @@ resolve_script_dir() {
 }
 
 resolve_path() {
-  python3 - <<'PY' "$1"
+  uv_python - <<'PY' "$1"
 from pathlib import Path
 import sys
 print(Path(sys.argv[1]).expanduser().resolve())
@@ -111,7 +117,7 @@ to_lower() {
 
 select_bundle_from_manifest() {
   local manifest_file="$1"
-  python3 - "$manifest_file" "$REQUESTED_VERSION" <<'PY'
+  uv_python - "$manifest_file" "$REQUESTED_VERSION" <<'PY'
 import json
 import pathlib
 import sys
@@ -150,7 +156,7 @@ set_kv_file_value() {
   local key="$2"
   local value="$3"
 
-  python3 - <<'PY' "$file" "$key" "$value"
+  uv_python - <<'PY' "$file" "$key" "$value"
 from pathlib import Path
 import re
 import sys
@@ -182,6 +188,32 @@ if not replaced:
 
 path.write_text("\n".join(out).rstrip() + "\n", encoding='utf-8')
 PY
+}
+
+ensure_path_block_in_file() {
+  local file="$1"
+  local bin_dir="$2"
+  local start="# >>> mk42 ~/.local/bin PATH >>>"
+  local end="# <<< mk42 ~/.local/bin PATH <<<"
+
+  mkdir -p "$(dirname "$file")"
+  touch "$file"
+
+  if grep -Fq "$start" "$file"; then
+    return 0
+  fi
+
+  if [[ -s "$file" ]]; then
+    printf '\n' >> "$file"
+  fi
+
+  cat >> "$file" <<EOF
+$start
+if [ -d "$bin_dir" ] && ! printf ':%s:' "\$PATH" | grep -Fq ":$bin_dir:"; then
+  export PATH="$bin_dir:\$PATH"
+fi
+$end
+EOF
 }
 
 has_tty() {
@@ -307,7 +339,6 @@ done
 need_cmd bash
 need_cmd tar
 need_cmd uv
-need_cmd python3
 
 INSTALL_DIR="$(resolve_path "$INSTALL_DIR")"
 ENV_FILE="$(resolve_path "$ENV_FILE")"
@@ -452,7 +483,7 @@ ln -sfn "$WORKSPACE_DIR" "$INSTALL_DIR/current"
 VENV_DIR="$INSTALL_DIR/.venv"
 if [[ ! -x "$VENV_DIR/bin/python" ]]; then
   log "creating virtualenv"
-  uv venv "$VENV_DIR"
+  uv venv --managed-python --python "$UV_PYTHON_REQUEST" "$VENV_DIR"
 fi
 
 WHEELS_DIR="$INSTALL_DIR/current/wheels"
@@ -523,11 +554,16 @@ if [[ "$CODEX_AUTH_READY" != true ]]; then
   fi
 fi
 
+PATH_UPDATE_NOTE=""
 if [[ "$LINK_BIN" == true ]]; then
   BIN_DIR="$HOME/.local/bin"
   mkdir -p "$BIN_DIR"
   ln -sfn "$INSTALL_DIR/current/bin/mk42" "$BIN_DIR/mk42"
+  ensure_path_block_in_file "$HOME/.profile" "$BIN_DIR"
+  ensure_path_block_in_file "$HOME/.bashrc" "$BIN_DIR"
   log "linked launcher: $BIN_DIR/mk42"
+  log "ensured $BIN_DIR is added to PATH in ~/.profile and ~/.bashrc"
+  PATH_UPDATE_NOTE="Open a new shell (or run: . ~/.profile) before using 'mk42' by name if it is not yet on PATH in this session."
 fi
 
 cat <<EOF
@@ -554,4 +590,5 @@ Individual setup commands (optional):
 Setup doc:
   $INSTALL_DIR/current/SETUP.md
 
+$PATH_UPDATE_NOTE
 EOF

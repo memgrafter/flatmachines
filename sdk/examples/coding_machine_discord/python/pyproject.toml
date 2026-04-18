@@ -14,3 +14,8 @@ allow-direct-references = true
 
 [project.scripts]
 tool-use-discord = "tool_use_discord.main:main"
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: docker-backed integration/system tests",
+]
