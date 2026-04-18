@@ -8,7 +8,6 @@ and append-only JSONL chat history persistence.
 from __future__ import annotations
 
 import json
-import os
 import re
 import time
 from pathlib import Path
@@ -16,6 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from flatmachines import MachineHooks
 
+from .paths import default_history_dir
 from .tools import CLIToolProvider
 
 
@@ -41,10 +41,7 @@ class CLIToolHooks(MachineHooks):
         self._auto_approve = auto_approve
         self._history_enabled = bool(history_enabled)
 
-        resolved_history_dir = history_dir or os.environ.get(
-            "TOOL_USE_DISCORD_HISTORY_DIR",
-            "~/.agents/flatmachines/history/mk42",
-        )
+        resolved_history_dir = history_dir or default_history_dir()
         self._history_dir = Path(resolved_history_dir).expanduser().resolve()
 
     def get_tool_provider(self, state_name: str):

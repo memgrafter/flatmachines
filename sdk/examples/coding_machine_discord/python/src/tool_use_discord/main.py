@@ -35,6 +35,7 @@ from .discord_api import DiscordAPI
 from .discord_ingress import DiscordIngressService
 from .hooks import CLIToolHooks
 from .messages_backend import SQLiteMessageBackend
+from .paths import default_history_dir as _default_history_dir, mk42_home as _mk42_home
 from .responder import BatchResponder, DiscordResponderService, EchoBatchResponder
 from .tools import EveryoneTimestampToolProvider
 
@@ -48,17 +49,6 @@ _log_level = os.environ.get("LOG_LEVEL", "WARNING").upper()
 logging.getLogger().setLevel(_log_level)
 for _name in ("flatagents", "flatmachines", "LiteLLM"):
     logging.getLogger(_name).setLevel(_log_level)
-
-
-def _default_history_dir() -> str:
-    return str(
-        Path(
-            os.environ.get(
-                "TOOL_USE_DISCORD_HISTORY_DIR",
-                "~/.agents/flatmachines/history/mk42",
-            )
-        ).expanduser().resolve()
-    )
 
 
 def _chat_rollover_token_limit() -> int:
@@ -458,10 +448,6 @@ def _read_agents_md(working_dir: str) -> str:
         return ""
 
 
-def _mk42_home() -> Path:
-    return Path(os.environ.get("MK42_HOME", "~/.agents/mk42")).expanduser().resolve()
-
-
 def _parse_kv_file(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     try:
@@ -521,6 +507,7 @@ def _load_runtime_env_from_conf() -> None:
 
     os.environ.setdefault("MK42_CODEX_AUTH_FILE", str(codex_auth))
     os.environ.setdefault("FLATAGENTS_CODEX_AUTH_FILE", str(codex_auth))
+    os.environ.setdefault("TOOL_USE_DISCORD_HISTORY_DIR", _default_history_dir())
 
 
 def _config_path(name: str) -> str:

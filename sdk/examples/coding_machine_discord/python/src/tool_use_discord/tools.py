@@ -19,6 +19,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flatagents.tools import ToolProvider, ToolResult
 
+from .paths import default_history_dir
+
 MAX_LINES = 2000
 MAX_BYTES = 50 * 1024  # 50KB
 
@@ -471,10 +473,7 @@ class EveryoneTimestampToolProvider(ToolProvider):
     """Restricted provider for everyone mode: timestamp_utc + conversation-scoped history search."""
 
     def __init__(self, history_dir: Optional[str] = None):
-        resolved_history_dir = history_dir or os.environ.get(
-            "TOOL_USE_DISCORD_HISTORY_DIR",
-            "~/.agents/flatmachines/history/mk42",
-        )
+        resolved_history_dir = history_dir or default_history_dir()
         self._history_dir = str(Path(resolved_history_dir).expanduser().resolve())
         self._conversation_key = ""
 
