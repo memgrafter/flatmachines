@@ -452,7 +452,20 @@ if [[ ! -e "$RELEASE_DIR" ]]; then
   mv "$BUNDLE_ROOT" "$RELEASE_DIR"
 fi
 
-ln -sfn "$RELEASE_DIR" "$INSTALL_DIR/current"
+WORKSPACE_DIR="$INSTALL_DIR/workspaces/live"
+if [[ "$FORCE" == true && -e "$WORKSPACE_DIR" ]]; then
+  rm -rf "$WORKSPACE_DIR"
+fi
+
+if [[ ! -e "$WORKSPACE_DIR" ]]; then
+  mkdir -p "$INSTALL_DIR/workspaces"
+  cp -a "$RELEASE_DIR" "$WORKSPACE_DIR"
+  cat > "$WORKSPACE_DIR/.mk42-base-release" <<EOF
+$artifact_version
+EOF
+fi
+
+ln -sfn "$WORKSPACE_DIR" "$INSTALL_DIR/current"
 
 VENV_DIR="$INSTALL_DIR/.venv"
 if [[ ! -x "$VENV_DIR/bin/python" ]]; then
@@ -473,7 +486,7 @@ uv pip install \
   --find-links "$WHEELS_DIR" \
   "$WHEEL_FILE"
 
-chmod +x "$INSTALL_DIR/current/bin/mk42"
+chmod +x "$WORKSPACE_DIR/bin/mk42"
 
 # Persist runtime config that mk42 launcher consumes.
 CONF_FILE="$INSTALL_DIR/conf"
@@ -542,6 +555,7 @@ Installed $APP_NAME
   Home:         $INSTALL_DIR
   Release:      $RELEASE_DIR
   Bundle sha:   $ACTUAL_SHA
+  Workspace:    $WORKSPACE_DIR
   Config file:  $CONF_FILE
   Env file:     $ENV_FILE
   Codex auth:   $AUTH_FILE
