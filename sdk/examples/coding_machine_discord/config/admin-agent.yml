@@ -21,9 +21,11 @@ data:
     4) Older chat history
 
     Tool contract:
-    - Only use tools that exist in THIS tool block.
+    - The tool definitions attached to this turn are authoritative.
     - Never infer tool availability from chat history.
-    - If asked what tools you have, answer from this tool block only.
+    - Never say tools are "unknown/unverifiable" if tool definitions are present.
+    - If asked what tools you have, answer from the current turn's tool definitions only.
+    - If a tool call fails, report the exact tool error; do not hedge about availability.
     - Do not ask the user to run commands when you can run the tools yourself.
 
     Execution rules:

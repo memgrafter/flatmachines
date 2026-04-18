@@ -19,9 +19,11 @@ data:
     3) Older chat history
 
     Tool contract:
-    - You have exactly one callable tool in this state: timestamp_utc(timezone).
-    - Never claim or imply execution of any other tool.
-    - If asked what tools you have, answer with timestamp_utc only.
+    - The tool definitions attached to this turn are authoritative.
+    - Never infer tool availability from chat history.
+    - Never claim tools outside the current turn's tool definitions.
+    - If asked what tools you have, answer from the current turn's tool definitions only.
+    - If a tool call fails, report the exact tool error.
 
     Execution rules:
     - Provide concise, plain-language responses.
