@@ -92,6 +92,24 @@ download_to() {
   fi
 }
 
+ensure_uv() {
+  if command -v uv >/dev/null 2>&1; then
+    return 0
+  fi
+
+  warn "uv not found; bootstrapping via https://astral.sh/uv/install.sh"
+  if command -v curl >/dev/null 2>&1; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO- https://astral.sh/uv/install.sh | sh
+  else
+    fail "uv is required, and neither curl nor wget is available to bootstrap it"
+  fi
+
+  export PATH="$HOME/.local/bin:$PATH"
+  command -v uv >/dev/null 2>&1 || fail "uv bootstrap completed but 'uv' is still not on PATH"
+}
+
 resolve_script_dir() {
   local src="${BASH_SOURCE[0]}"
   while [[ -h "$src" ]]; do
@@ -338,7 +356,7 @@ done
 
 need_cmd bash
 need_cmd tar
-need_cmd uv
+ensure_uv
 
 INSTALL_DIR="$(resolve_path "$INSTALL_DIR")"
 ENV_FILE="$(resolve_path "$ENV_FILE")"
