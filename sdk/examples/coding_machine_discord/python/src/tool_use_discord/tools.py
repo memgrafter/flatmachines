@@ -7,11 +7,14 @@ configured working directory.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flatagents.tools import ToolProvider, ToolResult
 
@@ -222,7 +225,6 @@ async def tool_edit(working_dir: str, _id: str, args: Dict[str, Any]) -> ToolRes
         content = p.read_text(errors="replace")
 
         if old_text not in content:
-            # Show a snippet around potential near-matches for debugging
             return ToolResult(
                 content=f"oldText not found in {path}. Make sure it matches exactly (including whitespace).",
                 is_error=True,
@@ -242,6 +244,27 @@ async def tool_edit(working_dir: str, _id: str, args: Dict[str, Any]) -> ToolRes
         return ToolResult(content=f"Error editing {path}: {e}", is_error=True)
 
 
+async def tool_timestamp_utc(_working_dir: str, _id: str, args: Dict[str, Any]) -> ToolResult:
+    """Return current UTC timestamp while validating the requested timezone."""
+    timezone_name = str(args.get("timezone", "")).strip()
+    if not timezone_name:
+        return ToolResult(content="Missing required parameter: timezone", is_error=True)
+
+    try:
+        requested_tz = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        return ToolResult(content=f"Invalid timezone: {timezone_name}", is_error=True)
+
+    now_utc = datetime.now(timezone.utc)
+    payload = {
+        "timezone": timezone_name,
+        "timestamp_utc": now_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "unix_utc": int(now_utc.timestamp()),
+        "timestamp_in_timezone": now_utc.astimezone(requested_tz).isoformat(),
+    }
+    return ToolResult(content=json.dumps(payload, ensure_ascii=False))
+
+
 # ---------------------------------------------------------------------------
 # ToolProvider that binds tools to a working directory
 # ---------------------------------------------------------------------------
@@ -249,17 +272,44 @@ async def tool_edit(working_dir: str, _id: str, args: Dict[str, Any]) -> ToolRes
 class CLIToolProvider:
     """ToolProvider with read, bash, write, edit bound to a working directory."""
 
-    def __init__(self, working_dir: str = "."):
+    def __init__(self, working_dir: str = ".", bash_mode: str = "full"):
         self.working_dir = os.path.abspath(working_dir)
+        self.bash_mode = bash_mode
 
     def get_tool_definitions(self) -> list:
         # Definitions come from the agent YAML, not here
         return []
 
+    def set_bash_mode(self, bash_mode: str) -> None:
+        self.bash_mode = bash_mode
+
+    def _is_safe_date_command(self, command: str) -> bool:
+        cmd = command.strip()
+        if not cmd:
+            return False
+        if "date" not in cmd:
+            return False
+        allowed_prefixes = (
+            "date",
+            "/bin/date",
+            "/usr/bin/date",
+            "command date",
+            "env date",
+            "builtin date",
+        )
+        return any(cmd == prefix or cmd.startswith(prefix + " ") for prefix in allowed_prefixes)
+
     async def execute_tool(self, name: str, tool_call_id: str, arguments: Dict[str, Any]) -> ToolResult:
         if name == "read":
             return await tool_read(self.working_dir, tool_call_id, arguments)
         elif name == "bash":
+            if self.bash_mode == "date-only":
+                command = str(arguments.get("command", ""))
+                if not self._is_safe_date_command(command):
+                    return ToolResult(
+                        content="bash is restricted in this state: only safe `date` invocations are allowed.",
+                        is_error=True,
+                    )
             return await tool_bash(self.working_dir, tool_call_id, arguments)
         elif name == "write":
             return await tool_write(self.working_dir, tool_call_id, arguments)
@@ -267,3 +317,16 @@ class CLIToolProvider:
             return await tool_edit(self.working_dir, tool_call_id, arguments)
         else:
             return ToolResult(content=f"Unknown tool: {name}", is_error=True)
+
+
+class EveryoneTimestampToolProvider(ToolProvider):
+    """Restricted provider for everyone mode: timestamp_utc only."""
+
+    def get_tool_definitions(self) -> list:
+        # Definitions come from the agent YAML, not here
+        return []
+
+    async def execute_tool(self, name: str, tool_call_id: str, arguments: Dict[str, Any]) -> ToolResult:
+        if name != "timestamp_utc":
+            return ToolResult(content=f"Unknown tool: {name}", is_error=True)
+        return await tool_timestamp_utc(".", tool_call_id, arguments)

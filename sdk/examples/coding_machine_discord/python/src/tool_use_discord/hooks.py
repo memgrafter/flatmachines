@@ -1,12 +1,21 @@
 """
 CLI Tool Use Hooks.
 
-Provides the tool provider, file tracking, per-call display, and human review.
+Provides the tool provider, file tracking, per-call display, human review,
+and append-only JSONL chat history persistence.
 """
 
-from typing import Any, Dict, List
+from __future__ import annotations
+
+import json
+import os
+import re
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from flatmachines import MachineHooks
+
 from .tools import CLIToolProvider
 
 
@@ -21,16 +30,37 @@ def _bold(text: str) -> str:
 class CLIToolHooks(MachineHooks):
     """Hooks for CLI tool-use workflow with per-call display and human review."""
 
-    def __init__(self, working_dir: str = ".", auto_approve: bool = False):
+    def __init__(
+        self,
+        working_dir: str = ".",
+        auto_approve: bool = False,
+        history_enabled: bool = True,
+        history_dir: Optional[str] = None,
+    ):
         self._provider = CLIToolProvider(working_dir)
         self._auto_approve = auto_approve
+        self._history_enabled = bool(history_enabled)
+
+        resolved_history_dir = history_dir or os.environ.get(
+            "TOOL_USE_DISCORD_HISTORY_DIR",
+            "~/.agents/flatmachines/history",
+        )
+        self._history_dir = Path(resolved_history_dir).expanduser().resolve()
 
     def get_tool_provider(self, state_name: str):
         return self._provider
 
+    def on_state_enter(self, state_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        context["_history_last_state"] = state_name
+        return self._sync_history_from_chain(state_name, context)
+
     def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        state_name = str(context.get("_history_last_state") or "unknown")
+        context = self._sync_history_from_chain(state_name, context)
+
         if action_name == "human_review":
-            return self._human_review(context)
+            context = self._human_review(context)
+            context = self._sync_history_from_chain(state_name, context)
         return context
 
     def on_tool_calls(self, state_name: str, tool_calls: List[Dict[str, Any]], context: Dict[str, Any]) -> Dict[str, Any]:
@@ -54,7 +84,7 @@ class CLIToolHooks(MachineHooks):
         if parts:
             print(_dim(" | ".join(parts)))
 
-        return context
+        return self._sync_history_from_chain(state_name, context)
 
     def on_tool_result(self, state_name: str, tool_result: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         """Print tool call result and track modified files."""
@@ -94,6 +124,135 @@ class CLIToolHooks(MachineHooks):
                 modified = context.setdefault("files_modified", [])
                 if path not in modified:
                     modified.append(path)
+
+        return self._sync_history_from_chain(state_name, context)
+
+    def _history_role(self, state_name: str, context: Dict[str, Any]) -> str:
+        value = context.get("_tool_loop_chain_agent") or state_name or "assistant"
+        return self._sanitize_filename_token(str(value), default="assistant")
+
+    def _history_channel(self, context: Dict[str, Any]) -> str:
+        value = context.get("conversation_key") or context.get("channel_id") or "default"
+        return self._sanitize_filename_token(str(value), default="default")
+
+    @staticmethod
+    def _sanitize_filename_token(value: str, *, default: str) -> str:
+        token = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value).strip())
+        token = token.strip("-._")
+        return token or default
+
+    def _history_payload_from_chain_message(self, message: Any) -> Optional[Dict[str, Any]]:
+        if not isinstance(message, dict):
+            return None
+
+        role = str(message.get("role", "")).strip().lower()
+        content = str(message.get("content", ""))
+
+        if role == "user":
+            return {
+                "role": "user",
+                "type": "message",
+                "content": content,
+            }
+
+        if role == "assistant":
+            payload: Dict[str, Any] = {
+                "role": "assistant",
+                "type": "message",
+                "content": content,
+            }
+
+            tool_calls = message.get("tool_calls")
+            if isinstance(tool_calls, list) and tool_calls:
+                normalized_tool_calls: list[dict[str, Any]] = []
+                for tc in tool_calls:
+                    if not isinstance(tc, dict):
+                        continue
+                    function = tc.get("function") if isinstance(tc.get("function"), dict) else {}
+                    normalized_tool_calls.append(
+                        {
+                            "name": str(function.get("name") or tc.get("name") or ""),
+                            "arguments": function.get("arguments")
+                            if function.get("arguments") is not None
+                            else tc.get("arguments", {}),
+                        }
+                    )
+
+                if normalized_tool_calls:
+                    payload["type"] = "tool_call"
+                    payload["tool_calls"] = normalized_tool_calls
+
+            return payload
+
+        # FlatMachines stores tool results as role=tool chain entries.
+        if role == "tool":
+            return {
+                "role": "assistant",
+                "type": "tool_response",
+                "content": content,
+                "tool_call_id": str(message.get("tool_call_id", "")),
+            }
+
+        return None
+
+    def _sync_history_from_chain(self, state_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        if not self._history_enabled:
+            return context
+
+        chain = context.get("_tool_loop_chain")
+        if not isinstance(chain, list) or not chain:
+            return context
+
+        role = self._history_role(state_name, context)
+        channel = self._history_channel(context)
+        identity = f"{role}|{channel}"
+
+        cursors = context.setdefault("_history_chain_cursors", {})
+        cursor_raw = cursors.get(identity, 0)
+        try:
+            cursor = int(cursor_raw)
+        except (TypeError, ValueError):
+            cursor = 0
+
+        if cursor < 0 or cursor > len(chain):
+            cursor = 0
+
+        new_messages = chain[cursor:]
+        if not new_messages:
+            return context
+
+        now_unix = int(time.time())
+        entries: list[dict[str, Any]] = []
+        for message in new_messages:
+            payload = self._history_payload_from_chain_message(message)
+            if not payload:
+                continue
+            payload["ts"] = now_unix
+            entries.append(payload)
+
+        cursors[identity] = len(chain)
+        if not entries:
+            return context
+
+        file_ts_map = context.setdefault("_history_file_ts", {})
+        file_ts_raw = file_ts_map.get(identity)
+        try:
+            file_ts = int(file_ts_raw)
+        except (TypeError, ValueError):
+            file_ts = now_unix
+            file_ts_map[identity] = file_ts
+
+        history_file = self._history_dir / f"{file_ts}_{role}_{channel}.jsonl"
+
+        try:
+            self._history_dir.mkdir(parents=True, exist_ok=True)
+            with history_file.open("a", encoding="utf-8") as handle:
+                for entry in entries:
+                    handle.write(json.dumps(entry, ensure_ascii=False))
+                    handle.write("\n")
+            context["_history_last_file"] = str(history_file)
+        except Exception as exc:
+            print(f"[history] warning: failed to append {history_file}: {exc}", flush=True)
 
         return context
 

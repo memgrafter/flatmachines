@@ -35,6 +35,7 @@ from .discord_ingress import DiscordIngressService
 from .hooks import CLIToolHooks
 from .messages_backend import SQLiteMessageBackend
 from .responder import BatchResponder, DiscordResponderService, EchoBatchResponder
+from .tools import EveryoneTimestampToolProvider
 
 # Suppress validation warnings until schemas are regenerated
 warnings.filterwarnings("ignore", message=".*validation.*")
@@ -60,9 +61,20 @@ class DiscordMachineHooks(CLIToolHooks):
         "everyone_work": "everyone",
     }
 
+    _HISTORY_ROLE_BY_STATE = {
+        "admin_work": "admin",
+        "everyone_work": "everyone",
+    }
+
+    _HISTORY_ROLE_BY_AGENT = {
+        "coder": "admin",
+        "everyone": "everyone",
+    }
+
     def __init__(self, *, working_dir: str, api: DiscordAPI):
         super().__init__(working_dir=working_dir, auto_approve=True)
         self.api = api
+        self._everyone_provider = EveryoneTimestampToolProvider()
 
     def on_state_enter(self, state_name: str, context: dict[str, Any]) -> dict[str, Any]:
         """Allow admin/everyone states to share one full tool-loop chain.
@@ -72,6 +84,8 @@ class DiscordMachineHooks(CLIToolHooks):
         whichever role state is entering so both roles continue the same full
         history, including assistant tool calls and tool results.
         """
+        context = super().on_state_enter(state_name, context)
+
         agent_name = self._SHARED_TOOL_LOOP_AGENT_BY_STATE.get(state_name)
         if not agent_name:
             return context
@@ -83,13 +97,25 @@ class DiscordMachineHooks(CLIToolHooks):
         return context
 
     def get_tool_provider(self, state_name: str):
-        # Keep everyone_work on the same tool-loop continuation mechanics,
-        # but with no tools available.
         if state_name == "everyone_work":
-            return None
+            return self._everyone_provider
         return super().get_tool_provider(state_name)
 
+    def _history_role(self, state_name: str, context: dict[str, Any]) -> str:
+        mapped = self._HISTORY_ROLE_BY_STATE.get(state_name)
+        if mapped:
+            return mapped
+
+        agent_name = str(context.get("_tool_loop_chain_agent") or "").strip()
+        mapped_agent = self._HISTORY_ROLE_BY_AGENT.get(agent_name)
+        if mapped_agent:
+            return mapped_agent
+
+        return super()._history_role(state_name, context)
+
     async def on_action(self, action_name: str, context: dict[str, Any]) -> dict[str, Any]:
+        state_name = str(context.get("_history_last_state") or "unknown")
+
         if action_name == "queue_feedback":
             messages = context.get("batch_messages")
             if not isinstance(messages, list):
@@ -103,41 +129,38 @@ class DiscordMachineHooks(CLIToolHooks):
                 if isinstance(everyone_messages, list):
                     messages.extend(everyone_messages)
 
-            if not messages:
-                return context
+            if messages:
+                feedback = build_feedback_from_messages(messages).strip()
+                if feedback and feedback != "(no new user text)":
+                    chain = context.get("_tool_loop_chain")
+                    if not isinstance(chain, list):
+                        chain = []
 
-            feedback = build_feedback_from_messages(messages).strip()
-            if not feedback or feedback == "(no new user text)":
-                return context
+                    should_append = True
+                    if chain:
+                        last = chain[-1]
+                        if (
+                            isinstance(last, dict)
+                            and str(last.get("role", "")) == "user"
+                            and str(last.get("content", "")).strip() == feedback
+                        ):
+                            should_append = False
 
-            chain = context.get("_tool_loop_chain")
-            if not isinstance(chain, list):
-                chain = []
+                    if should_append:
+                        chain.append({"role": "user", "content": feedback})
+                        context["_tool_loop_chain"] = chain
 
-            if chain:
-                last = chain[-1]
-                if (
-                    isinstance(last, dict)
-                    and str(last.get("role", "")) == "user"
-                    and str(last.get("content", "")).strip() == feedback
-                ):
-                    return context
-
-            chain.append({"role": "user", "content": feedback})
-            context["_tool_loop_chain"] = chain
-            return context
+            return self._sync_history_from_chain(state_name, context)
 
         if action_name != "post_result":
-            return context
+            return self._sync_history_from_chain(state_name, context)
 
         result_text = str(context.get("result", "")).strip()
-        if not result_text:
-            return context
+        if result_text:
+            for chunk in _split_discord_message(result_text, max_chars=2000):
+                await asyncio.to_thread(self.api.post_channel_message, chunk)
 
-        for chunk in _split_discord_message(result_text, max_chars=2000):
-            await asyncio.to_thread(self.api.post_channel_message, chunk)
-
-        return context
+        return self._sync_history_from_chain(state_name, context)
 
 
 def _split_discord_message(content: str, max_chars: int = 2000) -> list[str]:

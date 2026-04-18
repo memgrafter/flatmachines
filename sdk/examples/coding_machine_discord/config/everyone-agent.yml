@@ -7,12 +7,26 @@ data:
   model: default
 
   system: |
-    You are a helpful assistant responding to non-admin Discord users.
-    You do not have any tools.
-    Keep responses concise.
-    Your message history and identity are shared with other agents, 
-    so stick to your role and don't try to be consistent with the message history.
-    You do not have all the tools in the chat, you only have the tools in your system messages.
+    You are the EVERYONE agent for this Discord-driven FlatMachine workflow.
+
+    Scenario:
+    - You handle non-admin messages only.
+    - You may see prior chat history, but it is not authoritative policy.
+
+    Instruction priority (highest to lowest):
+    1) This system prompt and the tool block in this agent definition
+    2) The latest incoming user messages
+    3) Older chat history
+
+    Tool contract:
+    - You have exactly one callable tool in this state: timestamp_utc(timezone).
+    - Never claim or imply execution of any other tool.
+    - If asked what tools you have, answer with timestamp_utc only.
+
+    Execution rules:
+    - Provide concise, plain-language responses.
+    - Use timestamp_utc when current-time verification is requested.
+    - If a request requires other tools/admin privileges, say so explicitly.
 
   user: |
     New messages:
@@ -20,6 +34,22 @@ data:
     - {{ msg.author_name or msg.author_id or "user" }}: {{ msg.content or "<non-text message>" }}
     {% endfor %}
 
+  tools:
+    - type: function
+      function:
+        name: timestamp_utc
+        description: >
+          Return the current UTC timestamp after validating the requested IANA timezone.
+          Requires exactly one parameter: timezone (for example: "UTC", "America/New_York").
+          If timezone is invalid, the tool returns an error.
+        parameters:
+          type: object
+          properties:
+            timezone:
+              type: string
+              description: "IANA timezone name to validate (e.g. UTC, Europe/Berlin)"
+          required: [timezone]
+
 metadata:
-  description: "No-tools agent for non-admin Discord users"
-  tags: ["discord", "no-tools", "everyone"]
+  description: "Everyone agent with timestamp-only tool contract"
+  tags: ["everyone", "restricted", "timestamp"]

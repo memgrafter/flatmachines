@@ -17,6 +17,7 @@ data:
 
   agents:
     coder: ./admin-agent.yml
+    everyone: ./everyone-agent.yml
 
   states:
     start:

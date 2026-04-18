@@ -146,11 +146,49 @@ def test_on_state_enter_retags_shared_chain_identity_for_role_states() -> None:
     assert updated_admin["_tool_loop_chain_agent"] == "coder"
 
 
-def test_get_tool_provider_disables_tools_for_everyone() -> None:
+def test_get_tool_provider_restricts_everyone_to_timestamp_tool() -> None:
     hooks = main.DiscordMachineHooks(working_dir=".", api=_FakeAPI())
 
-    assert hooks.get_tool_provider("everyone_work") is None
-    assert hooks.get_tool_provider("admin_work") is not None
+    everyone_provider = hooks.get_tool_provider("everyone_work")
+    admin_provider = hooks.get_tool_provider("admin_work")
+
+    assert everyone_provider is not None
+    assert admin_provider is not None
+
+    ok = asyncio.run(
+        everyone_provider.execute_tool(
+            "timestamp_utc",
+            "call-1",
+            {"timezone": "UTC"},
+        )
+    )
+    assert ok.is_error is False
+    assert "timestamp_utc" in ok.content or "unix_utc" in ok.content
+
+    denied = asyncio.run(
+        everyone_provider.execute_tool(
+            "bash",
+            "call-2",
+            {"command": "date"},
+        )
+    )
+    assert denied.is_error is True
+
+
+def test_everyone_timestamp_tool_errors_on_invalid_timezone() -> None:
+    hooks = main.DiscordMachineHooks(working_dir=".", api=_FakeAPI())
+    everyone_provider = hooks.get_tool_provider("everyone_work")
+    assert everyone_provider is not None
+
+    bad = asyncio.run(
+        everyone_provider.execute_tool(
+            "timestamp_utc",
+            "call-3",
+            {"timezone": "Not/A_Real_Zone"},
+        )
+    )
+    assert bad.is_error is True
+    assert "Invalid timezone" in bad.content
 
 
 def test_split_batch_messages_by_admin_with_backend():
