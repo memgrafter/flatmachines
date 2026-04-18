@@ -397,13 +397,12 @@ async def tool_history_grep(
                     "timestamp_utc": datetime.fromtimestamp(ts_int, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "role": str(entry.get("role", "")),
                     "type": str(entry.get("type", "message")),
-                    "file": path.name,
                     "tool_names": tool_names,
                     "snippet": _history_snippet(content or " ".join(tool_names), query),
                 }
             )
 
-    results.sort(key=lambda item: (item.get("ts", 0), item.get("file", "")), reverse=True)
+    results.sort(key=lambda item: item.get("ts", 0), reverse=True)
     payload = {
         "query": query,
         "conversation_key": conversation_key or "",

@@ -229,6 +229,7 @@ def test_everyone_history_grep_reads_scoped_history(monkeypatch, tmp_path) -> No
     assert payload["conversation_key"] == "chan-1"
     assert payload["result_count"] == 1
     assert payload["results"][0]["snippet"] == "alpha detail"
+    assert "file" not in payload["results"][0]
 
 
 def test_queue_feedback_rolls_over_when_token_limit_exceeded(monkeypatch, tmp_path) -> None:
