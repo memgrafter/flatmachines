@@ -216,19 +216,6 @@ prompt_yes_no() {
   [[ "$reply" == "y" || "$reply" == "yes" ]]
 }
 
-copy_auth_if_present() {
-  local src="$1"
-  local dst="$2"
-  if [[ -s "$src" ]]; then
-    mkdir -p "$(dirname "$dst")"
-    cp "$src" "$dst"
-    chmod 600 "$dst" || true
-    log "copied auth file: $src -> $dst"
-    return 0
-  fi
-  return 1
-}
-
 setup_codex_auth() {
   local auth_file="$1"
   CODEX_AUTH_READY=false
@@ -246,11 +233,6 @@ setup_codex_auth() {
   if [[ -s "$auth_file" ]]; then
     log "Codex auth already present: $auth_file"
     chmod 600 "$auth_file" || true
-    CODEX_AUTH_READY=true
-    return 0
-  fi
-
-  if copy_auth_if_present "$HOME/.pi/agent/auth.json" "$auth_file"; then
     CODEX_AUTH_READY=true
     return 0
   fi

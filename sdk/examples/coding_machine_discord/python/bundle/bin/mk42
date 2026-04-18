@@ -135,21 +135,6 @@ has_flag() {
   return 1
 }
 
-copy_auth_candidate_if_present() {
-  local src="$1"
-  local dst="$2"
-
-  if [[ -s "$src" ]]; then
-    mkdir -p "$(dirname "$dst")"
-    cp "$src" "$dst"
-    chmod 600 "$dst" || true
-    echo "Copied Codex auth: $src -> $dst"
-    return 0
-  fi
-
-  return 1
-}
-
 run_codex_login() {
   local target="$MK42_CODEX_AUTH_FILE"
   mkdir -p "$(dirname "$target")"
@@ -174,18 +159,9 @@ run_codex_login() {
     return 0
   fi
 
-  for candidate in \
-    "$HOME/.pi/agent/auth.json" \
-    "$HOME/.codex/auth.json" \
-    "$HOME/.config/codex/auth.json"; do
-    if copy_auth_candidate_if_present "$candidate" "$target"; then
-      return 0
-    fi
-  done
-
   echo "error: Codex login finished, but auth file was not found." >&2
   echo "Expected target: $target" >&2
-  echo "Copy your auth JSON there, then rerun mk42 login codex." >&2
+  echo "Rerun mk42 login codex and complete the OAuth flow." >&2
   return 1
 }
 
