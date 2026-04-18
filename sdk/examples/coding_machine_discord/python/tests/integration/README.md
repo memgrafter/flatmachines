@@ -9,18 +9,33 @@ Current provisioning files:
 - `docker/provision_build_env.sh`
 - `docker/provision_run_env.sh`
 
-## Enable
+## Run
+
+Docker-backed tests in `tests/integration` run by default.
 
 ```bash
 cd python
-RUN_DOCKER_INTEGRATION=1 ./.venv/bin/python -m pytest tests/integration
+./.venv/bin/python -m pytest tests/integration
 ```
 
 or via the test runner:
 
 ```bash
 cd python
-./test.sh --run-docker-integration tests/integration
+./test.sh tests/integration
+```
+
+To skip them explicitly:
+
+```bash
+cd python
+./test.sh tests/integration --skip-docker-integration
+```
+
+or:
+
+```bash
+export SKIP_DOCKER_INTEGRATION=1
 ```
 
 ## Optional knobs

@@ -52,9 +52,8 @@ def docker_available() -> bool:
 
 
 def ensure_docker_integration_enabled(pytestconfig: pytest.Config) -> None:
-    enabled = pytestconfig.getoption("run_docker_integration") or os.getenv("RUN_DOCKER_INTEGRATION") == "1"
-    if not enabled:
-        pytest.skip("docker integration tests are disabled; pass --run-docker-integration or set RUN_DOCKER_INTEGRATION=1")
+    if pytestconfig.getoption("skip_docker_integration") or os.getenv("SKIP_DOCKER_INTEGRATION") == "1":
+        pytest.skip("docker integration tests are disabled; pass no skip flag or unset SKIP_DOCKER_INTEGRATION")
     if not docker_available():
         pytest.skip("docker is unavailable on this host")
 

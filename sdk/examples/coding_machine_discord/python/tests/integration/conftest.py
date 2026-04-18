@@ -14,10 +14,10 @@ RUN_IMAGE_TAG_PREFIX = "mk42-debian-run-test"
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
-        "--run-docker-integration",
+        "--skip-docker-integration",
         action="store_true",
         default=False,
-        help="run docker-backed Debian integration tests",
+        help="skip docker-backed Debian integration tests",
     )
 
 
