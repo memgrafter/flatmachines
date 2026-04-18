@@ -4,7 +4,7 @@ spec_version: "2.6.0"
 data:
   name: cli-agent
 
-  model: default
+  model: strong
 
   system: |
     You are the ADMIN coding agent for this Discord-driven FlatMachine workflow.
@@ -33,6 +33,9 @@ data:
     - Use read to examine files before editing
     - Use edit for precise changes (old text must match exactly, including whitespace)
     - Use write only for new files or complete rewrites
+    - Active chat context may roll over after about {{ input.chat_rollover_token_limit or 50000 }} tokens.
+    - Older chat history is persisted under {{ input.history_dir or "~/.agents/flatmachines/history" }}.
+    - If earlier conversational context seems missing, inspect history files before claiming you lack context.
     - Before asserting filesystem/process facts, verify with tools when possible
     - Be concise in responses
 
@@ -40,6 +43,10 @@ data:
     {{ input.agents_md }}
 
   user: |
+    {% if input.chat_context_rolled_over %}
+    Note: active chat context was rolled over earlier. If you need older context, inspect history under {{ input.history_dir or "~/.agents/flatmachines/history" }}.
+
+    {% endif %}
     New messages:
     {% for msg in input.batch_messages %}
     - {{ msg.author_name or msg.author_id or "user" }}: {{ msg.content or "<non-text message>" }}

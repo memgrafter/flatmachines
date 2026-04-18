@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 from tool_use_discord import main
@@ -85,6 +86,8 @@ def test_compose_reply_resumes_existing_execution_with_signal(monkeypatch):
     assert execute_calls[0]["resume_from"] == "discord-machine-chan-1"
     assert sent_signals[0][0] == "discord/chan-1"
     assert sent_signals[0][1]["latest_user_request"] == "follow up"
+    assert sent_signals[0][1]["chat_rollover_token_limit"] == 50000
+    assert sent_signals[0][1]["history_dir"].endswith(".agents/flatmachines/history")
 
 
 def test_queue_feedback_action_appends_to_tool_loop_chain() -> None:
@@ -189,6 +192,69 @@ def test_everyone_timestamp_tool_errors_on_invalid_timezone() -> None:
     )
     assert bad.is_error is True
     assert "Invalid timezone" in bad.content
+
+
+def test_everyone_history_grep_reads_scoped_history(monkeypatch, tmp_path) -> None:
+    history_dir = tmp_path / "history"
+    history_dir.mkdir(parents=True)
+    (history_dir / "1700000000_everyone_chan-1.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"ts": 1700000000, "role": "assistant", "type": "message", "content": "alpha detail"}),
+                json.dumps({"ts": 1700000100, "role": "assistant", "type": "tool_call", "content": "", "tool_calls": [{"name": "timestamp_utc"}]}),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (history_dir / "1700000001_everyone_other-chan.jsonl").write_text(
+        json.dumps({"ts": 1700000200, "role": "assistant", "type": "message", "content": "alpha elsewhere"}) + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("TOOL_USE_DISCORD_HISTORY_DIR", str(history_dir))
+    hooks = main.DiscordMachineHooks(working_dir=".", api=_FakeAPI())
+    hooks.on_state_enter("everyone_work", {"conversation_key": "chan-1", "_tool_loop_chain": []})
+    everyone_provider = hooks.get_tool_provider("everyone_work")
+
+    result = asyncio.run(
+        everyone_provider.execute_tool(
+            "history_grep",
+            "call-4",
+            {"query": "alpha"},
+        )
+    )
+
+    assert result.is_error is False
+    payload = json.loads(result.content)
+    assert payload["conversation_key"] == "chan-1"
+    assert payload["result_count"] == 1
+    assert payload["results"][0]["snippet"] == "alpha detail"
+
+
+def test_queue_feedback_rolls_over_when_token_limit_exceeded(monkeypatch, tmp_path) -> None:
+    history_dir = tmp_path / "history"
+    monkeypatch.setenv("TOOL_USE_DISCORD_HISTORY_DIR", str(history_dir))
+    monkeypatch.setenv("MK42_CHAT_ROLLOVER_TOKEN_LIMIT", "10")
+
+    hooks = main.DiscordMachineHooks(working_dir=".", api=_FakeAPI())
+    context = {
+        "conversation_key": "chan-1",
+        "batch_messages": [{"author_name": "alice", "content": "follow up"}],
+        "_tool_loop_chain": [{"role": "assistant", "content": "x" * 200}],
+    }
+    context = hooks.on_state_enter("everyone_work", context)
+    updated = asyncio.run(hooks.on_action("queue_feedback", context))
+
+    assert updated["_tool_loop_chain"] == []
+    assert updated["chat_context_rolled_over"] is True
+    assert updated["chat_context_rollover_count"] >= 1
+    assert updated["chat_context_rollover_generation"] >= 1
+    assert updated["chat_context_needs_history_lookup"] is True
+
+    files = sorted(history_dir.glob("*_everyone_chan-1.jsonl"))
+    assert len(files) == 1
+    lines = [json.loads(line) for line in files[0].read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert any("follow up" in line.get("content", "") for line in lines)
 
 
 def test_split_batch_messages_by_admin_with_backend():

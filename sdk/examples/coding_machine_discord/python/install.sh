@@ -479,6 +479,8 @@ chmod +x "$INSTALL_DIR/current/bin/mk42"
 CONF_FILE="$INSTALL_DIR/conf"
 set_kv_file_value "$CONF_FILE" "MK42_ENV_FILE" "$ENV_FILE"
 set_kv_file_value "$CONF_FILE" "MK42_CODEX_AUTH_FILE" "$AUTH_FILE"
+set_kv_file_value "$CONF_FILE" "TOOL_USE_DISCORD_HISTORY_DIR" "$HOME/.agents/flatmachines/history"
+set_kv_file_value "$CONF_FILE" "MK42_CHAT_ROLLOVER_TOKEN_LIMIT" "50000"
 chmod 600 "$CONF_FILE" || true
 
 # Ensure env file exists with Discord placeholders.

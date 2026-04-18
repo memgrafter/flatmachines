@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flatagents.tools import ToolProvider, ToolResult
@@ -265,6 +266,154 @@ async def tool_timestamp_utc(_working_dir: str, _id: str, args: Dict[str, Any]) 
     return ToolResult(content=json.dumps(payload, ensure_ascii=False))
 
 
+def _sanitize_history_token(value: str, *, default: str) -> str:
+    token = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value).strip())
+    token = token.strip("-._")
+    return token or default
+
+
+def _parse_history_ts(value: Any) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+
+    raw = str(value).strip()
+    if not raw:
+        return None
+    if raw.isdigit():
+        return int(raw)
+
+    try:
+        normalized = raw.replace("Z", "+00:00")
+        return int(datetime.fromisoformat(normalized).timestamp())
+    except ValueError:
+        return None
+
+
+def _history_snippet(content: str, query: str, *, max_chars: int = 240) -> str:
+    text = str(content or "").strip().replace("\n", " ")
+    if not text:
+        return ""
+
+    if len(text) <= max_chars:
+        return text
+
+    query_lower = query.lower()
+    text_lower = text.lower()
+    index = text_lower.find(query_lower)
+    if index < 0:
+        return text[: max_chars - 1] + "…"
+
+    start = max(0, index - max_chars // 3)
+    end = min(len(text), start + max_chars)
+    snippet = text[start:end]
+    if start > 0:
+        snippet = "…" + snippet
+    if end < len(text):
+        snippet = snippet + "…"
+    return snippet
+
+
+async def tool_history_grep(
+    history_dir: str,
+    conversation_key: Optional[str],
+    _id: str,
+    args: Dict[str, Any],
+) -> ToolResult:
+    """Search persisted JSONL chat history by substring within the current conversation."""
+    query = str(args.get("query", "")).strip()
+    if not query:
+        return ToolResult(content="Missing required parameter: query", is_error=True)
+
+    try:
+        limit = int(args.get("limit", 10) or 10)
+    except (TypeError, ValueError):
+        return ToolResult(content="Invalid limit: expected integer", is_error=True)
+
+    limit = max(1, min(limit, 50))
+
+    ts_from = _parse_history_ts(args.get("ts_from"))
+    ts_to = _parse_history_ts(args.get("ts_to"))
+    if args.get("ts_from") not in (None, "") and ts_from is None:
+        return ToolResult(content="Invalid ts_from: use unix seconds or ISO-8601", is_error=True)
+    if args.get("ts_to") not in (None, "") and ts_to is None:
+        return ToolResult(content="Invalid ts_to: use unix seconds or ISO-8601", is_error=True)
+
+    root = Path(history_dir).expanduser().resolve()
+    if not root.exists():
+        payload = {
+            "query": query,
+            "conversation_key": conversation_key or "",
+            "history_dir": str(root),
+            "result_count": 0,
+            "results": [],
+        }
+        return ToolResult(content=json.dumps(payload, ensure_ascii=False))
+
+    channel_token = _sanitize_history_token(conversation_key or "", default="default")
+    query_lower = query.lower()
+    results: list[dict[str, Any]] = []
+
+    candidate_files = sorted(root.glob(f"*_{channel_token}.jsonl"), reverse=True)
+    for path in candidate_files:
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            ts = entry.get("ts")
+            try:
+                ts_int = int(ts)
+            except (TypeError, ValueError):
+                continue
+
+            if ts_from is not None and ts_int < ts_from:
+                continue
+            if ts_to is not None and ts_int > ts_to:
+                continue
+
+            content = str(entry.get("content", "") or "")
+            tool_names = [
+                str(tool.get("name") or "")
+                for tool in entry.get("tool_calls", [])
+                if isinstance(tool, dict)
+            ]
+            haystack = "\n".join(part for part in [content, " ".join(tool_names)] if part).lower()
+            if query_lower not in haystack:
+                continue
+
+            results.append(
+                {
+                    "ts": ts_int,
+                    "timestamp_utc": datetime.fromtimestamp(ts_int, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "role": str(entry.get("role", "")),
+                    "type": str(entry.get("type", "message")),
+                    "file": path.name,
+                    "tool_names": tool_names,
+                    "snippet": _history_snippet(content or " ".join(tool_names), query),
+                }
+            )
+
+    results.sort(key=lambda item: (item.get("ts", 0), item.get("file", "")), reverse=True)
+    payload = {
+        "query": query,
+        "conversation_key": conversation_key or "",
+        "history_dir": str(root),
+        "result_count": min(len(results), limit),
+        "results": results[:limit],
+    }
+    return ToolResult(content=json.dumps(payload, ensure_ascii=False))
+
+
 # ---------------------------------------------------------------------------
 # ToolProvider that binds tools to a working directory
 # ---------------------------------------------------------------------------
@@ -320,13 +469,31 @@ class CLIToolProvider:
 
 
 class EveryoneTimestampToolProvider(ToolProvider):
-    """Restricted provider for everyone mode: timestamp_utc only."""
+    """Restricted provider for everyone mode: timestamp_utc + conversation-scoped history search."""
+
+    def __init__(self, history_dir: Optional[str] = None):
+        resolved_history_dir = history_dir or os.environ.get(
+            "TOOL_USE_DISCORD_HISTORY_DIR",
+            "~/.agents/flatmachines/history",
+        )
+        self._history_dir = str(Path(resolved_history_dir).expanduser().resolve())
+        self._conversation_key = ""
+
+    def set_runtime_scope(self, *, conversation_key: Optional[str]) -> None:
+        self._conversation_key = str(conversation_key or "").strip()
 
     def get_tool_definitions(self) -> list:
         # Definitions come from the agent YAML, not here
         return []
 
     async def execute_tool(self, name: str, tool_call_id: str, arguments: Dict[str, Any]) -> ToolResult:
-        if name != "timestamp_utc":
-            return ToolResult(content=f"Unknown tool: {name}", is_error=True)
-        return await tool_timestamp_utc(".", tool_call_id, arguments)
+        if name == "timestamp_utc":
+            return await tool_timestamp_utc(".", tool_call_id, arguments)
+        if name == "history_grep":
+            return await tool_history_grep(
+                self._history_dir,
+                self._conversation_key,
+                tool_call_id,
+                arguments,
+            )
+        return ToolResult(content=f"Unknown tool: {name}", is_error=True)

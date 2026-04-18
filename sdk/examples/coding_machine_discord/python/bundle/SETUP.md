@@ -11,11 +11,13 @@ This install keeps runtime secrets/config outside the self-modifying workspace r
 - env file (default): `~/.agents/flatmachines/mk42.env`
 - codex auth file (default): `~/.agents/flatmachines/auth.json`
 
-`~/.agents/mk42/conf` controls external paths:
+`~/.agents/mk42/conf` controls external paths and chat rollover settings:
 
 ```bash
 MK42_ENV_FILE=~/.agents/flatmachines/mk42.env
 MK42_CODEX_AUTH_FILE=~/.agents/flatmachines/auth.json
+TOOL_USE_DISCORD_HISTORY_DIR=~/.agents/flatmachines/history
+MK42_CHAT_ROLLOVER_TOKEN_LIMIT=50000
 ```
 
 ## Discord env vars

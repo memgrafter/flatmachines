@@ -17,6 +17,7 @@ import asyncio
 import logging
 import os
 import signal
+import time
 import warnings
 from pathlib import Path
 from typing import Any, Optional
@@ -49,6 +50,45 @@ for _name in ("flatagents", "flatmachines", "LiteLLM"):
     logging.getLogger(_name).setLevel(_log_level)
 
 
+def _default_history_dir() -> str:
+    return str(
+        Path(
+            os.environ.get(
+                "TOOL_USE_DISCORD_HISTORY_DIR",
+                "~/.agents/flatmachines/history",
+            )
+        ).expanduser().resolve()
+    )
+
+
+def _chat_rollover_token_limit() -> int:
+    raw = str(os.environ.get("MK42_CHAT_ROLLOVER_TOKEN_LIMIT", "50000")).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return 50000
+    return max(0, value)
+
+
+def _approx_token_count(value: Any) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, str):
+        return max(1, (len(value) + 3) // 4)
+    if isinstance(value, bool):
+        return 1
+    if isinstance(value, (int, float)):
+        return max(1, len(str(value)))
+    if isinstance(value, list):
+        return sum(_approx_token_count(item) + 2 for item in value)
+    if isinstance(value, dict):
+        total = 0
+        for key, item in value.items():
+            total += _approx_token_count(str(key)) + _approx_token_count(item) + 2
+        return total
+    return _approx_token_count(str(value))
+
+
 class DiscordMachineHooks(CLIToolHooks):
     """Tool hooks for Discord machine execution.
 
@@ -74,7 +114,8 @@ class DiscordMachineHooks(CLIToolHooks):
     def __init__(self, *, working_dir: str, api: DiscordAPI):
         super().__init__(working_dir=working_dir, auto_approve=True)
         self.api = api
-        self._everyone_provider = EveryoneTimestampToolProvider()
+        self._chat_rollover_token_limit = _chat_rollover_token_limit()
+        self._everyone_provider = EveryoneTimestampToolProvider(history_dir=str(self._history_dir))
 
     def on_state_enter(self, state_name: str, context: dict[str, Any]) -> dict[str, Any]:
         """Allow admin/everyone states to share one full tool-loop chain.
@@ -85,16 +126,24 @@ class DiscordMachineHooks(CLIToolHooks):
         history, including assistant tool calls and tool results.
         """
         context = super().on_state_enter(state_name, context)
+        context.setdefault("history_dir", str(self._history_dir))
+        context.setdefault("chat_rollover_token_limit", self._chat_rollover_token_limit)
+        context.setdefault("chat_context_rollover_generation", 0)
+        context.setdefault("chat_context_rollover_count", 0)
+        context.setdefault("chat_context_rolled_over", False)
+        context.setdefault("chat_context_needs_history_lookup", False)
 
         agent_name = self._SHARED_TOOL_LOOP_AGENT_BY_STATE.get(state_name)
-        if not agent_name:
-            return context
+        if agent_name:
+            chain = context.get("_tool_loop_chain")
+            if isinstance(chain, list) and chain:
+                context["_tool_loop_chain_state"] = state_name
+                context["_tool_loop_chain_agent"] = agent_name
 
-        chain = context.get("_tool_loop_chain")
-        if isinstance(chain, list) and chain:
-            context["_tool_loop_chain_state"] = state_name
-            context["_tool_loop_chain_agent"] = agent_name
-        return context
+        if state_name == "everyone_work":
+            self._everyone_provider.set_runtime_scope(conversation_key=context.get("conversation_key"))
+
+        return self._maybe_rollover_chat_context(state_name, context)
 
     def get_tool_provider(self, state_name: str):
         if state_name == "everyone_work":
@@ -112,6 +161,40 @@ class DiscordMachineHooks(CLIToolHooks):
             return mapped_agent
 
         return super()._history_role(state_name, context)
+
+    def _maybe_rollover_chat_context(self, state_name: str, context: dict[str, Any]) -> dict[str, Any]:
+        limit_raw = context.get("chat_rollover_token_limit")
+        limit = self._chat_rollover_token_limit if limit_raw is None else int(limit_raw)
+        chain = context.get("_tool_loop_chain")
+        if limit <= 0 or not isinstance(chain, list) or not chain:
+            return context
+
+        estimated_tokens = _approx_token_count(chain)
+        context["chat_context_estimated_tokens"] = estimated_tokens
+        if estimated_tokens < limit:
+            return context
+
+        generation = int(context.get("chat_context_rollover_generation") or 0) + 1
+        count = int(context.get("chat_context_rollover_count") or 0) + 1
+        context["chat_context_rollover_generation"] = generation
+        context["chat_context_rollover_count"] = count
+        context["chat_context_rolled_over"] = True
+        context["chat_context_needs_history_lookup"] = True
+        context["chat_context_last_rollover_ts"] = int(time.time())
+        context["chat_context_last_rollover_state"] = state_name
+        context["chat_context_last_rollover_estimated_tokens"] = estimated_tokens
+        context["_tool_loop_chain"] = []
+        context["_tool_loop_content"] = ""
+        context["_tool_loop_usage"] = {}
+        context["_tool_loop_cost"] = 0
+        context["_history_chain_cursors"] = {}
+        context["_history_file_ts"] = {}
+
+        print(
+            f"[chat] rolled over context at ~{estimated_tokens} tokens (limit={limit}, generation={generation})",
+            flush=True,
+        )
+        return context
 
     async def on_action(self, action_name: str, context: dict[str, Any]) -> dict[str, Any]:
         state_name = str(context.get("_history_last_state") or "unknown")
@@ -150,17 +233,20 @@ class DiscordMachineHooks(CLIToolHooks):
                         chain.append({"role": "user", "content": feedback})
                         context["_tool_loop_chain"] = chain
 
-            return self._sync_history_from_chain(state_name, context)
+            context = self._sync_history_from_chain(state_name, context)
+            return self._maybe_rollover_chat_context(state_name, context)
 
         if action_name != "post_result":
-            return self._sync_history_from_chain(state_name, context)
+            context = self._sync_history_from_chain(state_name, context)
+            return self._maybe_rollover_chat_context(state_name, context)
 
         result_text = str(context.get("result", "")).strip()
         if result_text:
             for chunk in _split_discord_message(result_text, max_chars=2000):
                 await asyncio.to_thread(self.api.post_channel_message, chunk)
 
-        return self._sync_history_from_chain(state_name, context)
+        context = self._sync_history_from_chain(state_name, context)
+        return self._maybe_rollover_chat_context(state_name, context)
 
 
 def _split_discord_message(content: str, max_chars: int = 2000) -> list[str]:
@@ -260,6 +346,8 @@ class CodingMachineBatchResponder(BatchResponder):
             "everyone_message_count": len(everyone_batch_messages),
             "queued_message_count": int(batch.get("message_count", 0) or 0),
             "conversation_key": conversation_key,
+            "history_dir": _default_history_dir(),
+            "chat_rollover_token_limit": _chat_rollover_token_limit(),
         }
 
         has_live_execution = await self._has_live_execution(execution_id)
@@ -504,6 +592,8 @@ async def run_machine(
     tool_loop_chain: Optional[list[Any]] = None,
     tool_loop_chain_state: Optional[str] = None,
     tool_loop_chain_agent: Optional[str] = None,
+    history_dir: Optional[str] = None,
+    chat_rollover_token_limit: Optional[int] = None,
 ):
     """Run a single task via FlatMachine machine-driven tool loop."""
     resolved_hooks = hooks or CLIToolHooks(working_dir=working_dir, auto_approve=not human_review)
@@ -522,6 +612,8 @@ async def run_machine(
         "_tool_loop_chain": tool_loop_chain,
         "_tool_loop_chain_state": tool_loop_chain_state,
         "_tool_loop_chain_agent": tool_loop_chain_agent,
+        "history_dir": history_dir or _default_history_dir(),
+        "chat_rollover_token_limit": _chat_rollover_token_limit() if chat_rollover_token_limit is None else chat_rollover_token_limit,
     })
 
     return result
