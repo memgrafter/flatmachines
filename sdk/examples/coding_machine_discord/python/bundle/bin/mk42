@@ -145,10 +145,26 @@ run_codex_login() {
     return 0
   fi
 
-  echo "Running FlatAgents Codex OAuth login..."
-  echo "Command: $VENV_PYTHON -m flatagents.providers.openai_codex_login --auth-file $target"
+  local login_mode="${MK42_CODEX_LOGIN_MODE:-manual}"
+  local login_args=(--auth-file "$target")
 
-  if ! "$VENV_PYTHON" -m flatagents.providers.openai_codex_login --auth-file "$target"; then
+  case "$login_mode" in
+    manual)
+      login_args+=(--no-browser --no-local-server)
+      ;;
+    browser)
+      ;;
+    *)
+      echo "error: invalid MK42_CODEX_LOGIN_MODE: $login_mode (expected: manual or browser)" >&2
+      return 1
+      ;;
+  esac
+
+  echo "Running FlatAgents Codex OAuth login..."
+  echo "Mode: $login_mode"
+  echo "Command: $VENV_PYTHON -m flatagents.providers.openai_codex_login ${login_args[*]}"
+
+  if ! "$VENV_PYTHON" -m flatagents.providers.openai_codex_login "${login_args[@]}"; then
     echo "error: FlatAgents Codex login module failed" >&2
     return 1
   fi
