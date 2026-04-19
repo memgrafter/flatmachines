@@ -43,7 +43,7 @@ Start with a clear default profile, then let agents reference it by name:
 **config/profiles.yml**
 ```yaml
 spec: flatprofiles
-spec_version: "2.6.0"
+spec_version: "2.7.0"
 data:
   model_profiles:
     fast:
@@ -66,7 +66,7 @@ data:
 **config/agent.yml**
 ```yaml
 spec: flatagent
-spec_version: "2.6.0"
+spec_version: "2.7.0"
 data:
   name: hello-world-agent
   model:
@@ -84,7 +84,7 @@ data:
 **config/machine.yml**
 ```yaml
 spec: flatmachine
-spec_version: "2.6.0"
+spec_version: "2.7.0"
 data:
   name: hello-world-loop
   context:

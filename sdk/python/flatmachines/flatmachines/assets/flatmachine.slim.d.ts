@@ -1,4 +1,4 @@
-export const SPEC_VERSION = "2.6.0";
+export const SPEC_VERSION = "2.7.0";
 export interface MachineWrapper {
     spec: "flatmachine";
     spec_version: string;
@@ -52,7 +52,6 @@ export interface StateDefinition {
     execution?: ExecutionConfig;
     on_error?: string | Record<string, string>;
     wait_for?: string;
-    session_id?: string;
     input?: Record<string, any>;
     output_to_context?: Record<string, any>;
     output?: Record<string, any>;
