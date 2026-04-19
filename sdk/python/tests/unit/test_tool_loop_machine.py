@@ -100,15 +100,16 @@ class MockExecutor:
     def metadata(self):
         return {}
 
-    async def execute(self, input_data, context=None):
-        return self._next_response("execute", input_data=input_data)
+    async def execute(self, input_data, context=None, session_id=None):
+        return self._next_response("execute", input_data=input_data, session_id=session_id)
 
-    async def execute_with_tools(self, input_data, tools, messages=None, context=None):
+    async def execute_with_tools(self, input_data, tools, messages=None, context=None, session_id=None):
         return self._next_response(
             "execute_with_tools",
             input_data=input_data,
             tools=tools,
             messages=messages,
+            session_id=session_id,
         )
 
     def _next_response(self, method, **kwargs):
@@ -127,7 +128,7 @@ class NoToolsExecutor:
     def metadata(self):
         return {}
 
-    async def execute(self, input_data, context=None):
+    async def execute(self, input_data, context=None, session_id=None):
         return _make_agent_result()
 
 
@@ -410,6 +411,45 @@ class TestToolLoopChainScoping:
             m.get("role") == "user" and m.get("content") == "SHOULD_NOT_APPEND"
             for m in final_chain
         )
+
+    @pytest.mark.asyncio
+    async def test_tool_loop_state_session_id_is_forwarded_each_turn(self):
+        """state.session_id should propagate across initial + continuation turns."""
+        cfg = _machine_config()
+        cfg["data"]["states"]["work"]["session_id"] = "context.machine.execution_id"
+
+        machine, _ = _build_machine(
+            executor_responses=[],
+            tool_provider=MockToolProvider(),
+            config=cfg,
+        )
+
+        class SessionAwareExecutor(MockExecutor):
+            async def execute_with_tools(self, input_data, tools, messages=None, context=None, session_id=None):
+                return self._next_response(
+                    "execute_with_tools",
+                    input_data=input_data,
+                    tools=tools,
+                    messages=messages,
+                    session_id=session_id,
+                )
+
+        executor = SessionAwareExecutor(
+            [
+                _make_tool_result([{"id": "c1", "name": "read_file", "arguments": {}}]),
+                _make_agent_result(content="done"),
+            ]
+        )
+        machine._agents = {"coder": executor}
+
+        await machine.execute(input={"task": "run"})
+
+        assert len(executor.calls) >= 2
+        first = executor.calls[0]
+        second = executor.calls[1]
+        assert first["session_id"] == machine.execution_id
+        assert second["session_id"] == machine.execution_id
+        assert "session_id" not in second["input_data"]
 
 
 # ---------------------------------------------------------------------------

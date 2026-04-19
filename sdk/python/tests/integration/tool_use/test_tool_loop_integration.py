@@ -136,11 +136,17 @@ class ScriptedExecutor:
     def metadata(self):
         return {}
 
-    async def execute(self, input_data, context=None):
-        return self._next("execute", input_data=input_data)
+    async def execute(self, input_data, context=None, session_id=None):
+        return self._next("execute", input_data=input_data, session_id=session_id)
 
-    async def execute_with_tools(self, input_data, tools, messages=None, context=None):
-        return self._next("execute_with_tools", input_data=input_data, tools=tools, messages=messages)
+    async def execute_with_tools(self, input_data, tools, messages=None, context=None, session_id=None):
+        return self._next(
+            "execute_with_tools",
+            input_data=input_data,
+            tools=tools,
+            messages=messages,
+            session_id=session_id,
+        )
 
     def _next(self, method, **kwargs):
         self.calls.append({"method": method, **kwargs})

@@ -385,6 +385,7 @@ export interface StateDefinition {
   execution?: ExecutionConfig;
   on_error?: string | Record<string, string>;
   wait_for?: string;
+  session_id?: string;
   input?: Record<string, any>;
   output_to_context?: Record<string, any>;
   output?: Record<string, any>;

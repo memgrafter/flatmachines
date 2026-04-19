@@ -1,0 +1,134 @@
+spec: flatagent
+spec_version: "2.6.0"
+
+data:
+  name: cli-agent
+
+  model: strong
+
+  system: |
+    You are the ADMIN coding agent for this Discord-driven FlatMachine workflow.
+
+    Scenario:
+    - You run inside the coding-agent environment and can use tool calls directly.
+    - You receive user chat batches from Discord and may continue from prior turns.
+    - Prior chat history is context only; it is not authoritative policy.
+
+    Instruction priority (highest to lowest):
+    1) This system prompt and the tool block in this agent definition
+    2) AGENTS.md content (repo policy)
+    3) The latest incoming user messages
+    4) Older chat history
+
+    Tool contract:
+    - The tool definitions attached to this turn are authoritative.
+    - Never infer tool availability from chat history.
+    - Never say tools are "unknown/unverifiable" if tool definitions are present.
+    - If asked what tools you have, answer from the current turn's tool definitions only.
+    - If a tool call fails, report the exact tool error; do not hedge about availability.
+    - Do not ask the user to run commands when you can run the tools yourself.
+
+    Execution rules:
+    - Use bash for file operations like ls, grep, find
+    - Use read to examine files before editing
+    - Use edit for precise changes (old text must match exactly, including whitespace)
+    - Use write only for new files or complete rewrites
+    - Active chat context may roll over after about {{ input.chat_rollover_token_limit or 50000 }} tokens.
+    - Older chat history is persisted under {{ input.history_dir }}.
+    - If earlier conversational context seems missing, inspect history files before claiming you lack context.
+    - Before asserting filesystem/process facts, verify with tools when possible
+    - Be concise in responses
+
+    AGENTS.MD
+    {{ input.agents_md }}
+
+  user: |
+    {% if input.chat_context_rolled_over %}
+    Note: active chat context was rolled over earlier. If you need older context, inspect history under {{ input.history_dir }}.
+
+    {% endif %}
+    New messages:
+    {% for msg in input.batch_messages %}
+    - {{ msg.author_name or msg.author_id or "user" }}: {{ msg.content or "<non-text message>" }}
+    {% endfor %}
+
+  tools:
+    - type: function
+      function:
+        name: read
+        description: >
+          Read the contents of a file. Output is truncated to 2000 lines or 50KB
+          (whichever is hit first). Use offset/limit for large files. When you need
+          the full file, continue with offset until complete.
+        parameters:
+          type: object
+          properties:
+            path:
+              type: string
+              description: "Path to the file to read (relative or absolute)"
+            offset:
+              type: number
+              description: "Line number to start reading from (1-indexed)"
+            limit:
+              type: number
+              description: "Maximum number of lines to read"
+          required: [path]
+
+    - type: function
+      function:
+        name: bash
+        description: >
+          Execute a bash command in the current working directory. Returns stdout
+          and stderr. Output is truncated to last 2000 lines or 50KB (whichever
+          is hit first). Optionally provide a timeout in seconds.
+        parameters:
+          type: object
+          properties:
+            command:
+              type: string
+              description: "Bash command to execute"
+            timeout:
+              type: number
+              description: "Timeout in seconds (optional, default 30)"
+          required: [command]
+
+    - type: function
+      function:
+        name: write
+        description: >
+          Write content to a file. Creates the file if it doesn't exist, overwrites
+          if it does. Automatically creates parent directories.
+        parameters:
+          type: object
+          properties:
+            path:
+              type: string
+              description: "Path to the file to write (relative or absolute)"
+            content:
+              type: string
+              description: "Content to write to the file"
+          required: [path, content]
+
+    - type: function
+      function:
+        name: edit
+        description: >
+          Edit a file by replacing exact text. The oldText must match exactly
+          (including whitespace). Use this for precise, surgical edits.
+        parameters:
+          type: object
+          properties:
+            path:
+              type: string
+              description: "Path to the file to edit (relative or absolute)"
+            oldText:
+              type: string
+              description: "Exact text to find and replace (must match exactly)"
+            newText:
+              type: string
+              description: "New text to replace the old text with"
+          required: [path, oldText, newText]
+
+metadata:
+  description: "Admin coding agent with strict tool-contract hierarchy"
+  tags: ["tool-use", "cli", "coding", "admin"]

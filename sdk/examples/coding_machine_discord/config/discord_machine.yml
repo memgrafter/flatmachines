@@ -1,0 +1,123 @@
+spec: flatmachine
+spec_version: "2.6.0"
+
+data:
+  name: discord-tool-loop-resume
+  context:
+    task: input.task
+    latest_user_request: input.latest_user_request
+    batch_messages: input.batch_messages
+    admin_batch_messages: input.admin_batch_messages
+    everyone_batch_messages: input.everyone_batch_messages
+    admin_message_count: input.admin_message_count
+    everyone_message_count: input.everyone_message_count
+    queued_message_count: input.queued_message_count
+    conversation_key: input.conversation_key
+    working_dir: input.working_dir
+    agents_md: input.agents_md
+    history_dir: input.history_dir
+    chat_rollover_token_limit: input.chat_rollover_token_limit
+    chat_context_rolled_over: false
+    chat_context_rollover_count: 0
+    chat_context_rollover_generation: 0
+    chat_context_needs_history_lookup: false
+
+  agents:
+    coder: ./admin-agent.yml
+    everyone: ./everyone-agent.yml
+
+  states:
+    start:
+      type: initial
+      transitions:
+        - condition: "(context.admin_message_count or 0) > 0"
+          to: admin_work
+        - condition: "(context.everyone_message_count or 0) > 0"
+          to: everyone_work
+        - to: wait_for_feedback
+
+    admin_work:
+      agent: coder
+      session_id: "{{ context.conversation_key }}::admin{% if (context.chat_context_rollover_generation or 0) > 0 %}::r{{ context.chat_context_rollover_generation }}{% endif %}"
+      tool_loop:
+        max_turns: 30
+        max_tool_calls: 100
+        max_cost: 2.00
+        tool_timeout: 60
+        total_timeout: 600
+      input:
+        task: context.latest_user_request
+        latest_user_request: context.latest_user_request
+        batch_messages: context.admin_batch_messages
+        queued_message_count: context.admin_message_count
+        conversation_key: "{{ context.conversation_key }}::admin"
+        agents_md: context.agents_md
+        history_dir: context.history_dir
+        chat_rollover_token_limit: context.chat_rollover_token_limit
+        chat_context_rolled_over: context.chat_context_rolled_over
+        chat_context_rollover_count: context.chat_context_rollover_count
+        chat_context_needs_history_lookup: context.chat_context_needs_history_lookup
+      output_to_context:
+        result: "{{ output.content }}"
+      transitions:
+        - to: post_admin_result
+
+    post_admin_result:
+      action: post_result
+      transitions:
+        - condition: "(context.everyone_message_count or 0) > 0"
+          to: everyone_work
+        - to: wait_for_feedback
+
+    everyone_work:
+      agent: everyone
+      session_id: "{{ context.conversation_key }}::everyone{% if (context.chat_context_rollover_generation or 0) > 0 %}::r{{ context.chat_context_rollover_generation }}{% endif %}"
+      tool_loop:
+        max_turns: 30
+        max_tool_calls: 100
+        max_cost: 2.00
+        tool_timeout: 60
+        total_timeout: 600
+      input:
+        task: context.latest_user_request
+        latest_user_request: context.latest_user_request
+        batch_messages: context.everyone_batch_messages
+        queued_message_count: context.everyone_message_count
+        conversation_key: "{{ context.conversation_key }}::everyone"
+        history_dir: context.history_dir
+        chat_rollover_token_limit: context.chat_rollover_token_limit
+        chat_context_rolled_over: context.chat_context_rolled_over
+        chat_context_rollover_count: context.chat_context_rollover_count
+        chat_context_needs_history_lookup: context.chat_context_needs_history_lookup
+      output_to_context:
+        result: "{{ output.content }}"
+      transitions:
+        - to: post_everyone_result
+
+    post_everyone_result:
+      action: post_result
+      transitions:
+        - to: wait_for_feedback
+
+    wait_for_feedback:
+      wait_for: "discord/{{ context.conversation_key }}"
+      output_to_context:
+        task: output.latest_user_request
+        latest_user_request: output.latest_user_request
+        batch_messages: output.batch_messages
+        admin_batch_messages: output.admin_batch_messages
+        everyone_batch_messages: output.everyone_batch_messages
+        admin_message_count: output.admin_message_count
+        everyone_message_count: output.everyone_message_count
+        queued_message_count: output.queued_message_count
+      transitions:
+        - to: merge_feedback
+
+    merge_feedback:
+      action: queue_feedback
+      transitions:
+        - to: start
+
+metadata:
+  description: "Discord coding machine that routes admin vs everyone messages in one execution"
+  tags: ["tool-use", "discord", "resume", "wait-for-signal", "admin", "everyone"]

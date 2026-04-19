@@ -1,0 +1,11 @@
+FROM debian:stable-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+WORKDIR /artifacts
+
+COPY provision_run_env.sh /usr/local/bin/provision_run_env.sh
+COPY run_local_install.sh /usr/local/bin/run_local_install.sh
+RUN chmod +x /usr/local/bin/provision_run_env.sh /usr/local/bin/run_local_install.sh \
+    && /usr/local/bin/provision_run_env.sh
+
+ENTRYPOINT ["/usr/local/bin/run_local_install.sh"]

@@ -1,0 +1,32 @@
+spec: flatprofiles
+spec_version: "2.4.4"
+
+data:
+  model_profiles:
+    strong:
+      provider: openai-codex
+      name: gpt-5.4
+      backend: codex
+      base_url: https://chatgpt.com/backend-api
+      oauth:
+        provider: openai-codex
+        # Auth file is provided via FLATAGENTS_CODEX_AUTH_FILE.
+        # Default installer target: ~/.agents/flatmachines/auth.json
+        originator: flatagents
+        refresh: true
+        timeout_seconds: 120
+        max_retries: 3
+    cheap:
+      provider: openai-codex
+      name: gpt-5.4-mini
+      backend: codex
+      base_url: https://chatgpt.com/backend-api
+      oauth:
+        provider: openai-codex
+        # Auth file is provided via FLATAGENTS_CODEX_AUTH_FILE.
+        # Default installer target: ~/.agents/flatmachines/auth.json
+        originator: flatagents
+        refresh: true
+        timeout_seconds: 120
+        max_retries: 3
+  default: cheap 

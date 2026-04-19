@@ -576,6 +576,9 @@
         "wait_for": {
           "type": "string"
         },
+        "session_id": {
+          "type": "string"
+        },
         "input": {
           "type": "object"
         },
