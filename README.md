@@ -237,3 +237,10 @@ setup_logging(level="INFO")
 | `FLATAGENTS_LOG_FORMAT` | `standard` | `standard` / `json` / `simple` |
 | `FLATAGENTS_METRICS_ENABLED` | `true` | OpenTelemetry metrics |
 | `OTEL_METRICS_EXPORTER` | `console` | `console` or `otlp` for production |
+
+
+### Shoutouts
+
+- Thanks to [pi-mono](https://github.com/badlogic/pi-mono) for:
+    - coding agent prompts in examples
+    - example oauth flows for codex and copilot
