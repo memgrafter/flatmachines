@@ -1,5 +1,5 @@
 spec: flatmachine
-spec_version: "2.6.0"
+spec_version: "2.7.0"
 
 data:
   name: discord-tool-loop-resume

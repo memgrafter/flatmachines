@@ -209,8 +209,8 @@ cp "$SCRIPT_DIR/bundle/SETUP.md" "$BUNDLE_ROOT/SETUP.md"
 
 RUNTIME_REQ_FILE="$TMP_DIR/runtime-requirements.txt"
 cat > "$RUNTIME_REQ_FILE" <<EOF
-flatmachines[flatagents]==2.6.0
-flatagents[litellm]==2.6.0
+flatmachines[flatagents]==2.7.0
+flatagents[litellm]==2.7.0
 requests==2.33.1
 EOF
 
