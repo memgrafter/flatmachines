@@ -3,6 +3,8 @@ set -e
 
 VENV_PATH=".venv"
 LOCAL_INSTALL=false
+DEBUG=false
+PASSTHROUGH_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -10,7 +12,12 @@ while [[ $# -gt 0 ]]; do
       LOCAL_INSTALL=true
       shift
       ;;
+    --debug|-d)
+      DEBUG=true
+      shift
+      ;;
     *)
+      PASSTHROUGH_ARGS+=("$1")
       shift
       ;;
   esac
@@ -51,4 +58,15 @@ if [ "$LOCAL_INSTALL" = true ]; then
 fi
 
 uv pip install --python "$VENV_PATH/bin/python" -e "$SCRIPT_DIR"
-"$VENV_PATH/bin/python" -m ipd_controller.main --rounds 10
+
+if [ ${#PASSTHROUGH_ARGS[@]} -eq 0 ]; then
+  PASSTHROUGH_ARGS=("--rounds" "10")
+fi
+
+if [ "$DEBUG" = true ]; then
+  echo "Debug enabled (LOG_LEVEL=DEBUG, FLATAGENTS_LOG_LEVEL=DEBUG, IPD_DEBUG_MESSAGES=1, IPD_DEBUG_PROMPTS=1)"
+  LOG_LEVEL=DEBUG FLATAGENTS_LOG_LEVEL=DEBUG IPD_DEBUG_MESSAGES=1 IPD_DEBUG_PROMPTS=1 PYTHONUNBUFFERED=1 \
+    "$VENV_PATH/bin/python" -u -m ipd_controller.main --debug "${PASSTHROUGH_ARGS[@]}"
+else
+  "$VENV_PATH/bin/python" -m ipd_controller.main "${PASSTHROUGH_ARGS[@]}"
+fi

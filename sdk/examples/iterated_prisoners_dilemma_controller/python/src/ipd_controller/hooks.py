@@ -1,13 +1,65 @@
 from __future__ import annotations
 
+import os
 import re
-from typing import Any, Dict, Tuple
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
+
+import yaml
+from jinja2 import Template
 
 from flatmachines import MachineHooks
 
 
 class IPDControllerHooks(MachineHooks):
     """Hooks for action-driven routing and programmatic round scoring."""
+
+    def __init__(self, debug_messages: Optional[bool] = None, debug_prompts: Optional[bool] = None):
+        if debug_messages is None:
+            debug_messages = self._is_truthy(os.getenv("IPD_DEBUG_MESSAGES", "false"))
+        self.debug_messages = bool(debug_messages)
+
+        if debug_prompts is None:
+            env_val = os.getenv("IPD_DEBUG_PROMPTS")
+            debug_prompts = self._is_truthy(env_val) if env_val is not None else self.debug_messages
+        self.debug_prompts = bool(debug_prompts)
+
+        self._agent_system_template = ""
+        self._agent_user_template = ""
+        self._load_agent_templates()
+
+    def on_state_enter(self, state_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        if self.debug_messages and state_name == "llm_decision":
+            role = context.get("role", "Unknown")
+            round_no = context.get("round", "?")
+            rounds_total = context.get("rounds_total", "?")
+            own_history = context.get("own_history", [])
+            opp_history = context.get("opponent_history", [])
+            opp_last = context.get("opponent_last_move")
+            print(
+                f"\n[DEBUG][AGENT INPUT] {role} round {round_no}/{rounds_total} "
+                f"own={own_history} opp={opp_history} opp_last={opp_last}"
+            )
+
+            if self.debug_prompts:
+                system_prompt, user_prompt = self._render_prompts_for_context(context)
+                print(f"[DEBUG][PROMPT SYSTEM] {role}\n{system_prompt}")
+                print(f"[DEBUG][PROMPT USER] {role}\n{user_prompt}")
+        return context
+
+    def on_state_exit(
+        self,
+        state_name: str,
+        context: Dict[str, Any],
+        output: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        if self.debug_messages and state_name == "llm_decision":
+            role = context.get("role", "Unknown")
+            raw = context.get("decision_raw")
+            content = output.get("content") if isinstance(output, dict) else output
+            print(f"[DEBUG][AGENT OUTPUT] {role} content={content!r} mapped={raw!r}")
+            print(f"[DEBUG][AGENT OUTPUT RAW] {role} output_obj={output!r}")
+        return output
 
     def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         if action_name == "route_decision":
@@ -46,6 +98,10 @@ class IPDControllerHooks(MachineHooks):
 
         context["next_state"] = next_state
         context["decision_normalized"] = next_state
+        if self.debug_messages:
+            print(
+                f"[DEBUG][ROUTER] raw={raw!r} -> next_state={next_state!r}"
+            )
         return context
 
     def _choose_cooperate(self, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -183,3 +239,42 @@ class IPDControllerHooks(MachineHooks):
         if move_a == "C" and move_b == "D":
             return 0, 5
         return 1, 1
+
+    def _load_agent_templates(self) -> None:
+        """Load system/user templates from config/agent.yml for debug rendering."""
+        try:
+            agent_path = Path(__file__).resolve().parents[3] / "config" / "agent.yml"
+            data = yaml.safe_load(agent_path.read_text(encoding="utf-8")) or {}
+            agent_data = data.get("data", {}) if isinstance(data, dict) else {}
+            self._agent_system_template = str(agent_data.get("system") or "")
+            self._agent_user_template = str(agent_data.get("user") or "")
+        except Exception:
+            # Debug-only feature; keep runtime robust if file can't be read.
+            self._agent_system_template = ""
+            self._agent_user_template = ""
+
+    def _render_prompts_for_context(self, context: Dict[str, Any]) -> Tuple[str, str]:
+        input_data = {
+            "role": context.get("role"),
+            "round": context.get("round"),
+            "rounds_total": context.get("rounds_total"),
+            "own_history": context.get("own_history"),
+            "opponent_history": context.get("opponent_history"),
+            "opponent_last_move": context.get("opponent_last_move"),
+        }
+
+        if self._agent_system_template:
+            system_prompt = Template(self._agent_system_template).render(input=input_data)
+        else:
+            system_prompt = "<system template unavailable>"
+
+        if self._agent_user_template:
+            user_prompt = Template(self._agent_user_template).render(input=input_data)
+        else:
+            user_prompt = "<user template unavailable>"
+
+        return system_prompt, user_prompt
+
+    @staticmethod
+    def _is_truthy(value: Any) -> bool:
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}

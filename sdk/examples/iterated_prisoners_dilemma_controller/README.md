@@ -21,6 +21,11 @@ cd python
 ./run.sh --local
 ```
 
+Debug mode (shows per-agent input/output messages):
+```bash
+./run.sh --debug
+```
+
 or
 ```bash
 cd python

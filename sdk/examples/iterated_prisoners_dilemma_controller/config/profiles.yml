@@ -15,4 +15,31 @@ data:
         refresh: true
         timeout_seconds: 120
         max_retries: 3
+      max_tokens: 150000
+    fast:
+      provider: openai-codex
+      name: gpt-5.4-mini
+      backend: codex
+      base_url: https://chatgpt.com/backend-api
+      oauth:
+        provider: openai-codex
+        auth_file: ~/.agents/flatmachines/auth.json
+        originator: flatagents
+        refresh: true
+        timeout_seconds: 120
+        max_retries: 3
+      max_tokens: 150000
+    extractor:
+      provider: openai-codex
+      name: gpt-5.4-mini
+      backend: codex
+      base_url: https://chatgpt.com/backend-api
+      oauth:
+        provider: openai-codex
+        auth_file: ~/.agents/flatmachines/auth.json
+        originator: flatagents
+        refresh: true
+        timeout_seconds: 120
+        max_retries: 3
+      max_tokens: 150000
   default: default
