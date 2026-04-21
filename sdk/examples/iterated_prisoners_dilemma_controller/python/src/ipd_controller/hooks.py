@@ -11,8 +11,8 @@ from jinja2 import Template
 from flatmachines import MachineHooks
 
 
-class IPDControllerHooks(MachineHooks):
-    """Hooks for action-driven routing and programmatic round scoring."""
+class IPDPlayerHooks(MachineHooks):
+    """Hooks for player-machine routing/actions and optional debug output."""
 
     def __init__(self, debug_messages: Optional[bool] = None, debug_prompts: Optional[bool] = None):
         if debug_messages is None:
@@ -68,15 +68,7 @@ class IPDControllerHooks(MachineHooks):
             return self._choose_cooperate(context)
         if action_name == "choose_defect":
             return self._choose_defect(context)
-        if action_name == "init_match":
-            return self._init_match(context)
-        if action_name == "score_round":
-            return self._score_round(context)
         return context
-
-    # ------------------------------------------------------------------
-    # Player machine actions
-    # ------------------------------------------------------------------
 
     def _route_decision(self, context: Dict[str, Any]) -> Dict[str, Any]:
         raw = str(context.get("decision_raw") or "").strip()
@@ -99,26 +91,72 @@ class IPDControllerHooks(MachineHooks):
         context["next_state"] = next_state
         context["decision_normalized"] = next_state
         if self.debug_messages:
-            print(
-                f"[DEBUG][ROUTER] raw={raw!r} -> next_state={next_state!r}"
-            )
+            print(f"[DEBUG][ROUTER] raw={raw!r} -> next_state={next_state!r}")
         return context
 
-    def _choose_cooperate(self, context: Dict[str, Any]) -> Dict[str, Any]:
+    @staticmethod
+    def _choose_cooperate(context: Dict[str, Any]) -> Dict[str, Any]:
         context["move"] = "C"
         context["move_label"] = "cooperate"
         context["rationale"] = f"routed_from={context.get('decision_raw', '')}"
         return context
 
-    def _choose_defect(self, context: Dict[str, Any]) -> Dict[str, Any]:
+    @staticmethod
+    def _choose_defect(context: Dict[str, Any]) -> Dict[str, Any]:
         context["move"] = "D"
         context["move_label"] = "defect"
         context["rationale"] = f"routed_from={context.get('decision_raw', '')}"
         return context
 
-    # ------------------------------------------------------------------
-    # Match machine actions
-    # ------------------------------------------------------------------
+    def _load_agent_templates(self) -> None:
+        """Load system/user templates from config/agent.yml for debug rendering."""
+        try:
+            agent_path = Path(__file__).resolve().parents[3] / "config" / "agent.yml"
+            data = yaml.safe_load(agent_path.read_text(encoding="utf-8")) or {}
+            agent_data = data.get("data", {}) if isinstance(data, dict) else {}
+            self._agent_system_template = str(agent_data.get("system") or "")
+            self._agent_user_template = str(agent_data.get("user") or "")
+        except Exception:
+            # Debug-only feature; keep runtime robust if file can't be read.
+            self._agent_system_template = ""
+            self._agent_user_template = ""
+
+    def _render_prompts_for_context(self, context: Dict[str, Any]) -> Tuple[str, str]:
+        input_data = {
+            "role": context.get("role"),
+            "round": context.get("round"),
+            "rounds_total": context.get("rounds_total"),
+            "own_history": context.get("own_history"),
+            "opponent_history": context.get("opponent_history"),
+            "opponent_last_move": context.get("opponent_last_move"),
+        }
+
+        if self._agent_system_template:
+            system_prompt = Template(self._agent_system_template).render(input=input_data)
+        else:
+            system_prompt = "<system template unavailable>"
+
+        if self._agent_user_template:
+            user_prompt = Template(self._agent_user_template).render(input=input_data)
+        else:
+            user_prompt = "<user template unavailable>"
+
+        return system_prompt, user_prompt
+
+    @staticmethod
+    def _is_truthy(value: Any) -> bool:
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+class IPDMatchHooks(MachineHooks):
+    """Hooks for match-level setup/scoring actions."""
+
+    def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        if action_name == "init_match":
+            return self._init_match(context)
+        if action_name == "score_round":
+            return self._score_round(context)
+        return context
 
     def _init_match(self, context: Dict[str, Any]) -> Dict[str, Any]:
         rounds_total = self._to_int(context.get("rounds_total"), default=10)
@@ -211,10 +249,6 @@ class IPDControllerHooks(MachineHooks):
 
         return context
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _to_int(value: Any, default: int = 0) -> int:
         try:
@@ -239,42 +273,3 @@ class IPDControllerHooks(MachineHooks):
         if move_a == "C" and move_b == "D":
             return 0, 5
         return 1, 1
-
-    def _load_agent_templates(self) -> None:
-        """Load system/user templates from config/agent.yml for debug rendering."""
-        try:
-            agent_path = Path(__file__).resolve().parents[3] / "config" / "agent.yml"
-            data = yaml.safe_load(agent_path.read_text(encoding="utf-8")) or {}
-            agent_data = data.get("data", {}) if isinstance(data, dict) else {}
-            self._agent_system_template = str(agent_data.get("system") or "")
-            self._agent_user_template = str(agent_data.get("user") or "")
-        except Exception:
-            # Debug-only feature; keep runtime robust if file can't be read.
-            self._agent_system_template = ""
-            self._agent_user_template = ""
-
-    def _render_prompts_for_context(self, context: Dict[str, Any]) -> Tuple[str, str]:
-        input_data = {
-            "role": context.get("role"),
-            "round": context.get("round"),
-            "rounds_total": context.get("rounds_total"),
-            "own_history": context.get("own_history"),
-            "opponent_history": context.get("opponent_history"),
-            "opponent_last_move": context.get("opponent_last_move"),
-        }
-
-        if self._agent_system_template:
-            system_prompt = Template(self._agent_system_template).render(input=input_data)
-        else:
-            system_prompt = "<system template unavailable>"
-
-        if self._agent_user_template:
-            user_prompt = Template(self._agent_user_template).render(input=input_data)
-        else:
-            user_prompt = "<user template unavailable>"
-
-        return system_prompt, user_prompt
-
-    @staticmethod
-    def _is_truthy(value: Any) -> bool:
-        return str(value).strip().lower() in {"1", "true", "yes", "on"}

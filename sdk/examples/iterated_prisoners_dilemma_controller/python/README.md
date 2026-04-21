@@ -2,6 +2,10 @@
 
 Runs a 10-round deterministic Iterated Prisoner's Dilemma match with two identical LLM-controlled player machines.
 
+Hook separation in this example:
+- `IPDPlayerHooks` for player-machine actions/debug
+- `IPDMatchHooks` for match-machine scoring/setup
+
 ## Run
 ```bash
 ./run.sh --local

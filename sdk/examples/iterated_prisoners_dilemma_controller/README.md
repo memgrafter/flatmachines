@@ -8,6 +8,10 @@ Two identical LLM-driven player machines play a deterministic **10-round Iterate
   - `cooperate` (programmatic action)
   - `defect` (programmatic action)
 - Routing uses the recommended pattern: action writes `context.next_state`, transitions read it.
+- Hooks are intentionally split by machine responsibility:
+  - player machine: `ipd-player-hooks`
+  - match machine: `ipd-match-hooks`
+  (implemented as separate classes in one `python/src/ipd_controller/hooks.py` file)
 
 ## Model setup
 This example uses the OpenAI Codex OAuth profile setup from:

@@ -4,7 +4,7 @@ spec_version: "2.0.0"
 data:
   name: ipd-player
 
-  hooks: ipd-hooks
+  hooks: ipd-player-hooks
 
   context:
     role: input.role
