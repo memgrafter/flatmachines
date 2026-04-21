@@ -1,335 +1,150 @@
 /**
- * FlatMachine Configuration Schema
- * ================================
- *
- * A machine defines how agents are connected and executed:
- * states, transitions, conditions, and loops.
- *
- * While flatagents defines WHAT each agent is (model + prompts + output schema),
- * flatmachines defines HOW agents are connected and executed.
- *
- * STRUCTURE:
- * ----------
- * spec           - Fixed string "flatmachine"
- * spec_version   - Semver string
- * data           - The machine configuration
- * metadata       - Extensibility layer
- *
- * DERIVED SCHEMAS:
- * ----------------
- * This file (/flatmachine.d.ts) is the SOURCE OF TRUTH for all FlatMachine schemas.
- * Other schemas (JSON Schema, etc.) are DERIVED from this file using scripts.
- * See: /scripts/generate-spec-assets.ts
- *
- * DATA FIELDS:
- * ------------
- * Core:
- * name               - Machine identifier
- * expression_engine  - "simple" (default) or "cel"
- *
- * Context + references:
- * context            - Initial context values (Jinja2 templates)
- * agents             - Map of agent name to AgentRef (path, inline config, or typed adapter ref)
- * machines           - Map of machine name to config file path or inline config
- *
- * Orchestration + runtime config:
- * states             - Map of state name to state definition
- * settings           - Optional settings (hooks, etc.)
- * persistence        - Checkpoint backend settings
- * hooks              - Hook reference(s) resolved by runtime registry
- *
- * STATE FIELDS:
- * -------------
- * Lifecycle / control flow:
- * type              - "initial" or "final" (optional)
- * on_error          - Error handling: "error_state" or {default: "...", ErrorType: "..."}
- * timeout           - State timeout in seconds (context-dependent)
- * transitions       - Ordered list of transitions ({ condition?: string, to: string })
- *
- * Data mapping:
- * input             - Input mapping (Jinja2 templates)
- * output_to_context - Map output to context (Jinja2 templates)
- * output            - Final output mapping (typically for final states)
- *
- * Agent execution:
- * agent             - Agent name to execute (from agents map)
- * execution         - Execution type config: {type: "retry", backoffs: [...], jitter: 0.1}
- * sampling          - Sampling hint (single|multi)
- * tool_loop         - Enable/configure model-driven tool loop
- * session_id        - Optional stable session key passed to executors
- *
- * Machine invocation / parallelism:
- * machine           - Machine name or array for parallel execution (from machines map)
- * foreach           - Jinja2 expression yielding array for dynamic parallelism
- * as                - Variable name for foreach item (default: "item")
- * key               - Optional key expression for foreach result mapping
- * mode              - Completion semantics: "settled" (default) or "any"
- *
- * Hook action:
- * action            - Hook action to execute
- *
- * External signal wait:
- * wait_for          - Channel to wait for external signal (Jinja2 template)
- *
- * Fire-and-forget launch:
- * launch            - Machine(s) to start without blocking
- * launch_input      - Input for launched machines
- *
- * STATE NOTES:
- * ------------
- * - Only `machine` supports array-based parallel invocation (`machine: [a, b, c]`), not `agent`.
- * - `wait_for` checkpoints the machine and exits; it resumes when a matching signal arrives.
- * - `launch` is fire-and-forget, while `machine` performs launch + blocking read.
- * - For fault-tolerant parallelism, run work as machines (checkpoint/retry/error handling),
- *   not raw agent calls.
- *
- * RUNTIME MODEL (v0.4.0):
- * -----------------------
- * All machine invocations are launches. Communication via result backend.
- *
- *   machine: child      → launch + blocking read
- *   machine: [a,b,c]    → launch all + wait for all
- *   launch: child       → launch only, no read
- *
- * URI Scheme: flatagents://{execution_id}/[checkpoint|result]
- *
- * Parent generates child's execution_id, passes it to child. Child writes
- * result to its URI. Parent reads from known URI. No direct messaging.
- *
- * Local SDKs may optimize blocking reads as function returns (in-memory backend).
- * This decouples output from read, enabling both local and distributed execution.
- *
- * Launch intents are checkpointed before execution (outbox pattern).
- * On resume, SDK checks if launched machine exists before re-launching.
- *
- * EXPRESSION SYNTAX (Simple Mode):
- * --------------------------------
- * Comparisons: ==, !=, <, <=, >, >=
- * Boolean: and, or, not
- * Field access: context.field, input.field, output.field
- * Literals: "string", 42, true, false, null
- *
- * Example: "context.score >= 8 and context.round < 4"
- *
- * EXPRESSION SYNTAX (CEL Mode):
- * -----------------------------
- * All simple syntax, plus:
- * List macros: context.items.all(i, i > 0)
- * String methods: context.name.startsWith("test")
- * Timestamps: context.created > now - duration("24h")
- *
- * EXAMPLE CONFIGURATION:
- * ----------------------
- *
- *   spec: flatmachine
- *   spec_version: "0.7.0"
- *
- *   data:
- *     name: writer-critic-loop
- *
- *     context:
- *       product: "{{ input.product }}"
- *       score: 0
- *       round: 0
- *
- *     agents:
- *       writer: ./writer.yml
- *       critic: ./critic.yml
- *
- *     states:
- *       start:
- *         type: initial
- *         transitions:
- *           - to: write
- *
- *       write:
- *         agent: writer
- *         execution:
- *           type: retry
- *           backoffs: [2, 8, 16, 35]
- *           jitter: 0.1
- *         on_error: error_state
- *         input:
- *           product: "{{ context.product }}"
- *         output_to_context:
- *           tagline: "{{ output.tagline }}"
- *         transitions:
- *           - to: review
- *
- *       review:
- *         agent: critic
- *         input:
- *           tagline: "{{ context.tagline }}"
- *         output_to_context:
- *           score: "{{ output.score }}"
- *           round: "{{ context.round + 1 }}"
- *         transitions:
- *           - condition: "context.score >= 8"
- *             to: done
- *           - to: write
- *
- *       done:
- *         type: final
- *         output:
- *           tagline: "{{ context.tagline }}"
- *
- *   metadata:
- *     description: "Iterative writer-critic loop"
- *
- * PARALLEL EXECUTION EXAMPLE:
- * ---------------------------
- *
- *   states:
- *     parallel_review:
- *       machine: [legal_review, tech_review, finance_review]
- *       input:
- *         document: "{{ context.document }}"
- *       mode: settled
- *       timeout: 120
- *       output_to_context:
- *         reviews: "{{ output }}"
- *       transitions:
- *         - to: synthesize
- *
- * DYNAMIC PARALLELISM EXAMPLE:
- * ----------------------------
- *
- *   states:
- *     process_all:
- *       foreach: "{{ context.documents }}"
- *       as: doc
- *       key: "{{ doc.id }}"
- *       machine: doc_processor
- *       input:
- *         document: "{{ doc }}"
- *       mode: settled
- *       output_to_context:
- *         results: "{{ output }}"
- *       transitions:
- *         - to: aggregate
- *
- * LAUNCH (FIRE-AND-FORGET) EXAMPLE:
- * ---------------------------------
- *
- *   states:
- *     kickoff:
- *       launch: expensive_analysis
- *       launch_input:
- *         document: "{{ context.document }}"
- *         result_address: "results/{{ context.job_id }}"
- *       transitions:
- *         - to: continue_immediately
- *
- * WAIT_FOR (EXTERNAL SIGNAL) EXAMPLE:
- * ------------------------------------
- * Machine checkpoints and exits. Nothing running. Dispatcher resumes
- * the machine when a signal arrives on the named channel.
- * Signal data is available as output.* in output_to_context templates.
- *
- *   states:
- *     wait_for_approval:
- *       wait_for: "approval/{{ context.task_id }}"
- *       timeout: 86400
- *       output_to_context:
- *         approved: "{{ output.approved }}"
- *         reviewer: "{{ output.reviewer }}"
- *       transitions:
- *         - condition: "context.approved"
- *           to: continue_work
- *         - to: rejected
- *
- * QUOTA-GATED EXAMPLE:
- * --------------------
- *
- *   states:
- *     wait_for_quota:
- *       wait_for: "quota/openai"
- *       output_to_context:
- *         quota_token: "{{ output }}"
- *       transitions:
- *         - to: call_api
- *
- * PERSISTENCE (v0.2.0):
- * --------------------
- * MachineSnapshot    - Wire format for checkpoints (execution_id, state, context, step)
- * PersistenceConfig  - Backend config: {enabled: true, backend: "local"|"memory"|"sqlite"}
- * checkpoint_on      - Events to checkpoint: ["machine_start", "execute", "machine_end"]
- *
- * MACHINE LAUNCHING:
- * ------------------
- * States can launch peer machines via `machine:` field
- * MachineReference   - {path: "./peer.yml"} or {inline: {...}}
- *
- * URI SCHEME:
- * -----------
- * Format: flatagents://{execution_id}[/{path}]
- *
- * Paths:
- *   /checkpoint     - Machine state for resume
- *   /result         - Final output after completion
- *
- * Examples:
- *   flatagents://550e8400-e29b-41d4-a716-446655440000/checkpoint
- *   flatagents://550e8400-e29b-41d4-a716-446655440000/result
- *
- * Each machine execution has a unique_id. Parent generates child's ID
- * before launching, enabling parent to know where to read results without
- * any child-to-parent messaging.
- *
- * EXECUTION CONFIG:
- * -----------------
- * type           - "default" | "retry" | "parallel" | "mdap_voting"
- * backoffs       - Retry: seconds between retries
- * jitter         - Retry: random factor (0-1)
- * n_samples      - Parallel: number of samples
- * k_margin       - MDAP voting: consensus threshold
- * max_candidates - MDAP voting: max candidates
- *
- * MACHINE INPUT:
- * --------------
- * Per-machine input configuration for parallel execution.
- * Use when different machines need different inputs.
- *
- * LAUNCH INTENT:
- * --------------
- * Launch intent for outbox pattern.
- * Recorded in checkpoint before launching to ensure exactly-once semantics.
- *
- * HOOKS CONFIG:
- * -------------
- * Hooks are referenced by name and resolved via a runtime HooksRegistry.
- * This keeps machine configs language-agnostic — the same YAML works with
- * Python, JavaScript, Rust, or any other SDK.
- *
- * String shorthand:
- *   hooks: "my-hooks"
- *
- * With constructor args:
- *   hooks:
- *     name: "my-hooks"
- *     args:
- *       working_dir: "."
- *
- * Composite (multiple hooks):
- *   hooks:
- *     - "logging"
- *     - name: "my-hooks"
- *       args: { working_dir: "." }
- *
- * The SDK's HooksRegistry maps names to implementations.
- * Built-in hooks (e.g., "logging", "webhook") are pre-registered.
- * Custom hooks are registered by the runner before machine execution.
- *
- * MACHINE SNAPSHOT:
- * -----------------
- * Wire format for checkpoints.
- * context.machine    - Runtime-owned metadata (execution_id, step, state, cost/calls)
- *                      Rebuilt from live machine state on each step/resume.
- * parent_execution_id - Lineage tracking (v0.4.0)
- * pending_launches    - Outbox pattern (v0.4.0)
- * waiting_channel     - Signal channel this machine is blocked on (v1.2.0)
- * config_hash         - Content-addressed machine config key for cross-SDK resume (v2.1.0)
- */
+FlatMachine Configuration Schema
+A machine defines how agents are connected and executed:
+states, transitions, conditions, and loops.
+While flatagents defines WHAT each agent is (model + prompts + output schema),
+flatmachines defines HOW agents are connected and executed.
+STRUCTURE:
+spec           - Fixed string "flatmachine"
+spec_version   - Semver string
+data           - The machine configuration
+metadata       - Extensibility layer
+DERIVED SCHEMAS:
+This file (/flatmachine.d.ts) is the SOURCE OF TRUTH for all FlatMachine schemas.
+Other schemas (JSON Schema, etc.) are DERIVED from this file using scripts.
+See: /scripts/generate-spec-assets.ts
+DATA FIELDS:
+Core:
+name               - Machine identifier
+expression_engine  - "simple" (default) or "cel"
+Context + references:
+context            - Initial context values (Jinja2 templates)
+agents             - Map of agent name to AgentRef (path, inline config, or typed adapter ref)
+machines           - Map of machine name to config file path or inline config
+Orchestration + runtime config:
+states             - Map of state name to state definition
+settings           - Optional settings (hooks, etc.)
+persistence        - Checkpoint backend settings
+hooks              - Hook reference(s) resolved by runtime registry
+STATE FIELDS:
+Lifecycle / control flow:
+type              - "initial" or "final" (optional)
+on_error          - Error handling: "error_state" or {default: "...", ErrorType: "..."}
+timeout           - State timeout in seconds (context-dependent)
+transitions       - Ordered list of transitions ({ condition?: string, to: string })
+Data mapping:
+input             - Input mapping (Jinja2 templates)
+output_to_context - Map output to context (Jinja2 templates)
+output            - Final output mapping (typically for final states)
+Agent execution:
+agent             - Agent name to execute (from agents map)
+execution         - Execution type config: {type: "retry", backoffs: [...], jitter: 0.1}
+sampling          - Sampling hint (single|multi)
+tool_loop         - Enable/configure model-driven tool loop
+session_id        - Optional stable session key passed to executors
+Machine invocation / parallelism:
+machine           - Machine name or array for parallel execution (from machines map)
+foreach           - Jinja2 expression yielding array for dynamic parallelism
+as                - Variable name for foreach item (default: "item")
+key               - Optional key expression for foreach result mapping
+mode              - Completion semantics: "settled" (default) or "any"
+Hook action:
+action            - Hook action to execute
+External signal wait:
+wait_for          - Channel to wait for external signal (Jinja2 template)
+Fire-and-forget launch:
+launch            - Machine(s) to start without blocking
+launch_input      - Input for launched machines
+STATE NOTES:
+- Only `machine` supports array-based parallel invocation (`machine: [a, b, c]`), not `agent`.
+- `wait_for` checkpoints the machine and exits; it resumes when a matching signal arrives.
+- `launch` is fire-and-forget, while `machine` performs launch + blocking read.
+- For fault-tolerant parallelism, run work as machines (checkpoint/retry/error handling),
+  not raw agent calls.
+RUNTIME MODEL:
+All machine invocations are launches. Communication via result backend.
+  machine: child      → launch + blocking read
+  machine: [a,b,c]    → launch all + wait for all
+  launch: child       → launch only, no read
+URI Scheme: flatagents://{execution_id}/[checkpoint|result]
+Parent generates child's execution_id, passes it to child. Child writes
+result to its URI. Parent reads from known URI. No direct messaging.
+Local SDKs may optimize blocking reads as function returns (in-memory backend).
+This decouples output from read, enabling both local and distributed execution.
+Launch intents are checkpointed before execution (outbox pattern).
+On resume, SDK checks if launched machine exists before re-launching.
+EXPRESSION SYNTAX (Simple Mode):
+Comparisons: ==, !=, <, <=, >, >=
+Boolean: and, or, not
+Field access: context.field, input.field, output.field
+Literals: "string", 42, true, false, null
+Example: "context.score >= 8 and context.round < 4"
+EXPRESSION SYNTAX (CEL Mode):
+All simple syntax, plus:
+List macros: context.items.all(i, i > 0)
+String methods: context.name.startsWith("test")
+Timestamps: context.created > now - duration("24h")
+EXAMPLES:
+See `sdk/examples/` and `AGENTS.md` for full workflow examples
+PERSISTENCE:
+MachineSnapshot    - Wire format for checkpoints (execution_id, state, context, step)
+PersistenceConfig  - Backend config: {enabled: true, backend: "local"|"memory"|"sqlite"}
+checkpoint_on      - Events to checkpoint: ["machine_start", "execute", "machine_end"]
+MACHINE LAUNCHING:
+States can launch peer machines via `machine:` field
+MachineReference   - {path: "./peer.yml"} or {inline: {...}}
+URI SCHEME:
+Format: flatagents://{execution_id}[/{path}]
+Paths:
+  /checkpoint     - Machine state for resume
+  /result         - Final output after completion
+Examples:
+  flatagents://550e8400-e29b-41d4-a716-446655440000/checkpoint
+  flatagents://550e8400-e29b-41d4-a716-446655440000/result
+Each machine execution has a unique_id. Parent generates child's ID
+before launching, enabling parent to know where to read results without
+any child-to-parent messaging.
+EXECUTION CONFIG:
+type           - "default" | "retry" | "parallel" | "mdap_voting"
+backoffs       - Retry: seconds between retries
+jitter         - Retry: random factor (0-1)
+n_samples      - Parallel: number of samples
+k_margin       - MDAP voting: consensus threshold
+max_candidates - MDAP voting: max candidates
+MACHINE INPUT:
+Per-machine input configuration for parallel execution.
+Use when different machines need different inputs.
+LAUNCH INTENT:
+Launch intent for outbox pattern.
+Recorded in checkpoint before launching to ensure exactly-once semantics.
+HOOKS CONFIG:
+Hooks are referenced by name and resolved via a runtime HooksRegistry.
+This keeps machine configs language-agnostic — the same YAML works with
+Python, JavaScript, Rust, or any other SDK.
+String shorthand:
+  hooks: "my-hooks"
+With constructor args:
+  hooks:
+    name: "my-hooks"
+    args:
+      working_dir: "."
+Composite (multiple hooks):
+  hooks:
+    - "logging"
+    - name: "my-hooks"
+      args: { working_dir: "." }
+The SDK's HooksRegistry maps names to implementations.
+Built-in hooks (e.g., "logging", "webhook") are pre-registered.
+Custom hooks are registered by the runner before machine execution.
+MACHINE SNAPSHOT:
+Wire format for checkpoints.
+context.machine    - Runtime-owned metadata (execution_id, step, state, cost/calls)
+                     Rebuilt from live machine state on each step/resume.
+parent_execution_id - Lineage tracking
+pending_launches    - Outbox pattern
+waiting_channel     - Signal channel this machine is blocked on (v1.2.0)
+config_hash         - Content-addressed machine config key for cross-SDK resume (v2.1.0)
+*/
 
 export const SPEC_VERSION = "2.7.0";
 
@@ -426,13 +241,13 @@ export interface StateDefinition {
 }
 
 export interface ToolLoopStateConfig {
-  max_tool_calls?: number;     // Total tool calls before forced stop. Default: 50
-  max_turns?: number;          // LLM call rounds before forced stop. Default: 20
-  allowed_tools?: string[];    // Whitelist (if set, only these execute)
-  denied_tools?: string[];     // Blacklist (takes precedence over allowed)
-  tool_timeout?: number;       // Per-tool execution timeout in seconds. Default: 30
-  total_timeout?: number;      // Total loop timeout in seconds. Default: 600
-  max_cost?: number;           // Cost limit in dollars
+  max_tool_calls?: number;  // default: 50
+  max_turns?: number;       // default: 20
+  allowed_tools?: string[]; // allowlist
+  denied_tools?: string[];  // denylist (wins)
+  tool_timeout?: number;    // seconds, default: 30
+  total_timeout?: number;   // seconds, default: 600
+  max_cost?: number;        // dollars
 }
 
 export interface MachineInput {
