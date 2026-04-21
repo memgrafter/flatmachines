@@ -14,6 +14,7 @@ from flatmachines.hooks import (
     LoggingHooks,
     CompositeHooks,
     WebhookHooks,
+    HooksRegistry,
 )
 from flatmachines.agents import StreamEventCallback
 
@@ -61,7 +62,8 @@ class TestLoggingHooksStream:
 class TestCompositeHooksStream:
     """CompositeHooks fans out to all children."""
 
-    def test_fans_out_to_all(self):
+    @pytest.mark.asyncio
+    async def test_fans_out_to_all(self):
         events_a: List[Dict] = []
         events_b: List[Dict] = []
 
@@ -75,7 +77,7 @@ class TestCompositeHooksStream:
 
         composite = CompositeHooks(HooksA(), HooksB())
         ev = {"type": "result"}
-        composite.on_agent_stream_event("s", ev, {})
+        await composite.on_agent_stream_event("s", ev, {})
         assert events_a == [ev]
         assert events_b == [ev]
 
@@ -310,7 +312,7 @@ class TestBindStreamCallback:
     """Test FlatMachine._bind_stream_callback / _unbind_stream_callback."""
 
     def _make_machine(self, hooks: MachineHooks):
-        """Create a minimal FlatMachine with given hooks."""
+        """Create a minimal FlatMachine with given state hooks."""
         from flatmachines import FlatMachine
         config = {
             "spec": "flatmachine",
@@ -333,12 +335,14 @@ class TestBindStreamCallback:
                     }
                 },
                 "states": {
-                    "start": {"type": "initial", "transitions": [{"to": "done"}]},
-                    "done": {"type": "final"},
+                    "start": {"type": "initial", "hooks": "test-hooks", "transitions": [{"to": "done"}]},
+                    "done": {"type": "final", "hooks": "test-hooks"},
                 },
             },
         }
-        return FlatMachine(config_dict=config, hooks=hooks)
+        registry = HooksRegistry()
+        registry.register("test-hooks", lambda: hooks)
+        return FlatMachine(config_dict=config, hooks_registry=registry)
 
     def test_binds_callback_when_hook_overridden(self):
         """Callback is set when hooks override on_agent_stream_event."""
@@ -350,13 +354,13 @@ class TestBindStreamCallback:
             _stream_event_callback = None
 
         executor = FakeExecutor()
-        machine._bind_stream_callback(executor, "my_state", {"ctx": 1})
+        machine._bind_stream_callback(executor, "start", {"ctx": 1})
         assert executor._stream_event_callback is not None
 
         # Call it and verify events flow to hooks
         executor._stream_event_callback({"type": "test"})
         assert len(hooks.events) == 1
-        assert hooks.events[0][0] == "my_state"
+        assert hooks.events[0][0] == "start"
 
     def test_skips_when_no_attribute(self):
         """Executors without _stream_event_callback are silently skipped."""
@@ -368,7 +372,7 @@ class TestBindStreamCallback:
 
         executor = PlainExecutor()
         # Should not raise
-        machine._bind_stream_callback(executor, "s", {})
+        machine._bind_stream_callback(executor, "start", {})
 
     def test_skips_when_hook_not_overridden(self):
         """Default MachineHooks.on_agent_stream_event → no callback overhead."""
@@ -379,7 +383,7 @@ class TestBindStreamCallback:
             _stream_event_callback = None
 
         executor = FakeExecutor()
-        machine._bind_stream_callback(executor, "s", {})
+        machine._bind_stream_callback(executor, "start", {})
         assert executor._stream_event_callback is None
 
     def test_unbind_clears_callback(self):
@@ -391,7 +395,7 @@ class TestBindStreamCallback:
             _stream_event_callback = None
 
         executor = FakeExecutor()
-        machine._bind_stream_callback(executor, "s", {})
+        machine._bind_stream_callback(executor, "start", {})
         assert executor._stream_event_callback is not None
 
         machine._unbind_stream_callback(executor)
@@ -417,7 +421,7 @@ class TestBindStreamCallback:
             _stream_event_callback = None
 
         executor = FakeExecutor()
-        machine._bind_stream_callback(executor, "s", {})
+        machine._bind_stream_callback(executor, "start", {})
         # CompositeHooks overrides on_agent_stream_event, so callback is set
         assert executor._stream_event_callback is not None
 

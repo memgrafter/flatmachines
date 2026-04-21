@@ -28,12 +28,13 @@ class Action(ABC):
 
 class HookAction(Action):
     """
-    Default action: delegates to machine hooks (on_action).
+    Default action: delegates to the current state's hooks (on_action).
     """
-    
-    def __init__(self, hooks):
+
+    def __init__(self, hooks, state_name: str):
         self.hooks = hooks
-        
+        self.state_name = state_name
+
     async def execute(
         self,
         action_name: str,
@@ -41,7 +42,7 @@ class HookAction(Action):
         config: Dict[str, Any]
     ) -> Dict[str, Any]:
         import asyncio
-        result = self.hooks.on_action(action_name, context)
+        result = self.hooks.on_action(self.state_name, action_name, context)
         if asyncio.iscoroutine(result):
             return await result
         return result

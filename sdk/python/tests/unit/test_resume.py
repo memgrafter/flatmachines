@@ -62,16 +62,17 @@ spec: flatmachine
 spec_version: "2.1.0"
 data:
   name: hooks-resume-test
-  hooks: "tracking"
   context:
     val: null
     tracked: false
   states:
     start:
       type: initial
+      hooks: "tracking"
       transitions:
         - to: wait
     wait:
+      hooks: "tracking"
       wait_for: "test/ch"
       output_to_context:
         val: "{{ output.v }}"
@@ -79,6 +80,7 @@ data:
         - to: done
     done:
       type: final
+      hooks: "tracking"
       output:
         val: "context.val"
         tracked: "context.tracked"
@@ -160,10 +162,18 @@ async def _park(config_file, signal_backend, persistence, config_store):
 
 
 class TrackingHooks(MachineHooks):
-    """Simple hooks that mark context so we can verify they were active."""
+    """Simple state hooks that mark context so we can verify they were active."""
 
     def on_state_enter(self, state_name, context):
         context["tracked"] = True
+        return context
+
+
+class LifecycleTrackingHooks(MachineHooks):
+    """Simple lifecycle hooks for explicit lifecycle injection tests."""
+
+    def on_machine_start(self, context):
+        context["started"] = True
         return context
 
 
@@ -321,16 +331,16 @@ class TestConfigStoreResumer:
         assert result["tracked"] is True
 
     @pytest.mark.asyncio
-    async def test_resume_with_explicit_hooks(self, config_file, backends):
-        """Explicit hooks= are passed through to reconstructed machine."""
+    async def test_resume_with_explicit_lifecycle_hooks(self, config_file, backends):
+        """Explicit lifecycle_hooks= are passed through to reconstructed machine."""
         signal_backend, persistence, config_store = backends
         eid = await _park(config_file, signal_backend, persistence, config_store)
 
         await signal_backend.send("test/ch", {"v": "hooks"})
 
-        hooks = TrackingHooks()
+        hooks = LifecycleTrackingHooks()
         resumer = ConfigStoreResumer(
-            signal_backend, persistence, config_store, hooks=hooks,
+            signal_backend, persistence, config_store, lifecycle_hooks=hooks,
         )
         result = await resumer.resume(eid, {"v": "hooks"})
 

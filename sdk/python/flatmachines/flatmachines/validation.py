@@ -27,6 +27,21 @@ def _load_schema(filename: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _is_hooks_ref(value: Any) -> bool:
+    """Return True if a value matches the HooksRef shape."""
+    if isinstance(value, str):
+        return True
+    if isinstance(value, dict):
+        if not isinstance(value.get("name"), str):
+            return False
+        args = value.get("args")
+        return args is None or isinstance(args, dict)
+    if isinstance(value, list):
+        return all(_is_hooks_ref(item) for item in value)
+    return False
+
+
+
 def _coerce_templated_tool_loop_guardrails_for_validation(
     config: Dict[str, Any],
 ) -> Dict[str, Any]:
@@ -78,6 +93,61 @@ def _coerce_templated_tool_loop_guardrails_for_validation(
     return cloned
 
 
+def _normalize_hook_role_fields_for_validation(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize hook-role fields so stale bundled schema can still validate.
+
+    The generated schema may lag the runtime while spec assets are being
+    regenerated. For validation, temporarily map `data.lifecycle_hooks` back to
+    legacy `data.hooks` and drop state-local `states.*.hooks` fields.
+    """
+    cloned = copy.deepcopy(config)
+    data = cloned.get("data") or {}
+    if not isinstance(data, dict):
+        return cloned
+
+    if "lifecycle_hooks" in data and "hooks" not in data:
+        data["hooks"] = copy.deepcopy(data["lifecycle_hooks"])
+    data.pop("lifecycle_hooks", None)
+
+    states = data.get("states") or {}
+    if isinstance(states, dict):
+        for state in states.values():
+            if isinstance(state, dict):
+                state.pop("hooks", None)
+
+    return cloned
+
+
+
+def _validate_hook_role_semantics(config: Dict[str, Any]) -> List[str]:
+    """Validate runtime hook-role semantics not captured by stale schema."""
+    errors: List[str] = []
+    data = (config.get("data") or {})
+    if not isinstance(data, dict):
+        return errors
+
+    if "hooks" in data:
+        errors.append(
+            "data.hooks is no longer supported; use data.lifecycle_hooks for machine lifecycle hooks "
+            "and states.<name>.hooks for state-local hooks"
+        )
+
+    lifecycle_hooks = data.get("lifecycle_hooks")
+    if lifecycle_hooks is not None and not _is_hooks_ref(lifecycle_hooks):
+        errors.append("data.lifecycle_hooks: invalid hook reference")
+
+    states = data.get("states") or {}
+    if isinstance(states, dict):
+        for state_name, state in states.items():
+            if not isinstance(state, dict):
+                continue
+            if "hooks" in state and not _is_hooks_ref(state.get("hooks")):
+                errors.append(f"data.states.{state_name}.hooks: invalid hook reference")
+
+    return errors
+
+
+
 def _validate_with_jsonschema(config: Dict[str, Any], schema: Dict[str, Any]) -> List[str]:
     try:
         import jsonschema
@@ -85,6 +155,7 @@ def _validate_with_jsonschema(config: Dict[str, Any], schema: Dict[str, Any]) ->
         return []
 
     validation_config = _coerce_templated_tool_loop_guardrails_for_validation(config)
+    validation_config = _normalize_hook_role_fields_for_validation(validation_config)
 
     errors: List[str] = []
     validator = jsonschema.Draft7Validator(schema)
@@ -105,6 +176,7 @@ def validate_flatmachine_config(
         return []
 
     errors = _validate_with_jsonschema(config, schema)
+    errors.extend(_validate_hook_role_semantics(config))
 
     if errors:
         if strict:

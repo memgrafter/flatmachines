@@ -6,14 +6,22 @@ import os
 import shutil
 import pytest
 
-from flatmachines import FlatMachine, MachineHooks, LocalFileBackend, MemoryBackend, CheckpointManager
+from flatmachines import FlatMachine, MachineHooks, LocalFileBackend, MemoryBackend, CheckpointManager, HooksRegistry
 
 
 class CounterHooks(MachineHooks):
-    def on_action(self, action_name, context):
+    def on_action(self, state_name, action_name, context):
         if action_name == "increment":
             context["count"] = context.get("count", 0) + 1
         return context
+
+
+def _machine_with_hooks(config, hooks, **kwargs):
+    cfg = {**config, "data": {**config["data"], "states": {**config["data"]["states"]}}}
+    cfg["data"]["states"]["count_up"] = {**cfg["data"]["states"]["count_up"], "hooks": "counter"}
+    registry = HooksRegistry()
+    registry.register("counter", lambda: hooks)
+    return FlatMachine(config_dict=cfg, hooks_registry=registry, **kwargs)
 
 
 COUNTER_CONFIG = {
@@ -54,8 +62,8 @@ class TestBackendLifecycleIntegration:
     @pytest.mark.asyncio
     async def test_list_after_runs(self):
         backend = LocalFileBackend()
-        m1 = FlatMachine(config_dict=COUNTER_CONFIG, hooks=CounterHooks(), persistence=backend)
-        m2 = FlatMachine(config_dict=COUNTER_CONFIG, hooks=CounterHooks(), persistence=backend)
+        m1 = _machine_with_hooks(COUNTER_CONFIG, CounterHooks(), persistence=backend)
+        m2 = _machine_with_hooks(COUNTER_CONFIG, CounterHooks(), persistence=backend)
         await m1.execute(input={})
         await m2.execute(input={})
 
@@ -65,8 +73,8 @@ class TestBackendLifecycleIntegration:
     @pytest.mark.asyncio
     async def test_delete_after_run(self):
         backend = LocalFileBackend()
-        m1 = FlatMachine(config_dict=COUNTER_CONFIG, hooks=CounterHooks(), persistence=backend)
-        m2 = FlatMachine(config_dict=COUNTER_CONFIG, hooks=CounterHooks(), persistence=backend)
+        m1 = _machine_with_hooks(COUNTER_CONFIG, CounterHooks(), persistence=backend)
+        m2 = _machine_with_hooks(COUNTER_CONFIG, CounterHooks(), persistence=backend)
         await m1.execute(input={})
         await m2.execute(input={})
 

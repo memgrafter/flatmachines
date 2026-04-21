@@ -13,7 +13,6 @@ import pytest
 
 from flatmachines import (
     FlatMachine,
-    MachineHooks,
     MemoryBackend,
     SignalDispatcher,
 )
@@ -88,7 +87,6 @@ class TestSocketTriggerIntegration:
         # Park a machine
         m = FlatMachine(
             config_dict=simple_wait_config("test/ch"),
-            hooks=MachineHooks(),
             persistence=persistence,
             signal_backend=signal_backend,
         )
@@ -105,7 +103,6 @@ class TestSocketTriggerIntegration:
         async def resume_fn(execution_id, signal_data):
             m2 = FlatMachine(
                 config_dict=simple_wait_config("test/ch"),
-                hooks=MachineHooks(),
                 persistence=persistence,
                 signal_backend=signal_backend,
             )
@@ -143,7 +140,6 @@ class TestDispatcherListenLoop:
         # Park a machine
         m = FlatMachine(
             config_dict=simple_wait_config("wake/me"),
-            hooks=MachineHooks(),
             persistence=persistence,
             signal_backend=signal_backend,
         )

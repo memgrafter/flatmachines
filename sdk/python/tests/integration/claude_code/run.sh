@@ -4,12 +4,13 @@
 # Runs against the real claude binary + API.
 # Requires: claude on PATH, valid auth, internet access.
 #
-# This script always passes --live to pytest.  To run tests manually
-# without --live they will all be skipped (safe for CI).
+# This script only passes --live to pytest when explicitly requested.
+# Without --live, all tests are skipped (safe for CI).
 #
 # Usage:
-#   ./run.sh           # use system packages
-#   ./run.sh --local   # install flatagents/flatmachines from local source
+#   ./run.sh                 # skipped unless --live is passed
+#   ./run.sh --live          # run live tests
+#   ./run.sh --local --live  # local source + live tests
 
 set -e
 
@@ -21,13 +22,21 @@ VENV_PATH="$SCRIPT_DIR/.venv"
 
 # --- Parse Arguments ---
 LOCAL_INSTALL=false
+LIVE=false
+PYTEST_ARGS=()
 while [[ $# -gt 0 ]]; do
     case $1 in
         --local|-l)
             LOCAL_INSTALL=true
             shift
             ;;
+        --live)
+            LIVE=true
+            PYTEST_ARGS+=("--live")
+            shift
+            ;;
         *)
+            PYTEST_ARGS+=("$1")
             shift
             ;;
     esac
@@ -62,7 +71,11 @@ echo ""
 echo "Running tests..."
 echo ""
 
-"$VENV_PATH/bin/python" -m pytest "$SCRIPT_DIR/test_claude_code_live.py" -v --tb=short -x --live 2>&1
+if [ "$LIVE" = false ]; then
+    echo "NOTE: --live not passed; Claude Code live tests will be skipped."
+fi
+
+"$VENV_PATH/bin/python" -m pytest "$SCRIPT_DIR/test_claude_code_live.py" -v --tb=short -x "${PYTEST_ARGS[@]}" 2>&1
 
 echo ""
 echo "Claude Code integration tests passed!"

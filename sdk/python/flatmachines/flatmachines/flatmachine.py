@@ -101,7 +101,7 @@ class FlatMachine:
         self,
         config_file: Optional[str] = None,
         config_dict: Optional[Dict] = None,
-        hooks: Optional[MachineHooks] = None,
+        lifecycle_hooks: Optional[MachineHooks] = None,
         hooks_registry: Optional[HooksRegistry] = None,
         persistence: Optional[PersistenceBackend] = None,
         lock: Optional[ExecutionLock] = None,
@@ -149,6 +149,9 @@ class FlatMachine:
         if config_dir_override:
             self._config_dir = config_dir_override
 
+        if 'hooks' in kwargs:
+            raise TypeError("hooks= is no longer supported; use lifecycle_hooks= or config data.lifecycle_hooks")
+
         # Merge kwargs into config data (shallow merge)
         if kwargs and 'data' in self.config:
             self.config['data'].update(kwargs)
@@ -179,9 +182,11 @@ class FlatMachine:
         expression_mode = self.data.get("expression_engine", "simple")
         self._expression_engine = get_expression_engine(expression_mode)
 
-        # Hooks registry + resolution
+        # Hooks registry + role-specific resolution
         self._hooks_registry = hooks_registry or HooksRegistry()
-        self._hooks = self._resolve_hooks(hooks)
+        self._lifecycle_hooks = self._resolve_lifecycle_hooks(lifecycle_hooks)
+        self._noop_state_hooks = MachineHooks()
+        self._state_hooks_cache: Dict[str, MachineHooks] = {}
 
         # Agent adapter registry
         if agent_registry is not None:
@@ -610,25 +615,31 @@ class FlatMachine:
         """Access the hooks registry for registering hooks by name."""
         return self._hooks_registry
 
-    def _resolve_hooks(self, hooks: Optional[MachineHooks]) -> MachineHooks:
-        """
-        Resolve hooks from explicit arg or config via registry.
-
-        Priority: explicit hooks= arg > config hooks: > no hooks
-
-        Config hooks are resolved via the HooksRegistry by name:
-            hooks: "my-hooks"
-            hooks: { name: "my-hooks", args: { key: "val" } }
-            hooks: ["logging", { name: "my-hooks", args: {} }]
-        """
+    def _resolve_lifecycle_hooks(self, hooks: Optional[MachineHooks]) -> MachineHooks:
+        """Resolve machine lifecycle hooks from explicit arg or config."""
         if hooks is not None:
             return hooks
 
-        hooks_config = self.data.get('hooks')
+        hooks_config = self.data.get('lifecycle_hooks')
         if not hooks_config:
             return MachineHooks()
 
         return self._hooks_registry.resolve(hooks_config)
+
+    def _get_state_hooks(self, state_name: str) -> MachineHooks:
+        """Resolve and cache state-local hooks for a state."""
+        if state_name in self._state_hooks_cache:
+            return self._state_hooks_cache[state_name]
+
+        state = self.states.get(state_name, {})
+        hooks_config = state.get('hooks')
+        if not hooks_config:
+            self._state_hooks_cache[state_name] = self._noop_state_hooks
+            return self._noop_state_hooks
+
+        hooks = self._hooks_registry.resolve(hooks_config)
+        self._state_hooks_cache[state_name] = hooks
+        return hooks
 
     def _get_executor(self, agent_name: str) -> AgentExecutor:
         """Get or load an agent executor by name."""
@@ -676,7 +687,7 @@ class FlatMachine:
         if not hasattr(executor, "_stream_event_callback"):
             return
 
-        hooks = self._hooks
+        hooks = self._get_state_hooks(state_name)
 
         # Check if the hook is overridden (skip wiring for base no-op)
         method = getattr(type(hooks), "on_agent_stream_event", None)
@@ -1199,9 +1210,9 @@ class FlatMachine:
                 except Exception:
                     pass
 
-    async def _run_hook(self, method_name: str, *args) -> Any:
-        """Run a hook method, awaiting if it's a coroutine."""
-        method = getattr(self._hooks, method_name)
+    async def _run_hook(self, hooks: MachineHooks, method_name: str, *args) -> Any:
+        """Run a hook method on a specific hook object, awaiting if needed."""
+        method = getattr(hooks, method_name)
         result = method(*args)
         if asyncio.iscoroutine(result):
             return await result
@@ -1269,10 +1280,10 @@ class FlatMachine:
 
             return context, output
 
-        # 1. Handle 'action' (hooks/custom actions)
+        # 1. Handle 'action' (state-local programmatic actions)
         action_name = state.get('action')
         if action_name:
-            action_impl = HookAction(self._hooks)
+            action_impl = HookAction(self._get_state_hooks(state_name), state_name)
             context = await action_impl.execute(action_name, context, config={})
 
         # 2. Handle 'launch' (fire-and-forget machine execution)
@@ -1427,13 +1438,13 @@ class FlatMachine:
                 # already executed.
                 if agent_result.tool_calls:
                     context = await self._run_hook(
-                        'on_tool_calls', state_name, agent_result.tool_calls, context,
+                        self._get_state_hooks(state_name), 'on_tool_calls', state_name, agent_result.tool_calls, context,
                     )
                 _tool_results = (agent_result.metadata or {}).get('tool_results')
                 if _tool_results:
                     for _tr in _tool_results:
                         context = await self._run_hook(
-                            'on_tool_result', state_name, _tr, context,
+                            self._get_state_hooks(state_name), 'on_tool_result', state_name, _tr, context,
                         )
 
                 output_mapping = state.get('output_to_context', {})
@@ -1456,8 +1467,8 @@ class FlatMachine:
     # ─────────────────────────────────────────────────────────────────────
 
     def _resolve_tool_provider(self, state_name: str):
-        """Resolve ToolProvider: hooks first, then constructor default."""
-        provider = self._hooks.get_tool_provider(state_name)
+        """Resolve ToolProvider: state hooks first, then constructor default."""
+        provider = self._get_state_hooks(state_name).get_tool_provider(state_name)
         if provider is not None:
             return provider
         return self._tool_provider
@@ -1750,7 +1761,7 @@ class FlatMachine:
 
             # --- HOOK: on_tool_calls (once per LLM response) ---
             context = await self._run_hook(
-                'on_tool_calls', state_name, pending_calls, context,
+                self._get_state_hooks(state_name), 'on_tool_calls', state_name, pending_calls, context,
             )
 
             if context.get('_abort_tool_loop'):
@@ -1836,7 +1847,7 @@ class FlatMachine:
 
                 # --- HOOK: on_tool_result (per tool call) ---
                 context = await self._run_hook(
-                    'on_tool_result', state_name, tool_result_dict, context,
+                    self._get_state_hooks(state_name), 'on_tool_result', state_name, tool_result_dict, context,
                 )
 
                 # --- Checkpoint after each tool call ---
@@ -2054,7 +2065,7 @@ class FlatMachine:
                 context = self._inject_machine_metadata(context, current_state)
 
                 await self._save_checkpoint('machine_start', 'start', step, context)
-                context = await self._run_hook('on_machine_start', context)
+                context = await self._run_hook(self._lifecycle_hooks, 'on_machine_start', context)
 
             logger.info(f"Starting execution loop at: {current_state}")
 
@@ -2068,7 +2079,7 @@ class FlatMachine:
                 context = self._inject_machine_metadata(context, current_state)
 
                 await self._save_checkpoint('state_enter', current_state, step, context)
-                context = await self._run_hook('on_state_enter', current_state, context)
+                context = await self._run_hook(self._get_state_hooks(current_state), 'on_state_enter', current_state, context)
 
                 await self._save_checkpoint('execute', current_state, step, context)
 
@@ -2092,7 +2103,7 @@ class FlatMachine:
                     recovery_state = self._get_error_recovery_state(state_config, e)
                     
                     if not recovery_state:
-                         recovery_state = await self._run_hook('on_error', current_state, e, context)
+                         recovery_state = await self._run_hook(self._get_state_hooks(current_state), 'on_error', current_state, e, context)
                     
                     if recovery_state:
                         logger.warning(f"Error in {current_state}, transitioning to {recovery_state}: {e}")
@@ -2109,7 +2120,7 @@ class FlatMachine:
                     output=output if is_final else None
                 )
 
-                output = await self._run_hook('on_state_exit', current_state, context, output)
+                output = await self._run_hook(self._get_state_hooks(current_state), 'on_state_exit', current_state, context, output)
 
                 if max_agent_calls is not None and self.total_api_calls >= max_agent_calls:
                     hit_agent_limit = True
@@ -2126,7 +2137,7 @@ class FlatMachine:
                     next_state = self._find_next_state(current_state, context)
                 
                 if next_state:
-                    next_state = await self._run_hook('on_transition', current_state, next_state, context)
+                    next_state = await self._run_hook(self._get_state_hooks(current_state), 'on_transition', current_state, next_state, context)
 
                 logger.debug(f"Transition: {current_state} -> {next_state}")
                 current_state = next_state
@@ -2137,7 +2148,7 @@ class FlatMachine:
                 logger.warning(f"Machine hit max_agent_calls limit ({max_agent_calls})")
 
             await self._save_checkpoint('machine_end', 'end', step, context, output=final_output)
-            final_output = await self._run_hook('on_machine_end', context, final_output)
+            final_output = await self._run_hook(self._lifecycle_hooks, 'on_machine_end', context, final_output)
 
             return final_output
 

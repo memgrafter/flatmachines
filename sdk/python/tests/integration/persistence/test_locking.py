@@ -152,13 +152,19 @@ class TestMachineLocking:
         }
         
         class WaitHooks(MachineHooks):
-            def on_action(self, action_name, context):
+            def on_action(self, state_name, action_name, context):
                 if action_name == "wait":
                     import time
                     time.sleep(0.3)
                 return context
-        
-        machine1 = FlatMachine(config_dict=config, hooks=WaitHooks())
+
+        cfg = {**config, "data": {**config["data"], "states": {**config["data"]["states"]}}}
+        cfg["data"]["states"]["slow"] = {**cfg["data"]["states"]["slow"], "hooks": "wait-hooks"}
+        from flatmachines import HooksRegistry
+        registry = HooksRegistry()
+        registry.register("wait-hooks", WaitHooks)
+
+        machine1 = FlatMachine(config_dict=cfg, hooks_registry=registry)
         execution_id = machine1.execution_id
         
         # Start first execution
@@ -168,7 +174,7 @@ class TestMachineLocking:
         await asyncio.sleep(0.1)
         
         # Try to resume same execution - should fail to acquire lock
-        machine2 = FlatMachine(config_dict=config, hooks=WaitHooks())
+        machine2 = FlatMachine(config_dict=cfg, hooks_registry=registry)
         
         with pytest.raises(RuntimeError, match="Could not acquire lock"):
             await machine2.execute(resume_from=execution_id)

@@ -8,26 +8,34 @@ import asyncio
 import os
 import shutil
 import pytest
-from flatmachines import FlatMachine, MachineHooks
+from flatmachines import FlatMachine, MachineHooks, HooksRegistry
 
 
 class CounterHooks(MachineHooks):
     """Test hooks that increment a counter and can simulate crashes."""
-    
+
     def __init__(self, crash_at: int = None):
         self.crash_at = crash_at
         self.crashed = False
-    
-    def on_action(self, action_name, context):
+
+    def on_action(self, state_name, action_name, context):
         if action_name == "increment":
             context["count"] = context.get("count", 0) + 1
-            
+
             # Simulate crash at specified count
             if self.crash_at and context["count"] == self.crash_at and not self.crashed:
                 self.crashed = True
                 raise RuntimeError(f"Simulated crash at count {self.crash_at}")
-                
+
         return context
+
+
+def _machine_with_hooks(config, hooks, **kwargs):
+    cfg = {**config, "data": {**config["data"], "states": {**config["data"]["states"]}}}
+    cfg["data"]["states"]["count_up"] = {**cfg["data"]["states"]["count_up"], "hooks": "counter"}
+    registry = HooksRegistry()
+    registry.register("counter", lambda: hooks)
+    return FlatMachine(config_dict=cfg, hooks_registry=registry, **kwargs)
 
 
 def get_counter_config():
@@ -82,8 +90,8 @@ class TestCheckpointResume:
     async def test_simple_execution_no_crash(self):
         """Machine runs to completion without crash."""
         config = get_counter_config()
-        machine = FlatMachine(config_dict=config, hooks=CounterHooks())
-        
+        machine = _machine_with_hooks(config, CounterHooks())
+
         result = await machine.execute()
         
         assert result["final_count"] == 5
@@ -94,14 +102,14 @@ class TestCheckpointResume:
         config = get_counter_config()
         
         # Run 1: Crash at count 3
-        machine1 = FlatMachine(config_dict=config, hooks=CounterHooks(crash_at=3))
+        machine1 = _machine_with_hooks(config, CounterHooks(crash_at=3))
         execution_id = machine1.execution_id
         
         with pytest.raises(RuntimeError, match="Simulated crash"):
             await machine1.execute()
         
         # Run 2: Resume (no crash configured)
-        machine2 = FlatMachine(config_dict=config, hooks=CounterHooks())
+        machine2 = _machine_with_hooks(config, CounterHooks())
         result = await machine2.execute(resume_from=execution_id)
         
         assert result["final_count"] == 5
@@ -112,14 +120,14 @@ class TestCheckpointResume:
         config = get_counter_config()
         
         # Run to completion
-        machine1 = FlatMachine(config_dict=config, hooks=CounterHooks())
+        machine1 = _machine_with_hooks(config, CounterHooks())
         execution_id = machine1.execution_id
         result1 = await machine1.execute()
         
         assert result1["final_count"] == 5
         
         # Resume completed execution
-        machine2 = FlatMachine(config_dict=config, hooks=CounterHooks())
+        machine2 = _machine_with_hooks(config, CounterHooks())
         result2 = await machine2.execute(resume_from=execution_id)
         
         # Should return same result without re-execution
@@ -134,8 +142,8 @@ class TestMemoryBackend:
         """Memory backend doesn't persist across instances."""
         config = get_counter_config()
         config["data"]["persistence"]["backend"] = "memory"
-        
-        machine = FlatMachine(config_dict=config, hooks=CounterHooks())
+
+        machine = _machine_with_hooks(config, CounterHooks())
         result = await machine.execute()
         
         assert result["final_count"] == 5
@@ -149,8 +157,8 @@ class TestCheckpointEvents:
         """Machine works with minimal checkpoint events configured."""
         config = get_counter_config()
         config["data"]["persistence"]["checkpoint_on"] = ["machine_start", "machine_end"]
-        
-        machine = FlatMachine(config_dict=config, hooks=CounterHooks())
+
+        machine = _machine_with_hooks(config, CounterHooks())
         result = await machine.execute()
         
         assert result["final_count"] == 5

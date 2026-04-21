@@ -8,35 +8,46 @@ import asyncio
 import os
 import shutil
 import pytest
-from flatmachines import FlatMachine, MachineHooks
+from flatmachines import FlatMachine, MachineHooks, HooksRegistry
 
 
 class ErrorRecoveryHooks(MachineHooks):
     """Hooks that can trigger errors and track recovery."""
-    
+
     def __init__(self, fail_at_count: int = None, fail_once: bool = True):
         self.fail_at_count = fail_at_count
         self.fail_once = fail_once
         self.failed = False
         self.recovery_entered = False
         self.attempts = 0
-    
-    def on_action(self, action_name, context):
+
+    def on_action(self, state_name, action_name, context):
         if action_name == "increment":
             context["count"] = context.get("count", 0) + 1
             self.attempts += 1
-            
-            # Trigger failure at specific count
+
             if self.fail_at_count and context["count"] == self.fail_at_count:
                 if not self.failed or not self.fail_once:
                     self.failed = True
                     raise ValueError(f"Deliberate failure at count {self.fail_at_count}")
-        
+
         elif action_name == "recover":
             self.recovery_entered = True
             context["recovered"] = True
-            
+
         return context
+
+
+def _machine_with_hooks(config, hooks, **kwargs):
+    cfg = {**config, "data": {**config["data"], "states": {}}}
+    for name, state in config["data"]["states"].items():
+        new_state = dict(state)
+        if "action" in new_state:
+            new_state["hooks"] = "test-hooks"
+        cfg["data"]["states"][name] = new_state
+    registry = HooksRegistry()
+    registry.register("test-hooks", lambda: hooks)
+    return FlatMachine(config_dict=cfg, hooks_registry=registry, **kwargs)
 
 
 def get_error_recovery_config():
@@ -97,8 +108,8 @@ class TestDeclarativeErrorRecovery:
         """Error triggers transition to recovery state."""
         config = get_error_recovery_config()
         hooks = ErrorRecoveryHooks(fail_at_count=3)
-        
-        machine = FlatMachine(config_dict=config, hooks=hooks)
+
+        machine = _machine_with_hooks(config, hooks)
         result = await machine.execute()
         
         # Should have transitioned to recovery, then end
@@ -112,8 +123,8 @@ class TestDeclarativeErrorRecovery:
         """Without errors, normal execution path."""
         config = get_error_recovery_config()
         hooks = ErrorRecoveryHooks()  # No failure configured
-        
-        machine = FlatMachine(config_dict=config, hooks=hooks)
+
+        machine = _machine_with_hooks(config, hooks)
         result = await machine.execute()
         
         assert hooks.recovery_entered is False
@@ -156,7 +167,7 @@ class TestErrorWithResume:
                 self.crash_at = crash_at
                 self.crashed = False
             
-            def on_action(self, action_name, context):
+            def on_action(self, state_name, action_name, context):
                 if action_name == "increment":
                     context["count"] = context.get("count", 0) + 1
                     if context["count"] == self.crash_at and not self.crashed:
@@ -166,7 +177,7 @@ class TestErrorWithResume:
         
         # Run 1: Crash at count 1
         hooks1 = CrashOnceHooks(crash_at=1)
-        machine1 = FlatMachine(config_dict=config, hooks=hooks1)
+        machine1 = _machine_with_hooks(config, hooks1)
         execution_id = machine1.execution_id
         
         with pytest.raises(RuntimeError, match="Crash!"):
@@ -174,7 +185,7 @@ class TestErrorWithResume:
         
         # Run 2: Resume with hooks that don't crash
         hooks2 = CrashOnceHooks(crash_at=99)  # Won't crash
-        machine2 = FlatMachine(config_dict=config, hooks=hooks2)
+        machine2 = _machine_with_hooks(config, hooks2)
         result = await machine2.execute(resume_from=execution_id)
         
         # Should complete normally
@@ -192,7 +203,7 @@ class TestErrorContext:
             def __init__(self):
                 self.error_context = None
             
-            def on_action(self, action_name, context):
+            def on_action(self, state_name, action_name, context):
                 if action_name == "fail":
                     raise TypeError("Custom error message")
                 elif action_name == "check_error":
@@ -225,7 +236,7 @@ class TestErrorContext:
         }
         
         hooks = ErrorCheckHooks()
-        machine = FlatMachine(config_dict=config, hooks=hooks)
+        machine = _machine_with_hooks(config, hooks)
         result = await machine.execute()
         
         # Verify error info was captured

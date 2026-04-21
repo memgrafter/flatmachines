@@ -1,10 +1,15 @@
 #!/bin/bash
 # Integration Test Runner
 # Runs all integration tests in isolated virtual environments
+#
+# Flags are passed through to child suite runners, e.g.:
+#   ./run.sh --live
+#   ./run.sh --local --live
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CHILD_ARGS=("$@")
 
 echo "=============================================="
 echo "FlatAgents Integration Tests"
@@ -23,7 +28,7 @@ for test_dir in "$SCRIPT_DIR"/*/; do
         echo "Running: $test_name"
         echo "----------------------------------------------"
         
-        if "$test_dir/run.sh"; then
+        if "$test_dir/run.sh" "${CHILD_ARGS[@]}"; then
             echo "✓ $test_name PASSED"
             ((PASSED++))
         else

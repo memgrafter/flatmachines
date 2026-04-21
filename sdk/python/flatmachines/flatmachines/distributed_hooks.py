@@ -66,8 +66,8 @@ class DistributedWorkerHooks(MachineHooks):
         self._registration = registration
         self._work = work
     
-    async def on_action(self, action: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Route action names to handler methods."""
+    async def on_action(self, state_name: str, action: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Route action names to handler methods for a state-local action."""
         
         # Standard distributed worker actions
         handlers = {

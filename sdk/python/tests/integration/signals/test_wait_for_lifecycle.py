@@ -17,6 +17,7 @@ from flatmachines import (
     SQLiteCheckpointBackend,
     CheckpointManager,
     SignalDispatcher,
+    HooksRegistry,
 )
 from flatmachines.signals import MemorySignalBackend
 
@@ -28,7 +29,7 @@ from flatmachines.signals import MemorySignalBackend
 class ApprovalHooks(MachineHooks):
     """Hooks for an approval-gated workflow."""
 
-    def on_action(self, action_name, context):
+    def on_action(self, state_name, action_name, context):
         if action_name == "prepare":
             context["prepared"] = True
             context["task_id"] = context.get("task_id", "unknown")
@@ -39,6 +40,18 @@ class ApprovalHooks(MachineHooks):
                 "approved" if context.get("approved") == "True" else "rejected"
             )
         return context
+
+
+def _machine_with_approval_hooks(config, hooks, **kwargs):
+    cfg = {**config, "data": {**config["data"], "states": {}}}
+    for name, state in config["data"]["states"].items():
+        new_state = dict(state)
+        if "action" in new_state:
+            new_state["hooks"] = "approval-hooks"
+        cfg["data"]["states"][name] = new_state
+    registry = HooksRegistry()
+    registry.register("approval-hooks", lambda: hooks)
+    return FlatMachine(config_dict=cfg, hooks_registry=registry, **kwargs)
 
 
 def approval_config():
@@ -131,14 +144,12 @@ class TestApprovalLifecycle:
 
     @pytest.mark.asyncio
     async def test_approve(self, persistence):
-        """prepare → wait → approve → finalize → done"""
         signal_backend = MemorySignalBackend()
         hooks = ApprovalHooks()
 
-        # Phase 1: run until wait_for
-        m1 = FlatMachine(
-            config_dict=approval_config(),
-            hooks=hooks,
+        m1 = _machine_with_approval_hooks(
+            approval_config(),
+            hooks,
             persistence=persistence,
             signal_backend=signal_backend,
         )
@@ -148,22 +159,19 @@ class TestApprovalLifecycle:
         assert result1["_channel"] == "approval/PR-42"
         eid = m1.execution_id
 
-        # Verify checkpoint
         mgr = CheckpointManager(persistence, eid)
         snapshot = await mgr.load_latest()
         assert snapshot.waiting_channel == "approval/PR-42"
         assert snapshot.context["prepared"] is True
 
-        # Phase 2: signal arrives (simulating external webhook)
         await signal_backend.send(
             "approval/PR-42",
             {"approved": True, "reviewer": "alice"},
         )
 
-        # Phase 3: resume
-        m2 = FlatMachine(
-            config_dict=approval_config(),
-            hooks=ApprovalHooks(),
+        m2 = _machine_with_approval_hooks(
+            approval_config(),
+            ApprovalHooks(),
             persistence=persistence,
             signal_backend=signal_backend,
         )
@@ -175,12 +183,11 @@ class TestApprovalLifecycle:
 
     @pytest.mark.asyncio
     async def test_reject(self, persistence):
-        """prepare → wait → reject → finalize → done"""
         signal_backend = MemorySignalBackend()
 
-        m1 = FlatMachine(
-            config_dict=approval_config(),
-            hooks=ApprovalHooks(),
+        m1 = _machine_with_approval_hooks(
+            approval_config(),
+            ApprovalHooks(),
             persistence=persistence,
             signal_backend=signal_backend,
         )
@@ -192,9 +199,9 @@ class TestApprovalLifecycle:
             {"approved": False, "reviewer": "bob"},
         )
 
-        m2 = FlatMachine(
-            config_dict=approval_config(),
-            hooks=ApprovalHooks(),
+        m2 = _machine_with_approval_hooks(
+            approval_config(),
+            ApprovalHooks(),
             persistence=persistence,
             signal_backend=signal_backend,
         )
@@ -215,26 +222,23 @@ class TestDispatcherResume:
     async def test_dispatcher_finds_and_resumes(self, persistence):
         signal_backend = MemorySignalBackend()
 
-        # Park a machine
-        m1 = FlatMachine(
-            config_dict=approval_config(),
-            hooks=ApprovalHooks(),
+        m1 = _machine_with_approval_hooks(
+            approval_config(),
+            ApprovalHooks(),
             persistence=persistence,
             signal_backend=signal_backend,
         )
         await m1.execute(input={"task_id": "D-1"})
         eid = m1.execution_id
 
-        # Signal arrives
         await signal_backend.send("approval/D-1", {"approved": True, "reviewer": "eve"})
 
-        # Dispatcher finds and resumes
         results = {}
 
         async def resume_fn(execution_id, signal_data):
-            m = FlatMachine(
-                config_dict=approval_config(),
-                hooks=ApprovalHooks(),
+            m = _machine_with_approval_hooks(
+                approval_config(),
+                ApprovalHooks(),
                 persistence=persistence,
                 signal_backend=signal_backend,
             )
@@ -286,12 +290,10 @@ class TestBroadcastSignal:
                 },
             }
 
-        # Park 3 machines on same channel
         eids = []
-        for i in range(3):
+        for _ in range(3):
             m = FlatMachine(
                 config_dict=quota_config(),
-                hooks=MachineHooks(),
                 persistence=persistence,
                 signal_backend=signal_backend,
             )
@@ -299,11 +301,9 @@ class TestBroadcastSignal:
             assert result["_waiting"] is True
             eids.append(m.execution_id)
 
-        # All 3 should be findable
         waiting = await persistence.list_execution_ids(waiting_channel="quota/openai")
         assert set(waiting) == set(eids)
 
-        # Send signal and dispatch
         await signal_backend.send("quota/openai", {"token": "tk-abc"})
 
         resumed_ids = []
@@ -327,12 +327,11 @@ class TestCrashRecovery:
 
     @pytest.mark.asyncio
     async def test_crash_after_checkpoint_resume_works(self, persistence):
-        """Machine checkpoints at wait_for, 'crashes', signal arrives, resume works."""
         signal_backend = MemorySignalBackend()
 
-        m1 = FlatMachine(
-            config_dict=approval_config(),
-            hooks=ApprovalHooks(),
+        m1 = _machine_with_approval_hooks(
+            approval_config(),
+            ApprovalHooks(),
             persistence=persistence,
             signal_backend=signal_backend,
         )
@@ -340,19 +339,16 @@ class TestCrashRecovery:
         eid = m1.execution_id
         assert result1["_waiting"] is True
 
-        # "Crash" — m1 is gone, no references kept
         del m1
 
-        # Signal arrives externally
         await signal_backend.send(
             "approval/crash-1",
             {"approved": True, "reviewer": "recovery"},
         )
 
-        # New process creates fresh machine, resumes from checkpoint
-        m2 = FlatMachine(
-            config_dict=approval_config(),
-            hooks=ApprovalHooks(),
+        m2 = _machine_with_approval_hooks(
+            approval_config(),
+            ApprovalHooks(),
             persistence=persistence,
             signal_backend=signal_backend,
         )
@@ -373,21 +369,19 @@ class TestPreloadedSignal:
     async def test_preloaded_signal_skips_pause(self, persistence):
         signal_backend = MemorySignalBackend()
 
-        # Signal already waiting
         await signal_backend.send(
             "approval/fast-1",
             {"approved": True, "reviewer": "eager"},
         )
 
-        m = FlatMachine(
-            config_dict=approval_config(),
-            hooks=ApprovalHooks(),
+        m = _machine_with_approval_hooks(
+            approval_config(),
+            ApprovalHooks(),
             persistence=persistence,
             signal_backend=signal_backend,
         )
         result = await m.execute(input={"task_id": "fast-1"})
 
-        # Should complete without pausing
         assert "_waiting" not in result or result.get("_waiting") is not True
         assert result["final_status"] == "approved"
         assert result["reviewer"] == "eager"

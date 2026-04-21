@@ -8,15 +8,13 @@ and propagation to child machines.
 No LLM calls — all tests use action-only machines.
 """
 
-import asyncio
 import pytest
-from typing import Any, Dict, Optional
+from typing import Dict
 
 from flatmachines import (
     FlatMachine,
     MachineHooks,
     CompositeHooks,
-    LoggingHooks,
     HooksRegistry,
 )
 
@@ -28,7 +26,7 @@ from flatmachines import (
 class CounterHooks(MachineHooks):
     """Increments a counter via the 'increment' action."""
 
-    def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def on_action(self, state_name: str, action_name: str, context: Dict[str, int]) -> Dict[str, int]:
         if action_name == "increment":
             context["count"] = context.get("count", 0) + 1
         return context
@@ -40,7 +38,7 @@ class CounterWithStepHooks(MachineHooks):
     def __init__(self, step: int = 1):
         self.step = step
 
-    def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def on_action(self, state_name: str, action_name: str, context: Dict[str, int]) -> Dict[str, int]:
         if action_name == "increment":
             context["count"] = context.get("count", 0) + self.step
         return context
@@ -49,14 +47,14 @@ class CounterWithStepHooks(MachineHooks):
 class AppendHooks(MachineHooks):
     """Appends a character via the 'append' action."""
 
-    def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def on_action(self, state_name: str, action_name: str, context: Dict[str, str]) -> Dict[str, str]:
         if action_name == "append":
             context["result"] = context.get("result", "") + context.get("char", "x")
         return context
 
 
 class LifecycleTracker(MachineHooks):
-    """Tracks all lifecycle events for verification."""
+    """Tracks lifecycle and state events for verification."""
 
     def __init__(self):
         self.events = []
@@ -77,8 +75,8 @@ class LifecycleTracker(MachineHooks):
         self.events.append(f"exit:{state_name}")
         return output
 
-    def on_action(self, action_name, context):
-        self.events.append(f"action:{action_name}")
+    def on_action(self, state_name, action_name, context):
+        self.events.append(f"action:{state_name}:{action_name}")
         if action_name == "increment":
             context["count"] = context.get("count", 0) + 1
         return context
@@ -93,7 +91,6 @@ COUNTER_MACHINE = {
     "spec_version": "1.2.0",
     "data": {
         "name": "counter",
-        "hooks": "counter",
         "context": {"count": 0},
         "states": {
             "start": {
@@ -102,6 +99,7 @@ COUNTER_MACHINE = {
             },
             "count_up": {
                 "action": "increment",
+                "hooks": "counter",
                 "transitions": [
                     {"condition": "context.count >= 3", "to": "done"},
                     {"to": "count_up"},
@@ -120,7 +118,6 @@ COUNTER_WITH_ARGS_MACHINE = {
     "spec_version": "1.2.0",
     "data": {
         "name": "counter-with-args",
-        "hooks": {"name": "counter-step", "args": {"step": 5}},
         "context": {"count": 0},
         "states": {
             "start": {
@@ -129,6 +126,7 @@ COUNTER_WITH_ARGS_MACHINE = {
             },
             "count_up": {
                 "action": "increment",
+                "hooks": {"name": "counter-step", "args": {"step": 5}},
                 "transitions": [
                     {"condition": "context.count >= 10", "to": "done"},
                     {"to": "count_up"},
@@ -147,15 +145,17 @@ COMPOSITE_HOOKS_MACHINE = {
     "spec_version": "1.2.0",
     "data": {
         "name": "composite",
-        "hooks": ["lifecycle", "counter"],
+        "lifecycle_hooks": "lifecycle",
         "context": {"count": 0},
         "states": {
             "start": {
                 "type": "initial",
+                "hooks": ["lifecycle"],
                 "transitions": [{"to": "count_up"}],
             },
             "count_up": {
                 "action": "increment",
+                "hooks": ["lifecycle", "counter"],
                 "transitions": [
                     {"condition": "context.count >= 2", "to": "done"},
                     {"to": "count_up"},
@@ -163,6 +163,7 @@ COMPOSITE_HOOKS_MACHINE = {
             },
             "done": {
                 "type": "final",
+                "hooks": ["lifecycle"],
                 "output": {"total": "{{ context.count }}"},
             },
         },
@@ -193,7 +194,6 @@ PARENT_CHILD_MACHINE = {
     "spec_version": "1.2.0",
     "data": {
         "name": "parent",
-        "hooks": "append",
         "context": {"result": "", "char": "P"},
         "machines": {
             "child": {
@@ -201,7 +201,6 @@ PARENT_CHILD_MACHINE = {
                 "spec_version": "1.2.0",
                 "data": {
                     "name": "child",
-                    "hooks": "append",
                     "context": {
                         "result": "{{ input.prefix }}",
                         "char": "C",
@@ -213,6 +212,7 @@ PARENT_CHILD_MACHINE = {
                         },
                         "do_append": {
                             "action": "append",
+                            "hooks": "append",
                             "transitions": [{"to": "done"}],
                         },
                         "done": {
@@ -230,6 +230,7 @@ PARENT_CHILD_MACHINE = {
             },
             "parent_append": {
                 "action": "append",
+                "hooks": "append",
                 "transitions": [{"to": "call_child"}],
             },
             "call_child": {
@@ -297,7 +298,6 @@ class TestHooksRegistryUnit:
             registry.resolve(["counter", "missing"])
 
     def test_factory_function(self):
-        """Register a factory function instead of a class."""
         def make_hooks(step=1):
             return CounterWithStepHooks(step=step)
 
@@ -320,7 +320,6 @@ class TestHooksRegistryMachineIntegration:
 
     @pytest.mark.asyncio
     async def test_string_hooks_ref(self):
-        """hooks: "counter" in config resolves from registry."""
         registry = HooksRegistry()
         registry.register("counter", CounterHooks)
         machine = FlatMachine(config_dict=COUNTER_MACHINE, hooks_registry=registry)
@@ -329,7 +328,6 @@ class TestHooksRegistryMachineIntegration:
 
     @pytest.mark.asyncio
     async def test_hooks_ref_with_args(self):
-        """hooks: {name: "counter-step", args: {step: 5}} passes args to constructor."""
         registry = HooksRegistry()
         registry.register("counter-step", CounterWithStepHooks)
         machine = FlatMachine(config_dict=COUNTER_WITH_ARGS_MACHINE, hooks_registry=registry)
@@ -338,7 +336,6 @@ class TestHooksRegistryMachineIntegration:
 
     @pytest.mark.asyncio
     async def test_composite_hooks_ref(self):
-        """hooks: ["lifecycle", "counter"] creates CompositeHooks."""
         tracker = LifecycleTracker()
         registry = HooksRegistry()
         registry.register("lifecycle", lambda: tracker)
@@ -349,34 +346,32 @@ class TestHooksRegistryMachineIntegration:
         assert int(result["total"]) == 2
         assert "machine_start" in tracker.events
         assert "machine_end" in tracker.events
-        assert "action:increment" in tracker.events
+        assert "enter:start" in tracker.events
+        assert "action:count_up:increment" in tracker.events
 
     @pytest.mark.asyncio
     async def test_no_hooks_in_config(self):
-        """Machine with no hooks: field works fine."""
         machine = FlatMachine(config_dict=NO_HOOKS_MACHINE)
         result = await machine.execute()
         assert result["result"] == "hello"
 
     @pytest.mark.asyncio
-    async def test_explicit_hooks_bypasses_registry(self):
-        """hooks= constructor arg takes priority over config."""
-        step_hooks = CounterWithStepHooks(step=100)
-        machine = FlatMachine(config_dict=COUNTER_MACHINE, hooks=step_hooks)
-        # "counter" is NOT registered, but hooks= bypasses registry
+    async def test_explicit_lifecycle_hooks_bypass_registry(self):
+        tracker = LifecycleTracker()
+        machine = FlatMachine(config_dict=NO_HOOKS_MACHINE, lifecycle_hooks=tracker)
         result = await machine.execute()
-        assert int(result["total"]) == 100
+        assert result["result"] == "hello"
+        assert "machine_start" in tracker.events
+        assert "machine_end" in tracker.events
 
     @pytest.mark.asyncio
     async def test_unregistered_hooks_raises(self):
-        """Config references unregistered hooks name → clear error at startup."""
+        machine = FlatMachine(config_dict=COUNTER_MACHINE)
         with pytest.raises(KeyError, match="No hooks registered for name 'counter'"):
-            machine = FlatMachine(config_dict=COUNTER_MACHINE)
-            # No registration → should fail
+            await machine.execute()
 
     @pytest.mark.asyncio
     async def test_registry_passed_to_constructor(self):
-        """Registry can be pre-populated and passed to FlatMachine."""
         registry = HooksRegistry()
         registry.register("counter", CounterHooks)
         machine = FlatMachine(config_dict=COUNTER_MACHINE, hooks_registry=registry)
@@ -385,7 +380,6 @@ class TestHooksRegistryMachineIntegration:
 
     @pytest.mark.asyncio
     async def test_registry_shared_across_machines(self):
-        """Same registry used by multiple machines."""
         registry = HooksRegistry()
         registry.register("counter", CounterHooks)
 
@@ -403,14 +397,12 @@ class TestHooksRegistryChildPropagation:
 
     @pytest.mark.asyncio
     async def test_child_machine_inherits_registry(self):
-        """Parent's registry is available to inline child machines."""
         registry = HooksRegistry()
         registry.register("append", AppendHooks)
 
         machine = FlatMachine(config_dict=PARENT_CHILD_MACHINE, hooks_registry=registry)
         result = await machine.execute()
 
-        # Parent appends "P", child gets "P" as prefix and appends "C"
         assert result["parent_result"] == "P"
         assert result["child_result"] == "PC"
 
@@ -423,17 +415,12 @@ class TestHooksRegistryProperty:
         assert isinstance(machine.hooks_registry, HooksRegistry)
 
     def test_register_after_construction(self):
-        """Can register hooks after FlatMachine is constructed (if config has no hooks:)."""
         machine = FlatMachine(config_dict=NO_HOOKS_MACHINE)
         machine.hooks_registry.register("counter", CounterHooks)
         assert machine.hooks_registry.has("counter")
 
     @pytest.mark.asyncio
     async def test_register_before_execute_for_hooks_in_config(self):
-        """
-        When config has hooks: "counter", hooks are resolved at construction time,
-        so registration must happen before FlatMachine() is called.
-        """
         registry = HooksRegistry()
         registry.register("counter", CounterHooks)
         machine = FlatMachine(config_dict=COUNTER_MACHINE, hooks_registry=registry)

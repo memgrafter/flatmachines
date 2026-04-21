@@ -21,6 +21,7 @@ from flatmachines import (
     MemoryBackend,
     CheckpointManager,
     MachineHooks,
+    HooksRegistry,
 )
 
 
@@ -60,6 +61,19 @@ def _simple_config(states=None):
     }
 
 
+def _machine_with_state_hooks(config, hooks: MachineHooks | None = None):
+    if hooks is None:
+        return FlatMachine(config_dict=config)
+
+    cfg = {**config, "data": {**config["data"], "states": {}}}
+    for name, state in config["data"]["states"].items():
+        cfg["data"]["states"][name] = {**state, "hooks": "test-hooks"}
+
+    registry = HooksRegistry()
+    registry.register("test-hooks", lambda: hooks)
+    return FlatMachine(config_dict=cfg, hooks_registry=registry)
+
+
 class CaptureHooks(MachineHooks):
     """Hooks that capture context.machine at each state entry."""
 
@@ -97,7 +111,7 @@ class TestContextMachinePresent:
     @pytest.mark.asyncio
     async def test_context_machine_present_at_state_enter(self):
         hooks = CaptureHooks()
-        machine = FlatMachine(config_dict=_simple_config(), hooks=hooks)
+        machine = _machine_with_state_hooks(_simple_config(), hooks)
         await machine.execute(input={"task": "test"})
 
         # Should have captured at start, middle, done
@@ -107,7 +121,7 @@ class TestContextMachinePresent:
     @pytest.mark.asyncio
     async def test_context_machine_has_all_fields(self):
         hooks = CaptureHooks()
-        machine = FlatMachine(config_dict=_simple_config(), hooks=hooks)
+        machine = _machine_with_state_hooks(_simple_config(), hooks)
         await machine.execute(input={"task": "test"})
 
         meta = hooks.state_entries["start"]
@@ -126,7 +140,7 @@ class TestContextMachinePresent:
     @pytest.mark.asyncio
     async def test_context_machine_values_correct(self):
         hooks = CaptureHooks()
-        machine = FlatMachine(config_dict=_simple_config(), hooks=hooks)
+        machine = _machine_with_state_hooks(_simple_config(), hooks)
         await machine.execute(input={"task": "test"})
 
         meta = hooks.state_entries["start"]
@@ -156,7 +170,7 @@ class TestContextMachineImmutable:
                     captured["value"] = context.get("machine")
                 return context
 
-        machine = FlatMachine(config_dict=_simple_config(), hooks=TypeCheckHooks())
+        machine = _machine_with_state_hooks(_simple_config(), TypeCheckHooks())
         await machine.execute(input={"task": "test"})
 
         assert captured["type"] is MappingProxyType
@@ -176,7 +190,7 @@ class TestContextMachineImmutable:
                         error_raised["raised"] = True
                 return context
 
-        machine = FlatMachine(config_dict=_simple_config(), hooks=MutateHooks())
+        machine = _machine_with_state_hooks(_simple_config(), MutateHooks())
         await machine.execute(input={"task": "test"})
 
         assert error_raised["raised"] is True
@@ -201,7 +215,7 @@ class TestContextMachineOverwrite:
                 context = capture.on_state_enter(state_name, context)
                 return context
 
-        machine = FlatMachine(config_dict=_simple_config(), hooks=CombinedHooks())
+        machine = _machine_with_state_hooks(_simple_config(), CombinedHooks())
         await machine.execute(input={"task": "test"})
 
         assert hooks.saw_overwrite is True
@@ -220,7 +234,7 @@ class TestContextMachineUpdates:
     @pytest.mark.asyncio
     async def test_step_increments(self):
         hooks = CaptureHooks()
-        machine = FlatMachine(config_dict=_simple_config(), hooks=hooks)
+        machine = _machine_with_state_hooks(_simple_config(), hooks)
         await machine.execute(input={"task": "test"})
 
         assert hooks.state_entries["start"]["step"] == 1
@@ -230,7 +244,7 @@ class TestContextMachineUpdates:
     @pytest.mark.asyncio
     async def test_current_state_updates(self):
         hooks = CaptureHooks()
-        machine = FlatMachine(config_dict=_simple_config(), hooks=hooks)
+        machine = _machine_with_state_hooks(_simple_config(), hooks)
         await machine.execute(input={"task": "test"})
 
         assert hooks.state_entries["start"]["current_state"] == "start"
@@ -301,7 +315,7 @@ class TestContextMachineInConditions:
                 "output": {"matched": False},
             },
         }
-        machine = FlatMachine(config_dict=_simple_config(states), hooks=CaptureIdHook())
+        machine = _machine_with_state_hooks(_simple_config(states), CaptureIdHook())
         result = await machine.execute(input={"task": "test"})
         assert result == {"matched": True}
 

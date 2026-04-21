@@ -94,9 +94,10 @@ class ConfigStoreResumer(MachineResumer):
     Reads ``config_hash`` from the checkpoint, fetches the raw config from the
     store, parses it, and reconstructs the FlatMachine.
 
-    Supports optional hooks, hooks_registry, and tool_provider injection.
-    If a hooks_registry is provided and the machine config references hooks
-    by name, they will be resolved automatically — same as initial execution.
+    Supports optional lifecycle_hooks, hooks_registry, and tool_provider injection.
+    If a hooks_registry is provided and the machine config references
+    lifecycle/state hooks by name, they will be resolved automatically — same
+    as initial execution.
 
     For app-specific reconstruction (custom DB connections, environment setup,
     etc.), subclass and override ``build_machine()``.
@@ -107,8 +108,9 @@ class ConfigStoreResumer(MachineResumer):
         config_store: Content-addressed config store.
         ref_resolver: Optional resolver for string refs in agents/machines.
             Portable resume rejects path/string refs unless this is provided.
-        hooks: Explicit MachineHooks instance (bypasses registry).
-        hooks_registry: Registry for resolving hooks by name from config.
+        lifecycle_hooks: Explicit MachineHooks instance for machine lifecycle hooks
+            (bypasses registry for lifecycle events only).
+        hooks_registry: Registry for resolving lifecycle/state hooks by name from config.
         tool_provider: Default ToolProvider for tool_loop states.
     """
 
@@ -118,7 +120,7 @@ class ConfigStoreResumer(MachineResumer):
         persistence_backend: PersistenceBackend,
         config_store: ConfigStore,
         ref_resolver: Optional[ReferenceResolver] = None,
-        hooks: Optional[MachineHooks] = None,
+        lifecycle_hooks: Optional[MachineHooks] = None,
         hooks_registry: Optional[HooksRegistry] = None,
         tool_provider: Optional[Any] = None,
     ):
@@ -126,7 +128,7 @@ class ConfigStoreResumer(MachineResumer):
         self._persistence = persistence_backend
         self._config_store = config_store
         self._ref_resolver = ref_resolver
-        self._hooks = hooks
+        self._lifecycle_hooks = lifecycle_hooks
         self._hooks_registry = hooks_registry
         self._tool_provider = tool_provider
 
@@ -265,7 +267,7 @@ class ConfigStoreResumer(MachineResumer):
             persistence=self._persistence,
             signal_backend=self._signal_backend,
             config_store=self._config_store,
-            hooks=self._hooks,
+            lifecycle_hooks=self._lifecycle_hooks,
             hooks_registry=self._hooks_registry,
             tool_provider=self._tool_provider,
         )

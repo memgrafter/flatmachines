@@ -30,9 +30,9 @@ machines           - Map of machine name to config file path or inline config
 
 Orchestration + runtime config
 states             - Map of state name to state definition
-settings           - Optional settings (hooks, etc.)
+settings           - Optional settings
 persistence        - Checkpoint backend settings
-hooks              - Hook reference(s) resolved by runtime registry
+lifecycle_hooks    - Machine lifecycle hook reference(s) resolved by runtime registry
 
 STATE FIELDS
 Lifecycle / control flow
@@ -59,8 +59,9 @@ as                - Variable name for foreach item (default: "item")
 key               - Optional key expression for foreach result mapping
 mode              - Completion semantics: "settled" (default) or "any"
 
-Hook action
+State hooks
 action            - Hook action to execute
+hooks             - State-local hook reference(s) resolved by runtime registry
 
 External signal wait
 wait_for          - Channel to wait for external signal (Jinja2 template)
@@ -71,6 +72,7 @@ launch_input      - Input for launched machines
 
 STATE NOTES
 - Only `machine` supports array-based parallel invocation (`machine: [a, b, c]`), not `agent`.
+- State hooks are local to the state where they are declared.
 - `wait_for` checkpoints the machine and exits; it resumes when a matching signal arrives.
 - `launch` is fire-and-forget, while `machine` performs launch + blocking read.
 - For fault-tolerant parallelism, run work as machines (checkpoint/retry/error handling),
@@ -148,13 +150,18 @@ LAUNCH INTENT
 Launch intent for outbox pattern.
 Recorded in checkpoint before launching to ensure exactly-once semantics.
 
-HOOKS CONFIG
+HOOK REFERENCES
 Hooks are referenced by name and resolved via a runtime HooksRegistry.
 This keeps machine configs language-agnostic — the same YAML works with
 Python, JavaScript, Rust, or any other SDK.
 
-String shorthand
-  hooks: "my-hooks"
+Lifecycle hooks apply to machine-level lifecycle events only:
+  lifecycle_hooks: "logging"
+
+State hooks apply only to the declaring state:
+  states:
+    review:
+      hooks: "review-hooks"
 
 With constructor args
   hooks:
@@ -168,6 +175,7 @@ Composite (multiple hooks)
     - name: "my-hooks"
       args: { working_dir: "." }
 
+The same HooksRef shape is used by `lifecycle_hooks` and state `hooks`.
 The SDK's HooksRegistry maps names to implementations.
 Built-in hooks (e.g., "logging", "webhook") are pre-registered.
 Custom hooks are registered by the runner before machine execution.
@@ -216,7 +224,7 @@ export interface MachineData {
   states: Record<string, StateDefinition>;
   settings?: MachineSettings;
   persistence?: PersistenceConfig;
-  hooks?: HooksRef;
+  lifecycle_hooks?: HooksRef;
 }
 
 export interface AgentRefConfig {
@@ -265,8 +273,11 @@ export interface StateDefinition {
   machine?: string | string[] | MachineInput[];
   mode?: "settled" | "any";
 
-  // Hook action
+  // State action
   action?: string;
+
+  // State hooks
+  hooks?: HooksRef;
 
   // External signal wait
   wait_for?: string;

@@ -29,7 +29,7 @@ from unittest.mock import AsyncMock, MagicMock, patch, call
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from flatmachines import FlatMachine, MachineHooks, MemoryBackend
+from flatmachines import FlatMachine, MachineHooks, MemoryBackend, HooksRegistry
 from flatmachines.agents import AgentResult, AgentExecutor
 from flatmachines.persistence import MachineSnapshot, CheckpointManager
 from flatagents.tools import ToolResult, ToolProvider
@@ -184,12 +184,20 @@ def _build_machine(
 ):
     """Build a FlatMachine with a mocked executor."""
     cfg = config or _machine_config()
-    machine = FlatMachine(
-        config_dict=cfg,
-        hooks=hooks,
-        tool_provider=tool_provider,
-        persistence=persistence or MemoryBackend(),
-    )
+    machine_kwargs = {
+        "config_dict": cfg,
+        "tool_provider": tool_provider,
+        "persistence": persistence or MemoryBackend(),
+    }
+    if hooks is not None:
+        cfg = {**cfg, "data": {**cfg["data"], "states": {**cfg["data"]["states"]}}}
+        cfg["data"]["states"]["work"] = {**cfg["data"]["states"]["work"], "hooks": "test-hooks"}
+        registry = HooksRegistry()
+        registry.register("test-hooks", lambda: hooks)
+        machine_kwargs["config_dict"] = cfg
+        machine_kwargs["hooks_registry"] = registry
+
+    machine = FlatMachine(**machine_kwargs)
 
     executor = MockExecutor(executor_responses)
     machine._agents = {"coder": executor}
@@ -1257,7 +1265,8 @@ class TestFlatAgentExecutorAdapter:
 
 class TestHookSubclasses:
 
-    def test_composite_hooks_chains_tool_hooks(self):
+    @pytest.mark.asyncio
+    async def test_composite_hooks_chains_tool_hooks(self):
         """CompositeHooks chains on_tool_calls and on_tool_result."""
         from flatmachines.hooks import CompositeHooks
 
@@ -1285,12 +1294,12 @@ class TestHookSubclasses:
                 return context
 
         composite = CompositeHooks(HooksA(), HooksB())
-        ctx = composite.on_tool_calls("work", [{"id": "c1"}], {})
+        ctx = await composite.on_tool_calls("work", [{"id": "c1"}], {})
         assert ctx["a_saw_calls"]
         assert calls_a == ["tool_calls"]
         assert calls_b == ["tool_calls"]
 
-        ctx = composite.on_tool_result("work", {"name": "test"}, ctx)
+        ctx = await composite.on_tool_result("work", {"name": "test"}, ctx)
         assert calls_a == ["tool_calls", "tool_result"]
         assert calls_b == ["tool_calls", "tool_result"]
 

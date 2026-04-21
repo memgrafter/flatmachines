@@ -1,11 +1,9 @@
 """
 MachineHooks - Extensibility points for FlatMachine.
 
-Hooks allow custom logic at key points in machine execution:
-- Before/after state entry/exit
-- Before/after agent calls
-- On transitions
-- On errors
+The same hook implementation interface is used for two distinct roles:
+- lifecycle hooks (`data.lifecycle_hooks`) for machine start/end callbacks
+- state hooks (`states.<name>.hooks`) for state-local behavior
 
 Includes built-in LoggingHooks and MetricsHooks implementations.
 """
@@ -28,26 +26,20 @@ except ImportError:
 
 class MachineHooks(ABC):
     """
-    Base class for machine hooks.
-    
-    Override methods to customize machine behavior.
-    All methods have default implementations that pass through unchanged.
-    
-    Example:
-        from flatmachines import get_logger
-        logger = get_logger(__name__)
+    Base class for FlatMachine hook implementations.
 
-        class MyHooks(MachineHooks):
-            def on_state_enter(self, state_name, context):
-                logger.info(f"Entering state: {state_name}")
-                return context
-                
-        machine = FlatMachine(config_file="...", hooks=MyHooks())
+    Hook placement determines which callbacks run:
+    - `data.lifecycle_hooks` uses only machine lifecycle callbacks
+    - `states.<name>.hooks` uses only state-local callbacks
+
+    All methods default to pass-through / no-op behavior.
     """
 
     def on_machine_start(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """
         Called when machine execution starts.
+
+        Used only when this hook is configured as `lifecycle_hooks`.
         
         Args:
             context: Initial context
@@ -60,6 +52,8 @@ class MachineHooks(ABC):
     def on_machine_end(self, context: Dict[str, Any], final_output: Dict[str, Any]) -> Dict[str, Any]:
         """
         Called when machine execution ends.
+
+        Used only when this hook is configured as `lifecycle_hooks`.
         
         Args:
             context: Final context
@@ -73,6 +67,8 @@ class MachineHooks(ABC):
     def on_state_enter(self, state_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """
         Called before executing a state.
+
+        Used only when this hook is configured on that state.
         
         Args:
             state_name: Name of the state being entered
@@ -91,6 +87,8 @@ class MachineHooks(ABC):
     ) -> Optional[Dict[str, Any]]:
         """
         Called after executing a state.
+
+        Used only when this hook is configured on that state.
         
         Args:
             state_name: Name of the state that was executed
@@ -110,6 +108,8 @@ class MachineHooks(ABC):
     ) -> str:
         """
         Called when transitioning between states.
+
+        Used only when this hook is configured on the source state.
         
         Can override the target state.
         
@@ -131,6 +131,8 @@ class MachineHooks(ABC):
     ) -> Optional[str]:
         """
         Called when an error occurs during state execution.
+
+        Used only when this hook is configured on that state.
         
         Args:
             state_name: Name of the state where error occurred
@@ -144,20 +146,24 @@ class MachineHooks(ABC):
 
     def on_action(
         self,
+        state_name: str,
         action_name: str,
         context: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Called for custom hook actions defined in states.
-        
+        Called for a programmatic state action defined in a state.
+
+        Used only when this hook is configured on that state.
+
         Args:
+            state_name: Name of the state executing the action
             action_name: Name of the action to execute
             context: Current context
-            
+
         Returns:
             Modified context
         """
-        logger.warning(f"Unhandled action: {action_name}")
+        logger.warning(f"Unhandled action in state '{state_name}': {action_name}")
         return context
 
     def on_tool_calls(
@@ -168,6 +174,8 @@ class MachineHooks(ABC):
     ) -> Dict[str, Any]:
         """
         Called BEFORE tool execution in a tool_loop state.
+
+        Used only when this hook is configured on that state.
 
         Fires once per LLM response that contains tool calls.
         ``tool_calls`` is the list of tool call requests from the LLM.
@@ -197,6 +205,8 @@ class MachineHooks(ABC):
         """
         Called AFTER each individual tool execution.
 
+        Used only when this hook is configured on that state.
+
         Fires once per tool call — if the LLM requested 3 tools,
         this fires 3 times. A checkpoint is saved after each call,
         enabling rewind to any specific tool execution point.
@@ -225,6 +235,8 @@ class MachineHooks(ABC):
     ) -> None:
         """
         Called in real-time as stream events arrive from CLI adapters.
+
+        Used only when this hook is configured on that state.
 
         Fires once per NDJSON event during subprocess execution.
         Supported by adapters that own their own tool loop and stream
@@ -295,6 +307,10 @@ class LoggingHooks(MachineHooks):
         logger.log(self.log_level, f"Tool calls in {state_name}: {tool_names}")
         return context
 
+    def on_action(self, state_name: str, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        logger.log(self.log_level, f"Action in {state_name}: {action_name}")
+        return context
+
     def on_tool_result(self, state_name: str, tool_result: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         name = tool_result.get("name", "?")
         is_error = tool_result.get("is_error", False)
@@ -346,61 +362,66 @@ class CompositeHooks(MachineHooks):
     def __init__(self, *hooks: MachineHooks):
         self.hooks = list(hooks)
 
-    def on_machine_start(self, context: Dict[str, Any]) -> Dict[str, Any]:
+    async def _maybe_await(self, value):
+        if hasattr(value, "__await__"):
+            return await value
+        return value
+
+    async def on_machine_start(self, context: Dict[str, Any]) -> Dict[str, Any]:
         for hook in self.hooks:
-            context = hook.on_machine_start(context)
+            context = await self._maybe_await(hook.on_machine_start(context))
         return context
 
-    def on_machine_end(self, context: Dict[str, Any], final_output: Dict[str, Any]) -> Dict[str, Any]:
+    async def on_machine_end(self, context: Dict[str, Any], final_output: Dict[str, Any]) -> Dict[str, Any]:
         for hook in self.hooks:
-            final_output = hook.on_machine_end(context, final_output)
+            final_output = await self._maybe_await(hook.on_machine_end(context, final_output))
         return final_output
 
-    def on_state_enter(self, state_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    async def on_state_enter(self, state_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         for hook in self.hooks:
-            context = hook.on_state_enter(state_name, context)
+            context = await self._maybe_await(hook.on_state_enter(state_name, context))
         return context
 
-    def on_state_exit(
+    async def on_state_exit(
         self,
         state_name: str,
         context: Dict[str, Any],
         output: Optional[Dict[str, Any]]
     ) -> Optional[Dict[str, Any]]:
         for hook in self.hooks:
-            output = hook.on_state_exit(state_name, context, output)
+            output = await self._maybe_await(hook.on_state_exit(state_name, context, output))
         return output
 
-    def on_transition(self, from_state: str, to_state: str, context: Dict[str, Any]) -> str:
+    async def on_transition(self, from_state: str, to_state: str, context: Dict[str, Any]) -> str:
         for hook in self.hooks:
-            to_state = hook.on_transition(from_state, to_state, context)
+            to_state = await self._maybe_await(hook.on_transition(from_state, to_state, context))
         return to_state
 
-    def on_error(self, state_name: str, error: Exception, context: Dict[str, Any]) -> Optional[str]:
+    async def on_error(self, state_name: str, error: Exception, context: Dict[str, Any]) -> Optional[str]:
         for hook in self.hooks:
-            result = hook.on_error(state_name, error, context)
+            result = await self._maybe_await(hook.on_error(state_name, error, context))
             if result is not None:
                 return result
         return None
 
-    def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    async def on_action(self, state_name: str, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         for hook in self.hooks:
-            context = hook.on_action(action_name, context)
+            context = await self._maybe_await(hook.on_action(state_name, action_name, context))
         return context
 
-    def on_tool_calls(self, state_name: str, tool_calls: list, context: Dict[str, Any]) -> Dict[str, Any]:
+    async def on_tool_calls(self, state_name: str, tool_calls: list, context: Dict[str, Any]) -> Dict[str, Any]:
         for hook in self.hooks:
-            context = hook.on_tool_calls(state_name, tool_calls, context)
+            context = await self._maybe_await(hook.on_tool_calls(state_name, tool_calls, context))
         return context
 
-    def on_tool_result(self, state_name: str, tool_result: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+    async def on_tool_result(self, state_name: str, tool_result: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
         for hook in self.hooks:
-            context = hook.on_tool_result(state_name, tool_result, context)
+            context = await self._maybe_await(hook.on_tool_result(state_name, tool_result, context))
         return context
 
-    def on_agent_stream_event(self, state_name: str, event: Dict[str, Any], context: Dict[str, Any]) -> None:
+    async def on_agent_stream_event(self, state_name: str, event: Dict[str, Any], context: Dict[str, Any]) -> None:
         for hook in self.hooks:
-            hook.on_agent_stream_event(state_name, event, context)
+            await self._maybe_await(hook.on_agent_stream_event(state_name, event, context))
 
     def get_tool_provider(self, state_name: str):
         for hook in self.hooks:
@@ -500,8 +521,8 @@ class WebhookHooks(MachineHooks):
             return resp["recovery_state"]
         return None  # Re-raise
 
-    async def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        resp = await self._send("action", {"action": action_name, "context": context})
+    async def on_action(self, state_name: str, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        resp = await self._send("action", {"state": state_name, "action": action_name, "context": context})
         if resp and "context" in resp:
             return resp["context"]
         return context
@@ -528,9 +549,10 @@ class HooksRegistry:
     """
     Name-based registry for resolving hooks from machine config.
 
-    Machine configs reference hooks by name (e.g., hooks: "my-hooks").
-    The registry maps names to factory classes/functions and resolves
-    them at runtime, keeping configs language-agnostic.
+    Machine configs reference hooks by name (e.g., lifecycle_hooks: "logging"
+    or states.review.hooks: "review-hooks"). The registry maps names to
+    factory classes/functions and resolves them at runtime, keeping configs
+    language-agnostic.
 
     Example:
         registry = HooksRegistry()

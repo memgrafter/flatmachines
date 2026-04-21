@@ -23,6 +23,7 @@ from flatmachines import (
     CheckpointManager,
     MachineHooks,
     MachineSnapshot,
+    HooksRegistry,
     clone_snapshot,
 )
 
@@ -30,6 +31,16 @@ from flatmachines import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _machine_with_state_hooks(config, hooks: MachineHooks, **kwargs):
+    cfg = {**config, "data": {**config["data"], "states": {}}}
+    for name, state in config["data"]["states"].items():
+        cfg["data"]["states"][name] = {**state, "hooks": "test-hooks"}
+
+    registry = HooksRegistry()
+    registry.register("test-hooks", lambda: hooks)
+    return FlatMachine(config_dict=cfg, hooks_registry=registry, **kwargs)
+
 
 def _make_snapshot(**overrides) -> MachineSnapshot:
     """Build a MachineSnapshot with sensible defaults, overridable."""
@@ -284,11 +295,11 @@ class TestSelfDifferentiatingClone:
         signal_backend = MemorySignalBackend()
 
         # Run the source machine until it waits at the guard state
-        source_machine = FlatMachine(
-            config_dict=config,
+        source_machine = _machine_with_state_hooks(
+            config,
+            CaptureSourceIdHook(),
             persistence=persistence,
             signal_backend=signal_backend,
-            hooks=CaptureSourceIdHook(),
         )
         source_id = source_machine.execution_id
         result1 = await source_machine.execute(input={})
@@ -305,21 +316,21 @@ class TestSelfDifferentiatingClone:
         await signal_backend.send("clone/signal", {"go": True})
 
         # Resume parent — should take parent_branch
-        parent_machine = FlatMachine(
-            config_dict=config,
+        parent_machine = _machine_with_state_hooks(
+            config,
+            CaptureSourceIdHook(),
             persistence=persistence,
             signal_backend=signal_backend,
-            hooks=CaptureSourceIdHook(),
         )
         parent_result = await parent_machine.execute(resume_from=source_id)
         assert parent_result == {"branch": "parent"}
 
         # Resume clone — should take clone_branch
-        clone_machine = FlatMachine(
-            config_dict=config,
+        clone_machine = _machine_with_state_hooks(
+            config,
+            CaptureSourceIdHook(),
             persistence=persistence,
             signal_backend=signal_backend,
-            hooks=CaptureSourceIdHook(),
         )
         clone_result = await clone_machine.execute(resume_from=clone_id)
         assert clone_result == {"branch": "clone"}
