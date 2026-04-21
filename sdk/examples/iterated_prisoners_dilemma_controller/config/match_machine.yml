@@ -27,43 +27,31 @@ data:
     last_move_b: null
 
   machines:
-    player_a: ./player_machine.yml
-    player_b: ./player_machine.yml
+    player_a_turn: ./player_a_turn_machine.yml
+    player_b_turn: ./player_b_turn_machine.yml
 
   states:
     start:
       type: initial
       action: init_match
       transitions:
-        - to: play_a
+        - to: play_round
 
-    play_a:
-      machine: player_a
+    play_round:
+      machine: [player_a_turn, player_b_turn]
+      mode: settled
       input:
-        role: Player A
         round: context.round
         rounds_total: context.rounds_total
-        own_history: context.moves_a
-        opponent_history: context.moves_b
-        opponent_last_move: context.last_move_b
+        moves_a: context.moves_a
+        moves_b: context.moves_b
+        last_move_a: context.last_move_a
+        last_move_b: context.last_move_b
       output_to_context:
-        move_a: output.move
-        decision_raw_a: output.decision_raw
-      transitions:
-        - to: play_b
-
-    play_b:
-      machine: player_b
-      input:
-        role: Player B
-        round: context.round
-        rounds_total: context.rounds_total
-        own_history: context.moves_b
-        opponent_history: context.moves_a
-        opponent_last_move: context.last_move_a
-      output_to_context:
-        move_b: output.move
-        decision_raw_b: output.decision_raw
+        move_a: output.player_a_turn.move
+        decision_raw_a: output.player_a_turn.decision_raw
+        move_b: output.player_b_turn.move
+        decision_raw_b: output.player_b_turn.decision_raw
       transitions:
         - to: score_round
 
@@ -72,7 +60,7 @@ data:
       transitions:
         - condition: "context.done == true"
           to: done
-        - to: play_a
+        - to: play_round
 
     done:
       type: final

@@ -8,6 +8,7 @@ Two identical LLM-driven player machines play a deterministic **10-round Iterate
   - `cooperate` (programmatic action)
   - `defect` (programmatic action)
 - Routing uses the recommended pattern: action writes `context.next_state`, transitions read it.
+- Per-round decisions are executed in parallel (`machine: [player_a_turn, player_b_turn]`) so both players act from the same prior-round information set.
 - Hooks are intentionally split by machine responsibility:
   - player machine: `ipd-player-hooks`
   - match machine: `ipd-match-hooks`
