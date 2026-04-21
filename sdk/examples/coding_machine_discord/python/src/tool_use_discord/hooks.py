@@ -51,7 +51,7 @@ class CLIToolHooks(MachineHooks):
         context["_history_last_state"] = state_name
         return self._sync_history_from_chain(state_name, context)
 
-    def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def on_action(self, state_name: str, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         state_name = str(context.get("_history_last_state") or "unknown")
         context = self._sync_history_from_chain(state_name, context)
 

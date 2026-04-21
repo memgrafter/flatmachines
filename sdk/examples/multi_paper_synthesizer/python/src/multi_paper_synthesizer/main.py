@@ -236,7 +236,7 @@ async def analyze_single_paper(paper_id: str) -> dict:
     analyzer_config = PAPER_ANALYZER_DIR / 'machine.yml'
     machine = FlatMachine(
         config_file=str(analyzer_config),
-        hooks=LoggingHooks()
+        lifecycle_hooks=LoggingHooks()
     )
     
     # Run analysis
@@ -293,7 +293,7 @@ async def synthesize_papers(
     
     machine = FlatMachine(
         config_file=str(synthesis_config),
-        hooks=LoggingHooks()
+        lifecycle_hooks=LoggingHooks()
     )
     
     # Prepare analyses summary for context

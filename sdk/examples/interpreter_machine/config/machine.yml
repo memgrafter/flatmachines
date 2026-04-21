@@ -1,72 +1,42 @@
 spec: flatmachine
-spec_version: "2.5.0"
-
+spec_version: 2.5.0
 data:
   name: interpreter-machine
   context:
-    statement: "{{ input.statement }}"
-    working_dir: "{{ input.working_dir }}"
-    thread_id: ""
-
+    statement: '{{ input.statement }}'
+    working_dir: '{{ input.working_dir }}'
+    thread_id: ''
   agents:
     interpreter:
       type: codex-cli
       ref: ./codex-cli.profile.yml
-
   states:
     start:
       type: initial
       transitions:
-        - to: interpret
-
+      - to: interpret
+      hooks: interpreter-hooks
     interpret:
       agent: interpreter
       input:
-        task: |
-          You are an interpretation agent. Your job is to deeply interpret a
-          user's statement — what they mean, what they might really be asking
-          for, what assumptions they hold, what adjacent ideas connect.
-
-          Statement: "{{ context.statement }}"
-          Working directory: {{ context.working_dir }}
-
-          Process:
-          1. Interpret the statement from multiple angles (literal meaning,
-             deeper intent, assumptions, related concepts, potential
-             misunderstandings, and what may be unsaid).
-          2. Survey local files/directories to ground the interpretation in
-             this actual project context.
-          3. Read INTERPRETATIONS.md at the working directory root.
-          4. Compare your interpretation with existing entries.
-          5. Edit INTERPRETATIONS.md to add a new interpretation near the most
-             similar entries, or create a new thematic section if needed.
-
-          Rules:
-          - NEVER delete or modify existing interpretations.
-          - Preserve ambiguity and disagreement; do not flatten nuance.
-          - If INTERPRETATIONS.md does not exist, create it with a header.
-          - Use this entry format:
-
-            ### [short title]
-            > Original statement: "{{ context.statement }}"
-
-            [2-5 paragraphs of interpretation grounded in local context]
-
-            *Connections: [which existing interpretations this relates to and how]*
-
-          After editing the file, provide a concise summary of what you added.
+        task: "You are an interpretation agent. Your job is to deeply interpret a\nuser's statement \u2014 what they mean, what they might really be asking\nfor, what assumptions they hold, what adjacent ideas connect.\n\nStatement: \"{{ context.statement }}\"\nWorking directory: {{ context.working_dir }}\n\nProcess:\n1. Interpret the statement from multiple angles (literal meaning,\n   deeper intent, assumptions, related concepts, potential\n   misunderstandings, and what may be unsaid).\n2. Survey local files/directories to ground the interpretation in\n   this actual project context.\n3. Read INTERPRETATIONS.md at the working directory root.\n4. Compare your interpretation with existing entries.\n5. Edit INTERPRETATIONS.md to add a new interpretation near the most\n   similar entries, or create a new thematic section if needed.\n\nRules:\n- NEVER delete or modify existing interpretations.\n- Preserve ambiguity and disagreement; do not flatten nuance.\n- If INTERPRETATIONS.md does not\
+          \ exist, create it with a header.\n- Use this entry format:\n\n  ### [short title]\n  > Original statement: \"{{ context.statement }}\"\n\n  [2-5 paragraphs of interpretation grounded in local context]\n\n  *Connections: [which existing interpretations this relates to and how]*\n\nAfter editing the file, provide a concise summary of what you added.\n"
       output_to_context:
-        result: "{{ output.result }}"
-        thread_id: "{{ output.thread_id }}"
+        result: '{{ output.result }}'
+        thread_id: '{{ output.thread_id }}'
       transitions:
-        - to: done
-
+      - to: done
+      hooks: interpreter-hooks
     done:
       type: final
       output:
-        result: "{{ context.result }}"
-        thread_id: "{{ context.thread_id }}"
-
+        result: '{{ context.result }}'
+        thread_id: '{{ context.thread_id }}'
+      hooks: interpreter-hooks
 metadata:
-  description: "Interpreter machine — takes a statement, interprets it, and adds to INTERPRETATIONS.md"
-  tags: ["codex-cli", "cli", "interpretation", "knowledge"]
+  description: "Interpreter machine \u2014 takes a statement, interprets it, and adds to INTERPRETATIONS.md"
+  tags:
+  - codex-cli
+  - cli
+  - interpretation
+  - knowledge

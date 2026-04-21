@@ -1,58 +1,49 @@
-# Task runner machine for DFSS Deep Sleep.
-#
-# Runs a single task via hook action, outputs result + children.
-# Signals "dfss/ready" on completion so the scheduler wakes.
-
 spec: flatmachine
-spec_version: "2.0.0"
-
+spec_version: 2.0.0
 data:
   name: dfss-deepsleep-task
-
   context:
-    task_id: "input.task_id"
-    root_id: "input.root_id"
-    depth: "input.depth"
-    resource_class: "input.resource_class"
-    has_expensive_descendant: "input.has_expensive_descendant"
-    distance_to_nearest_slow_descendant: "input.distance_to_nearest_slow_descendant"
+    task_id: input.task_id
+    root_id: input.root_id
+    depth: input.depth
+    resource_class: input.resource_class
+    has_expensive_descendant: input.has_expensive_descendant
+    distance_to_nearest_slow_descendant: input.distance_to_nearest_slow_descendant
     result: null
     children: []
-
-  hooks: "deepsleep"
-
   states:
     start:
       type: initial
       transitions:
-        - to: run_task
-
+      - to: run_task
+      hooks: deepsleep
     run_task:
       action: run_task
       on_error: error_exit
       transitions:
-        - to: signal_done
-
+      - to: signal_done
+      hooks: deepsleep
     signal_done:
       action: signal_ready
       transitions:
-        - to: done
-
+      - to: done
+      hooks: deepsleep
     done:
       type: final
       output:
-        task_id: "context.task_id"
-        root_id: "context.root_id"
-        depth: "context.depth"
-        resource_class: "context.resource_class"
-        result: "context.result"
-        children: "context.children"
-
+        task_id: context.task_id
+        root_id: context.root_id
+        depth: context.depth
+        resource_class: context.resource_class
+        result: context.result
+        children: context.children
+      hooks: deepsleep
     error_exit:
       type: final
       output:
-        task_id: "context.task_id"
-        root_id: "context.root_id"
-        depth: "context.depth"
-        resource_class: "context.resource_class"
-        error: "context.last_error"
+        task_id: context.task_id
+        root_id: context.root_id
+        depth: context.depth
+        resource_class: context.resource_class
+        error: context.last_error
+      hooks: deepsleep

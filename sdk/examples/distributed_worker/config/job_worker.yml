@@ -1,44 +1,37 @@
 spec: flatmachine
-spec_version: "2.0.0"
-
+spec_version: 2.0.0
 data:
   name: job_worker
-  
   settings:
-    heartbeat_interval: 30  # seconds
-  
+    heartbeat_interval: 30
   context:
-    pool_id: "{{ input.pool_id | default('default') }}"
-    worker_id: "{{ input.worker_id | default('unknown') }}"
-  
-  hooks: "distributed-worker"
-  
+    pool_id: '{{ input.pool_id | default(''default'') }}'
+    worker_id: '{{ input.worker_id | default(''unknown'') }}'
   machines:
     echo_processor: ./echo_processor.yml
-  
   states:
     start:
       type: initial
       transitions:
-        - to: register_worker
-    
+      - to: register_worker
+      hooks: distributed-worker
     register_worker:
       action: register_worker
       output_to_context:
-        registered_at: "{{ output.registered_at }}"
+        registered_at: '{{ output.registered_at }}'
       transitions:
-        - to: claim_job
-    
+      - to: claim_job
+      hooks: distributed-worker
     claim_job:
       action: claim_job
       output_to_context:
         job: output.job
         job_id: output.job_id
       transitions:
-        - condition: "context.job == None"
-          to: no_work
-        - to: process_job
-    
+      - condition: context.job == None
+        to: no_work
+      - to: process_job
+      hooks: distributed-worker
     process_job:
       machine: echo_processor
       input:
@@ -47,37 +40,38 @@ data:
         result: output
       on_error: job_failed
       transitions:
-        - to: complete_job
-    
+      - to: complete_job
+      hooks: distributed-worker
     complete_job:
       action: complete_job
       transitions:
-        - to: deregister
-    
+      - to: deregister
+      hooks: distributed-worker
     job_failed:
       action: fail_job
       transitions:
-        - to: deregister
-    
+      - to: deregister
+      hooks: distributed-worker
     deregister:
       action: deregister_worker
       transitions:
-        - to: done
-    
+      - to: done
+      hooks: distributed-worker
     no_work:
       action: deregister_worker
       transitions:
-        - to: no_work_final
-    
+      - to: no_work_final
+      hooks: distributed-worker
     no_work_final:
       type: final
       output:
-        status: "no_work_available"
-        worker_id: "{{ context.worker_id }}"
-    
+        status: no_work_available
+        worker_id: '{{ context.worker_id }}'
+      hooks: distributed-worker
     done:
       type: final
       output:
-        job_id: "{{ context.job_id }}"
-        result: "{{ context.result }}"
-        worker_id: "{{ context.worker_id }}"
+        job_id: '{{ context.job_id }}'
+        result: '{{ context.result }}'
+        worker_id: '{{ context.worker_id }}'
+      hooks: distributed-worker

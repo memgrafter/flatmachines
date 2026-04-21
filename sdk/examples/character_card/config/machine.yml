@@ -1,13 +1,8 @@
-# Character Card Chat Machine
-# Loads a character card PNG and enables chat with the character
-
 spec: flatmachine
-spec_version: "2.0.0"
-
+spec_version: 2.0.0
 data:
   name: character-card-chat
   context:
-    # Card data loaded from PNG by hooks
     card_name: null
     card_description: null
     card_personality: null
@@ -16,41 +11,34 @@ data:
     card_first_mes: null
     card_mes_example: null
     post_history_instructions: null
-    # User identity
-    user_name: "User"
+    user_name: User
     user_persona: null
-    # Settings
     no_system_prompt: false
     auto_user: false
-    # Chat state
     user_message: null
     assistant_message: null
     messages: []
-  
   agents:
     responder: ./responder.yml
-
-  hooks: character-card-hooks
-  
   states:
     start:
       type: initial
       action: load_card
       transitions:
-        - to: greet
-    
+      - to: greet
+      hooks: character-card-hooks
     greet:
       action: show_greeting
       transitions:
-        - to: await_input
-    
+      - to: await_input
+      hooks: character-card-hooks
     await_input:
       action: get_user_input
       transitions:
-        - condition: "context.user_message == '/quit'"
-          to: done
-        - to: respond
-    
+      - condition: context.user_message == '/quit'
+        to: done
+      - to: respond
+      hooks: character-card-hooks
     respond:
       agent: responder
       input:
@@ -67,28 +55,37 @@ data:
         user_persona: context.user_persona
         no_system_prompt: context.no_system_prompt
       output_to_context:
-        assistant_message: |-
-          {%- if output.content is defined -%}
+        assistant_message: '{%- if output.content is defined -%}
+
           {{ output.content }}
+
           {%- elif output.response is defined -%}
+
           {{ output.response }}
+
           {%- else -%}
+
           {{ output }}
-          {%- endif -%}
+
+          {%- endif -%}'
       transitions:
-        - to: update_history
-    
+      - to: update_history
+      hooks: character-card-hooks
     update_history:
       action: update_chat_history
       transitions:
-        - to: await_input
-    
+      - to: await_input
+      hooks: character-card-hooks
     done:
       type: final
       output:
-        character: "{{ context.card_name }}"
-        turns: "{{ context.messages | length }}"
-
+        character: '{{ context.card_name }}'
+        turns: '{{ context.messages | length }}'
+      hooks: character-card-hooks
 metadata:
-  description: "Chat with a character from a V1/V2/V3 character card"
-  tags: ["character-card", "chat", "roleplay", "sillytavern"]
+  description: Chat with a character from a V1/V2/V3 character card
+  tags:
+  - character-card
+  - chat
+  - roleplay
+  - sillytavern

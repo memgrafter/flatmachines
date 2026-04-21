@@ -41,7 +41,7 @@ async def run(product: str = "a CLI tool for AI agents", max_rounds: int = 4, ta
     config_path = Path(__file__).parent.parent.parent.parent / 'config' / 'machine.yml'
     machine = FlatMachine(
         config_file=str(config_path),
-        hooks=LoggingHooks()
+        lifecycle_hooks=LoggingHooks()
     )
 
     logger.info(f"Machine: {machine.machine_name}")

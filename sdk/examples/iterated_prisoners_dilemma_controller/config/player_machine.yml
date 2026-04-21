@@ -1,11 +1,7 @@
 spec: flatmachine
-spec_version: "2.0.0"
-
+spec_version: 2.0.0
 data:
   name: ipd-player
-
-  hooks: ipd-player-hooks
-
   context:
     role: input.role
     round: input.round
@@ -18,16 +14,14 @@ data:
     move: null
     move_label: null
     rationale: null
-
   agents:
     decider: ./agent.yml
-
   states:
     start:
       type: initial
       transitions:
-        - to: llm_decision
-
+      - to: llm_decision
+      hooks: ipd-player-hooks
     llm_decision:
       agent: decider
       input:
@@ -38,36 +32,41 @@ data:
         opponent_history: context.opponent_history
         opponent_last_move: context.opponent_last_move
       output_to_context:
-        decision_raw: |-
-          {%- if output.content is defined and output.content -%}
-          {{ output.content }}
-          {%- elif output.response is defined and output.response -%}
-          {{ output.response }}
-          {%- else -%}
-          {{ output }}
-          {%- endif -%}
-      transitions:
-        - to: route_decision
+        decision_raw: '{%- if output.content is defined and output.content -%}
 
+          {{ output.content }}
+
+          {%- elif output.response is defined and output.response -%}
+
+          {{ output.response }}
+
+          {%- else -%}
+
+          {{ output }}
+
+          {%- endif -%}'
+      transitions:
+      - to: route_decision
+      hooks: ipd-player-hooks
     route_decision:
       action: route_decision
       transitions:
-        - condition: "context.next_state == 'cooperate'"
-          to: cooperate
-        - condition: "context.next_state == 'defect'"
-          to: defect
-        - to: cooperate
-
+      - condition: context.next_state == 'cooperate'
+        to: cooperate
+      - condition: context.next_state == 'defect'
+        to: defect
+      - to: cooperate
+      hooks: ipd-player-hooks
     cooperate:
       action: choose_cooperate
       transitions:
-        - to: done
-
+      - to: done
+      hooks: ipd-player-hooks
     defect:
       action: choose_defect
       transitions:
-        - to: done
-
+      - to: done
+      hooks: ipd-player-hooks
     done:
       type: final
       output:
@@ -77,3 +76,4 @@ data:
         move_label: context.move_label
         rationale: context.rationale
         decision_raw: context.decision_raw
+      hooks: ipd-player-hooks

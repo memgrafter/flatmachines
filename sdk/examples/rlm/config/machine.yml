@@ -1,23 +1,14 @@
-# Recursive Language Model (RLM) Main Machine
-# Orchestrates the explore-decompose-process-synthesize workflow
-# Based on arXiv:2512.24601 - "Recursive Language Models"
-
 spec: flatmachine
-spec_version: "2.0.0"
-
+spec_version: 2.0.0
 data:
   name: rlm-main
   context:
-    # Input parameters
-    task: "{{ input.task }}"
-    context_content: "{{ input.context }}"
-    context_length: "{{ input.context | length | int }}"
-    estimated_tokens: "{{ ((input.context | length) // 4) | int }}"
-    # Keep as templated strings to avoid string/int comparison mismatches in transitions
-    max_chunk_size: "{{ input.max_chunk_size }}"
-    max_exploration_rounds: "{{ input.max_exploration_rounds }}"
-
-    # Exploration state
+    task: '{{ input.task }}'
+    context_content: '{{ input.context }}'
+    context_length: '{{ input.context | length | int }}'
+    estimated_tokens: '{{ ((input.context | length) // 4) | int }}'
+    max_chunk_size: '{{ input.max_chunk_size }}'
+    max_exploration_rounds: '{{ input.max_exploration_rounds }}'
     exploration_round: 0
     exploration_history: []
     exploration_findings: null
@@ -25,23 +16,14 @@ data:
     content_type: null
     structure_summary: null
     raw_exploration: null
-
-    # Decomposition state
     raw_decomposition: null
     needs_decomposition: false
     sub_tasks: []
     aggregation_strategy: null
-
-    # Processing state
     sub_task_results: []
-
-    # Synthesis state
     raw_synthesis: null
-
-    # Final result
     final_answer: null
     confidence: null
-
   agents:
     explorer: ./explorer.yml
     findings_extractor: ./findings_extractor.yml
@@ -50,112 +32,115 @@ data:
     processor: ./processor.yml
     synthesizer: ./synthesizer.yml
     answer_extractor: ./answer_extractor.yml
-
-  # Peer machine for parallel chunk processing
   machines:
     chunk_processor: ./chunk_processor_machine.yml
-
   states:
-    # Entry point
     start:
       type: initial
-      # Initialize REPL with context via hook
       action: init_repl
       transitions:
-        - to: explore
-
-    # Exploration loop - examine the context structure
+      - to: explore
+      hooks: rlm
     explore:
       agent: explorer
       execution:
         type: retry
-        backoffs: [2, 8, 16]
+        backoffs:
+        - 2
+        - 8
+        - 16
         jitter: 0.1
       input:
-        task: "{{ context.task }}"
-        context_length: "{{ context.context_length }}"
-        estimated_tokens: "{{ context.estimated_tokens }}"
-        exploration_history: "{{ context.exploration_history }}"
+        task: '{{ context.task }}'
+        context_length: '{{ context.context_length }}'
+        estimated_tokens: '{{ context.estimated_tokens }}'
+        exploration_history: '{{ context.exploration_history }}'
       output_to_context:
-        exploration_round: "{{ (context.exploration_round | int) + 1 }}"
-        raw_exploration: "{{ output.content }}"
+        exploration_round: '{{ (context.exploration_round | int) + 1 }}'
+        raw_exploration: '{{ output.content }}'
       on_error: explore_error
       transitions:
-        - to: extract_exploration
-
+      - to: extract_exploration
+      hooks: rlm
     extract_exploration:
       agent: findings_extractor
       execution:
         type: retry
-        backoffs: [2, 8, 16, 35]
+        backoffs:
+        - 2
+        - 8
+        - 16
+        - 35
         jitter: 0.1
       input:
-        text: "{{ context.raw_exploration }}"
+        text: '{{ context.raw_exploration }}'
       output_to_context:
-        code: "{{ output.code }}"
+        code: '{{ output.code }}'
         ready_to_answer: output.ready_to_answer
-        findings: "{{ output.findings }}"
+        findings: '{{ output.findings }}'
         suggested_chunks: output.suggested_chunks
       transitions:
-        - to: execute_exploration_code
-
-    # Execute the exploration code in REPL
+      - to: execute_exploration_code
+      hooks: rlm
     execute_exploration_code:
       action: execute_repl
       transitions:
-        - condition: "context.ready_to_answer == true"
-          to: decompose
-        - condition: "context.exploration_round >= context.max_exploration_rounds"
-          to: decompose
-        - to: explore
-
-    # Handle exploration errors
+      - condition: context.ready_to_answer == true
+        to: decompose
+      - condition: context.exploration_round >= context.max_exploration_rounds
+        to: decompose
+      - to: explore
+      hooks: rlm
     explore_error:
       action: log_error
       transitions:
-        - condition: "context.exploration_round < context.max_exploration_rounds"
-          to: explore
-        - to: decompose
-
-    # Decompose the task into sub-tasks
+      - condition: context.exploration_round < context.max_exploration_rounds
+        to: explore
+      - to: decompose
+      hooks: rlm
     decompose:
       agent: decomposer
       execution:
         type: retry
-        backoffs: [2, 8]
+        backoffs:
+        - 2
+        - 8
       input:
-        task: "{{ context.task }}"
-        context_length: "{{ context.context_length }}"
-        estimated_tokens: "{{ context.estimated_tokens }}"
-        content_type: "{{ context.content_type }}"
-        structure_summary: "{{ context.structure_summary }}"
-        exploration_findings: "{{ context.exploration_findings }}"
-        suggested_chunks: "{{ context.suggested_chunks }}"
-        max_chunk_size: "{{ context.max_chunk_size }}"
+        task: '{{ context.task }}'
+        context_length: '{{ context.context_length }}'
+        estimated_tokens: '{{ context.estimated_tokens }}'
+        content_type: '{{ context.content_type }}'
+        structure_summary: '{{ context.structure_summary }}'
+        exploration_findings: '{{ context.exploration_findings }}'
+        suggested_chunks: '{{ context.suggested_chunks }}'
+        max_chunk_size: '{{ context.max_chunk_size }}'
       output_to_context:
-        raw_decomposition: "{{ output.content }}"
+        raw_decomposition: '{{ output.content }}'
       transitions:
-        - to: extract_decomposition
-
+      - to: extract_decomposition
+      hooks: rlm
     extract_decomposition:
       agent: subquery_extractor
       execution:
         type: retry
-        backoffs: [2, 8, 16, 35]
+        backoffs:
+        - 2
+        - 8
+        - 16
+        - 35
         jitter: 0.1
       input:
-        text: "{{ context.raw_decomposition }}"
+        text: '{{ context.raw_decomposition }}'
       output_to_context:
         needs_decomposition: output.needs_decomposition
         sub_tasks: output.sub_tasks
-        aggregation_strategy: "{{ output.aggregation_strategy }}"
-        direct_answer: "{{ output.direct_answer }}"
+        aggregation_strategy: '{{ output.aggregation_strategy }}'
+        direct_answer: '{{ output.direct_answer }}'
       transitions:
-        - condition: "context.needs_decomposition == false"
-          to: direct_done
-        - to: process_chunks
-
-    # Process all chunks in parallel using foreach
+      - condition: context.needs_decomposition == false
+        to: direct_done
+      - to: process_chunks
+      hooks: rlm
     process_chunks:
       foreach: context.sub_tasks
       as: sub_task
@@ -163,72 +148,75 @@ data:
       mode: settled
       timeout: 300
       input:
-        task: "{{ context.task }}"
-        sub_task: "{{ sub_task }}"
-        context_content: "{{ context.context_content }}"
-        total_length: "{{ context.context_length }}"
+        task: '{{ context.task }}'
+        sub_task: '{{ sub_task }}'
+        context_content: '{{ context.context_content }}'
+        total_length: '{{ context.context_length }}'
       output_to_context:
         sub_task_results: output
       transitions:
-        - to: synthesize
-
-    # Synthesize results into final answer
+      - to: synthesize
+      hooks: rlm
     synthesize:
       agent: synthesizer
       execution:
         type: retry
-        backoffs: [2, 8]
+        backoffs:
+        - 2
+        - 8
       input:
-        task: "{{ context.task }}"
-        aggregation_strategy: "{{ context.aggregation_strategy }}"
-        sub_task_results: "{{ context.sub_task_results }}"
+        task: '{{ context.task }}'
+        aggregation_strategy: '{{ context.aggregation_strategy }}'
+        sub_task_results: '{{ context.sub_task_results }}'
       output_to_context:
-        raw_synthesis: "{{ output.content }}"
+        raw_synthesis: '{{ output.content }}'
       transitions:
-        - to: extract_synthesis
-
+      - to: extract_synthesis
+      hooks: rlm
     extract_synthesis:
       agent: answer_extractor
       execution:
         type: retry
-        backoffs: [2, 8, 16, 35]
+        backoffs:
+        - 2
+        - 8
+        - 16
+        - 35
         jitter: 0.1
       input:
-        text: "{{ context.raw_synthesis }}"
+        text: '{{ context.raw_synthesis }}'
       output_to_context:
-        final_answer: "{{ output.final_answer }}"
-        confidence: "{{ output.confidence }}"
-        reasoning: "{{ output.reasoning }}"
-        caveats: "{{ output.caveats }}"
+        final_answer: '{{ output.final_answer }}'
+        confidence: '{{ output.confidence }}'
+        reasoning: '{{ output.reasoning }}'
+        caveats: '{{ output.caveats }}'
       transitions:
-        - to: done
-
-    # Direct answer without decomposition
+      - to: done
+      hooks: rlm
     direct_done:
       type: final
       output:
-        answer: "{{ context.direct_answer }}"
-        method: "direct"
-        exploration_rounds: "{{ context.exploration_round }}"
-
-    # Final state with synthesized answer
+        answer: '{{ context.direct_answer }}'
+        method: direct
+        exploration_rounds: '{{ context.exploration_round }}'
+      hooks: rlm
     done:
       type: final
       output:
-        answer: "{{ context.final_answer }}"
-        confidence: "{{ context.confidence }}"
-        reasoning: "{{ context.reasoning }}"
-        caveats: "{{ context.caveats }}"
-        method: "recursive"
-        exploration_rounds: "{{ context.exploration_round }}"
-        sub_tasks_processed: "{{ context.sub_task_results | length }}"
-
+        answer: '{{ context.final_answer }}'
+        confidence: '{{ context.confidence }}'
+        reasoning: '{{ context.reasoning }}'
+        caveats: '{{ context.caveats }}'
+        method: recursive
+        exploration_rounds: '{{ context.exploration_round }}'
+        sub_tasks_processed: '{{ context.sub_task_results | length }}'
+      hooks: rlm
   settings:
     max_steps: 50
     parallel_fallback: sequential
-
-  hooks: "rlm"
-
 metadata:
-  description: "Recursive Language Model - handles arbitrarily long contexts via REPL exploration and recursive decomposition"
-  tags: ["rlm", "long-context", "recursive"]
+  description: Recursive Language Model - handles arbitrarily long contexts via REPL exploration and recursive decomposition
+  tags:
+  - rlm
+  - long-context
+  - recursive

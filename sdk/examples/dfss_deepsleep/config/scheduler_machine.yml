@@ -1,31 +1,15 @@
-# DFSS Deep Sleep — scheduler as a FlatMachine with checkpoint-and-exit.
-#
-# The scheduler is itself a machine. Between batches it checkpoints and exits.
-# Zero processes while idle. Signals wake it when work is ready.
-#
-# Flow:
-#   init → seed (or release_stale on resume)
-#     → hydrate → pick → claim → dispatch → settle → check_done
-#     → loop back to hydrate (or sleep if blocked, or done)
-#
-# Deep sleep: when pick finds nothing runnable but work remains, the machine
-# enters 'sleep' (wait_for "dfss/ready"), checkpoints, and exits. A signal
-# from a completing task wakes it.
-
 spec: flatmachine
-spec_version: "2.0.0"
-
+spec_version: 2.0.0
 data:
   name: dfss-deepsleep-scheduler
-
   context:
-    pool_name: "input.pool_name"
-    max_active_roots: "input.max_active_roots"
-    batch_size: "input.batch_size"
-    n_roots: "input.n_roots"
-    max_depth: "input.max_depth"
-    resume: "input.resume"
-    cleanup: "input.cleanup"
+    pool_name: input.pool_name
+    max_active_roots: input.max_active_roots
+    batch_size: input.batch_size
+    n_roots: input.n_roots
+    max_depth: input.max_depth
+    resume: input.resume
+    cleanup: input.cleanup
     root_ids: []
     roots: {}
     resources: {}
@@ -36,100 +20,92 @@ data:
     all_done: false
     _announced_complete: []
     _last_gate_toggle: null
-
   machines:
     task_runner: ./task_machine.yml
-
-  hooks: "deepsleep"
-
   max_steps: 500
-
   states:
-    # ── Bootstrap ──
     init:
       type: initial
       transitions:
-        - condition: "context.resume"
-          to: release_stale
-        - to: seed
-
+      - condition: context.resume
+        to: release_stale
+      - to: seed
+      hooks: deepsleep
     seed:
       action: seed_work
       transitions:
-        - to: hydrate
-
+      - to: hydrate
+      hooks: deepsleep
     release_stale:
       action: release_stale
       transitions:
-        - to: hydrate
-
-    # ── Main loop ──
+      - to: hydrate
+      hooks: deepsleep
     hydrate:
       action: hydrate_candidates
       transitions:
-        - to: pick
-
+      - to: pick
+      hooks: deepsleep
     pick:
       action: pick_batch
       transitions:
-        - condition: "context.batch"
-          to: claim
-        - condition: "context.all_done"
-          to: report
-        - to: sleep
-
+      - condition: context.batch
+        to: claim
+      - condition: context.all_done
+        to: report
+      - to: sleep
+      hooks: deepsleep
     claim:
       action: claim_batch
       transitions:
-        - condition: "context.claimed_batch"
-          to: dispatch
-        - to: hydrate
-
+      - condition: context.claimed_batch
+        to: dispatch
+      - to: hydrate
+      hooks: deepsleep
     dispatch:
-      foreach: "context.claimed_batch"
+      foreach: context.claimed_batch
       as: task
       machine: task_runner
       input:
-        task_id: "{{ task.task_id }}"
-        root_id: "{{ task.root_id }}"
-        depth: "{{ task.depth }}"
-        resource_class: "{{ task.resource_class }}"
-        has_expensive_descendant: "{{ task.has_expensive_descendant }}"
-        distance_to_nearest_slow_descendant: "{{ task.distance_to_nearest_slow_descendant }}"
+        task_id: '{{ task.task_id }}'
+        root_id: '{{ task.root_id }}'
+        depth: '{{ task.depth }}'
+        resource_class: '{{ task.resource_class }}'
+        has_expensive_descendant: '{{ task.has_expensive_descendant }}'
+        distance_to_nearest_slow_descendant: '{{ task.distance_to_nearest_slow_descendant }}'
       mode: settled
       output_to_context:
-        batch_results: "output"
+        batch_results: output
       on_error: settle
       transitions:
-        - to: settle
-
+      - to: settle
+      hooks: deepsleep
     settle:
       action: settle_results
       transitions:
-        - to: check_done
-
+      - to: check_done
+      hooks: deepsleep
     check_done:
       action: check_done
       transitions:
-        - condition: "context.all_done"
-          to: report
-        - to: hydrate
-
-    # ── Deep sleep ──
+      - condition: context.all_done
+        to: report
+      - to: hydrate
+      hooks: deepsleep
     sleep:
-      wait_for: "dfss/ready"
+      wait_for: dfss/ready
       timeout: 0
       transitions:
-        - to: hydrate
-
-    # ── Finish ──
+      - to: hydrate
+      hooks: deepsleep
     report:
       action: report_and_cleanup
       transitions:
-        - to: done
-
+      - to: done
+      hooks: deepsleep
     done:
       type: final
       output:
-        roots: "context.roots"
-        summary: "context.summary"
+        roots: context.roots
+        summary: context.summary
+      hooks: deepsleep

@@ -22,7 +22,7 @@ class ExpertDebateHooks(MachineHooks):
         base_dir = Path(__file__).resolve().parents[3]
         self.default_output_dir = Path(output_dir) if output_dir else base_dir / "output"
 
-    def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def on_action(self, state_name: str, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         if action_name == "bootstrap_session":
             return self._bootstrap_session(context)
         if action_name == "collect_topic":

@@ -20,7 +20,7 @@ from pathlib import Path
 from decimal import Decimal
 from typing import Dict, Any, Optional
 
-from flatmachines import FlatMachine, setup_logging, get_logger
+from flatmachines import FlatMachine, HooksRegistry, setup_logging, get_logger
 from .hooks import HumanInLoopHooks
 
 # Configure logging
@@ -42,9 +42,12 @@ async def run(topic: str = "the benefits of daily exercise", max_revisions: int 
 
     # Load machine from YAML
     config_path = Path(__file__).parent.parent.parent.parent / 'config' / 'machine.yml'
+    hooks = HumanInLoopHooks()
+    registry = HooksRegistry()
+    registry.register("human-in-loop-hooks", lambda: hooks)
     machine = FlatMachine(
         config_file=str(config_path),
-        hooks=HumanInLoopHooks()
+        hooks_registry=registry
     )
 
     logger.info(f"Machine: {machine.machine_name}")

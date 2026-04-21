@@ -13,7 +13,6 @@ data:
         sandbox: read-only
         approval_policy: never
         skip_git_repo_check: true
-        ephemeral: true
   states:
     start:
       type: initial

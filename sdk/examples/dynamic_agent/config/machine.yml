@@ -1,129 +1,107 @@
-# Dynamic Agent Example
-# Demonstrates On-The-Fly (OTF) agent generation with pre-execution supervision
-
 spec: flatmachine
-spec_version: "2.0.0"
-
+spec_version: 2.0.0
 data:
   name: dynamic-agent
-
   context:
-    # User's creative writing task
-    task: "{{ input.task }}"
-    style_hints: "{{ input.style_hints | default('') }}"
-
-    # Raw outputs
+    task: '{{ input.task }}'
+    style_hints: '{{ input.style_hints | default('''') }}'
     raw_generator: null
     raw_supervisor: null
-
-    # OTF agent spec fields (stored individually)
     otf_name: null
     otf_system: null
     otf_user: null
     otf_temperature: 0.6
     otf_output_fields: null
-
-    # Supervisor analysis (pre-execution)
     supervisor_approved: false
     supervisor_analysis: null
     supervisor_concerns: null
-
-    # Human review
     human_approved: false
     human_acknowledged: false
-
-    # OTF execution result
     otf_result: null
-
-    # Iteration tracking
     generation_attempts: 0
     max_attempts: 3
-
   agents:
     generator: ./generator.yml
     supervisor: ./supervisor.yml
-
   states:
     start:
       type: initial
       transitions:
-        - to: generate_agent
-
+      - to: generate_agent
+      hooks: otf-hooks
     generate_agent:
       agent: generator
       input:
-        task: "{{ context.task }}"
-        style_hints: "{{ context.style_hints }}"
-        previous_concerns: "{{ context.supervisor_concerns }}"
+        task: '{{ context.task }}'
+        style_hints: '{{ context.style_hints }}'
+        previous_concerns: '{{ context.supervisor_concerns }}'
       output_to_context:
-        raw_generator: "{{ output.content }}"
-        generation_attempts: "{{ context.generation_attempts + 1 }}"
+        raw_generator: '{{ output.content }}'
+        generation_attempts: '{{ context.generation_attempts + 1 }}'
       transitions:
-        - to: parse_generator
-
+      - to: parse_generator
+      hooks: otf-hooks
     parse_generator:
       action: parse_generator_spec
       transitions:
-        - to: supervise_spec
-
+      - to: supervise_spec
+      hooks: otf-hooks
     supervise_spec:
-      # Supervisor analyzes the OTF spec BEFORE execution
       agent: supervisor
       input:
-        original_task: "{{ context.task }}"
-        spec_name: "{{ context.otf_name }}"
-        spec_system: "{{ context.otf_system }}"
-        spec_user: "{{ context.otf_user }}"
-        spec_temperature: "{{ context.otf_temperature }}"
-        spec_output_fields: "{{ context.otf_output_fields | default({}) }}"
+        original_task: '{{ context.task }}'
+        spec_name: '{{ context.otf_name }}'
+        spec_system: '{{ context.otf_system }}'
+        spec_user: '{{ context.otf_user }}'
+        spec_temperature: '{{ context.otf_temperature }}'
+        spec_output_fields: '{{ context.otf_output_fields | default({}) }}'
       output_to_context:
-        raw_supervisor: "{{ output.content }}"
+        raw_supervisor: '{{ output.content }}'
       transitions:
-        - to: parse_supervisor
-
+      - to: parse_supervisor
+      hooks: otf-hooks
     parse_supervisor:
       action: parse_supervisor_review
       transitions:
-        - to: human_review
-
+      - to: human_review
+      hooks: otf-hooks
     human_review:
-      # Human reviews supervisor's analysis
       action: human_review_otf
       transitions:
-        # If human approved the agent for execution
-        - condition: "context.human_approved"
-          to: otf_execute
-        # Otherwise (rejected or denied) check if we can retry
-        - to: check_retry
-
+      - condition: context.human_approved
+        to: otf_execute
+      - to: check_retry
+      hooks: otf-hooks
     check_retry:
-      # Check if we can retry generation
       transitions:
-        - condition: "context.generation_attempts >= context.max_attempts"
-          to: max_attempts_reached
-        - to: generate_agent
-
+      - condition: context.generation_attempts >= context.max_attempts
+        to: max_attempts_reached
+      - to: generate_agent
+      hooks: otf-hooks
     otf_execute:
-      # Execute the approved OTF agent
       action: otf_execute
       transitions:
-        - to: done
-
+      - to: done
+      hooks: otf-hooks
     done:
       type: final
       output:
-        content: "{{ context.otf_result.content | default(context.otf_result.error | default(context.otf_result)) }}"
-        error: "{{ context.otf_result.error | default('') }}"
-        agent_name: "{{ context.otf_name }}"
-        attempts: "{{ context.generation_attempts }}"
-
+        content: '{{ context.otf_result.content | default(context.otf_result.error | default(context.otf_result)) }}'
+        error: '{{ context.otf_result.error | default('''') }}'
+        agent_name: '{{ context.otf_name }}'
+        attempts: '{{ context.generation_attempts }}'
+      hooks: otf-hooks
     max_attempts_reached:
       type: final
       output:
-        error: "Max generation attempts reached"
-        last_concerns: "{{ context.supervisor_concerns }}"
-        attempts: "{{ context.generation_attempts }}"
-
+        error: Max generation attempts reached
+        last_concerns: '{{ context.supervisor_concerns }}'
+        attempts: '{{ context.generation_attempts }}'
+      hooks: otf-hooks
 metadata:
-  description: "Dynamic agent generation with pre-execution supervision and human-in-the-loop"
-  tags: ["otf", "dynamic", "creative-writing", "human-in-loop"]
+  description: Dynamic agent generation with pre-execution supervision and human-in-the-loop
+  tags:
+  - otf
+  - dynamic
+  - creative-writing
+  - human-in-loop

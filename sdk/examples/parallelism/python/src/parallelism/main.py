@@ -27,7 +27,7 @@ async def run_basic_parallel():
     logger.info("=== Basic Parallel Execution ===")
 
     config_path = Path(__file__).parent.parent.parent.parent / "config" / "machine.yml"
-    machine = FlatMachine(config_file=str(config_path), hooks=LoggingHooks())
+    machine = FlatMachine(config_file=str(config_path), lifecycle_hooks=LoggingHooks())
 
     # Run parallel aggregation task
     result = await machine.execute(
@@ -53,7 +53,7 @@ async def run_foreach():
     logger.info("=== Dynamic Parallelism (foreach) ===")
 
     config_path = Path(__file__).parent.parent.parent.parent / "config" / "machine.yml"
-    machine = FlatMachine(config_file=str(config_path), hooks=LoggingHooks())
+    machine = FlatMachine(config_file=str(config_path), lifecycle_hooks=LoggingHooks())
 
     # Run sentiment analysis on multiple texts
     result = await machine.execute(
@@ -80,7 +80,7 @@ async def run_fire_and_forget():
     logger.info("=== Fire-and-Forget Launches ===")
 
     config_path = Path(__file__).parent.parent.parent.parent / "config" / "machine.yml"
-    machine = FlatMachine(config_file=str(config_path), hooks=LoggingHooks())
+    machine = FlatMachine(config_file=str(config_path), lifecycle_hooks=LoggingHooks())
 
     # Launch background notifications
     result = await machine.execute(

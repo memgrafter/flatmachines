@@ -55,4 +55,8 @@ fi
 
 uv pip install --python "$VENV_PATH/bin/python" -e "$SCRIPT_DIR"
 
-"$VENV_PATH/bin/python" -m flatagent_dfss_pipeline.main "${PASSTHROUGH_ARGS[@]}"
+if [ ${#PASSTHROUGH_ARGS[@]} -eq 0 ]; then
+  "$VENV_PATH/bin/python" -m flatagent_dfss_pipeline.main
+else
+  "$VENV_PATH/bin/python" -m flatagent_dfss_pipeline.main "${PASSTHROUGH_ARGS[@]}"
+fi

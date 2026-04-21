@@ -11,7 +11,7 @@ import os
 import sys
 from pathlib import Path
 
-from flatmachines import FlatMachine
+from flatmachines import FlatMachine, HooksRegistry
 
 from .hooks import InterpreterHooks
 
@@ -27,9 +27,11 @@ def run(statement: str, working_dir: str):
     """Interpret a statement and update INTERPRETATIONS.md."""
     hooks = InterpreterHooks()
 
+    registry = HooksRegistry()
+    registry.register("interpreter-hooks", lambda: hooks)
     machine = FlatMachine(
         config_file=str(_CONFIG_DIR / "machine.yml"),
-        hooks=hooks,
+        hooks_registry=registry,
     )
 
     result = machine.execute_sync(

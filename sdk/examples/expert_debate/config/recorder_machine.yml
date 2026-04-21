@@ -1,55 +1,50 @@
 spec: flatmachine
-spec_version: "2.5.0"
-
+spec_version: 2.5.0
 data:
   name: expert_debate_recorder
-  hooks: expert_debate_hooks
-
   context:
-    session_id: "{{ input.session_id }}"
-    topic: "{{ input.topic }}"
-    audience: "{{ input.audience }}"
-    learning_goal: "{{ input.learning_goal }}"
-    start_with: "{{ input.start_with }}"
-
-    master_a_name: "{{ input.master_a_name }}"
-    master_a_domain: "{{ input.master_a_domain }}"
-    master_a_viewpoint: "{{ input.master_a_viewpoint }}"
-
-    master_b_name: "{{ input.master_b_name }}"
-    master_b_domain: "{{ input.master_b_domain }}"
-    master_b_viewpoint: "{{ input.master_b_viewpoint }}"
-
-    round_count: "input.round_count"
-    history_text: "{{ input.history_text }}"
-    transcript: "input.transcript"
-
-    markdown: ""
-    file_path: ""
-
+    session_id: '{{ input.session_id }}'
+    topic: '{{ input.topic }}'
+    audience: '{{ input.audience }}'
+    learning_goal: '{{ input.learning_goal }}'
+    start_with: '{{ input.start_with }}'
+    master_a_name: '{{ input.master_a_name }}'
+    master_a_domain: '{{ input.master_a_domain }}'
+    master_a_viewpoint: '{{ input.master_a_viewpoint }}'
+    master_b_name: '{{ input.master_b_name }}'
+    master_b_domain: '{{ input.master_b_domain }}'
+    master_b_viewpoint: '{{ input.master_b_viewpoint }}'
+    round_count: input.round_count
+    history_text: '{{ input.history_text }}'
+    transcript: input.transcript
+    markdown: ''
+    file_path: ''
   states:
     start:
       type: initial
       transitions:
-        - to: render_markdown
-
+      - to: render_markdown
+      hooks: expert_debate_hooks
     render_markdown:
       action: render_markdown
       transitions:
-        - to: write_markdown_file
-
+      - to: write_markdown_file
+      hooks: expert_debate_hooks
     write_markdown_file:
       action: write_markdown_file
       transitions:
-        - to: done
-
+      - to: done
+      hooks: expert_debate_hooks
     done:
       type: final
       output:
-        file_path: "{{ context.file_path }}"
-        markdown: "{{ context.markdown }}"
-        rounds: "{{ context.transcript | length }}"
-
+        file_path: '{{ context.file_path }}'
+        markdown: '{{ context.markdown }}'
+        rounds: '{{ context.transcript | length }}'
+      hooks: expert_debate_hooks
 metadata:
-  description: "Non-LLM recorder machine for expert debate transcripts"
-  tags: ["recorder", "markdown", "non-llm"]
+  description: Non-LLM recorder machine for expert debate transcripts
+  tags:
+  - recorder
+  - markdown
+  - non-llm

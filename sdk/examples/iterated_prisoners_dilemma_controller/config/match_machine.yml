@@ -1,11 +1,7 @@
 spec: flatmachine
-spec_version: "2.0.0"
-
+spec_version: 2.0.0
 data:
   name: ipd-match
-
-  hooks: ipd-match-hooks
-
   context:
     rounds_total: input.rounds_total
     round: 1
@@ -25,32 +21,30 @@ data:
     last_round: null
     last_move_a: null
     last_move_b: null
-
   machines:
     player_a: ./player_machine.yml
     player_b: ./player_machine.yml
-
   states:
     start:
       type: initial
       action: init_match
       transitions:
-        - to: play_round
-
+      - to: play_round
+      hooks: ipd-match-hooks
     play_round:
       machine:
-        - name: player_a
-          input:
-            role: Player A
-            own_history: context.moves_a
-            opponent_history: context.moves_b
-            opponent_last_move: context.last_move_b
-        - name: player_b
-          input:
-            role: Player B
-            own_history: context.moves_b
-            opponent_history: context.moves_a
-            opponent_last_move: context.last_move_a
+      - name: player_a
+        input:
+          role: Player A
+          own_history: context.moves_a
+          opponent_history: context.moves_b
+          opponent_last_move: context.last_move_b
+      - name: player_b
+        input:
+          role: Player B
+          own_history: context.moves_b
+          opponent_history: context.moves_a
+          opponent_last_move: context.last_move_a
       mode: settled
       input:
         round: context.round
@@ -61,15 +55,15 @@ data:
         move_b: output.player_b.move
         decision_raw_b: output.player_b.decision_raw
       transitions:
-        - to: score_round
-
+      - to: score_round
+      hooks: ipd-match-hooks
     score_round:
       action: score_round
       transitions:
-        - condition: "context.done == true"
-          to: done
-        - to: play_round
-
+      - condition: context.done == true
+        to: done
+      - to: play_round
+      hooks: ipd-match-hooks
     done:
       type: final
       output:
@@ -82,3 +76,4 @@ data:
         defection_count: context.defection_count
         cooperation_rate: context.cooperation_rate
         defection_rate: context.defection_rate
+      hooks: ipd-match-hooks

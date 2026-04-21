@@ -11,7 +11,7 @@ async def run():
     config_path = (
         Path(__file__).parent.parent.parent.parent / 'config' / 'machine.yml'
     )
-    machine = FlatMachine(config_file=str(config_path), hooks=LoggingHooks())
+    machine = FlatMachine(config_file=str(config_path), lifecycle_hooks=LoggingHooks())
 
     logger.info(f"Machine: {machine.machine_name}")
     logger.info(f"States: {list(machine.states.keys())}")

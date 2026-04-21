@@ -1,6 +1,9 @@
 """
 MDAP Hooks for FlatMachine.
 
+Deprecated: the runnable MDAP example now uses the built-in `mdap_voting`
+execution type declared in `config/machine.yml`, not these hooks.
+
 Provides multi-sampling and voting hooks for MDAP-style orchestration.
 The voting logic (first_to_ahead_by_k) runs as part of agent execution.
 """

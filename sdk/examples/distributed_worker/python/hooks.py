@@ -40,7 +40,7 @@ class DemoHooks(DistributedWorkerHooks):
             work=SQLiteWorkBackend(db_path=db_path),
         )
     
-    async def on_action(self, action: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    async def on_action(self, state_name: str, action: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """Route demo-specific actions, fallback to base class."""
         
         # Demo-specific actions
@@ -48,7 +48,7 @@ class DemoHooks(DistributedWorkerHooks):
             return await self._echo_delay(context)
         
         # Delegate to base class for standard distributed worker actions
-        return await super().on_action(action, context)
+        return await super().on_action(state_name, action, context)
     
     # -------------------------------------------------------------------------
     # Demo-Specific Actions

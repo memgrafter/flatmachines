@@ -1,6 +1,5 @@
 spec: flatmachine
-spec_version: "2.7.0"
-
+spec_version: 2.7.0
 data:
   name: discord-tool-loop
   context:
@@ -20,23 +19,21 @@ data:
     chat_context_rollover_generation: 0
     chat_context_needs_history_lookup: false
     human_approved: false
-
   agents:
     coder: ./admin-agent.yml
     everyone: ./everyone-agent.yml
-
   states:
     start:
       type: initial
       transitions:
-        - to: work
-
+      - to: work
+      hooks: discord-tool-hooks
     work:
       agent: coder
       tool_loop:
         max_turns: 30
         max_tool_calls: 100
-        max_cost: 2.00
+        max_cost: 2.0
         tool_timeout: 60
         total_timeout: 600
       input:
@@ -51,22 +48,25 @@ data:
         chat_context_rollover_count: context.chat_context_rollover_count
         chat_context_needs_history_lookup: context.chat_context_needs_history_lookup
       output_to_context:
-        result: "{{ output.content }}"
+        result: '{{ output.content }}'
       transitions:
-        - to: human_review
-
+      - to: human_review
+      hooks: discord-tool-hooks
     human_review:
       action: human_review
       transitions:
-        - condition: "context.human_approved == true"
-          to: done
-        - to: work
-
+      - condition: context.human_approved == true
+        to: done
+      - to: work
+      hooks: discord-tool-hooks
     done:
       type: final
       output:
-        result: "{{ context.result }}"
-
+        result: '{{ context.result }}'
+      hooks: discord-tool-hooks
 metadata:
-  description: "Coding machine tool loop (copied from coding_machine_cli) for Discord queue integration"
-  tags: ["tool-use", "discord", "human-in-loop"]
+  description: Coding machine tool loop (copied from coding_machine_cli) for Discord queue integration
+  tags:
+  - tool-use
+  - discord
+  - human-in-loop

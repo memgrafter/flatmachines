@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from flatmachines import CheckpointManager, FlatMachine, SQLiteCheckpointBackend, SQLiteWorkBackend
+from flatmachines import CheckpointManager, FlatMachine, HooksRegistry, SQLiteCheckpointBackend, SQLiteWorkBackend
 
 from .hooks import TaskHooks
 from .scheduler import ResourcePool, RootState, add_candidate, recompute_root_metrics, run
@@ -415,9 +415,11 @@ async def _run_pipeline(args: argparse.Namespace) -> int:
             "distance_to_nearest_slow_descendant": claimed["distance_to_nearest_slow_descendant"],
         }
 
+        registry = HooksRegistry()
+        registry.register("dfss-pipeline-task-hooks", lambda: hooks)
         machine = FlatMachine(
             config_dict=machine_cfg,
-            hooks=hooks,
+            hooks_registry=registry,
             persistence=checkpoint_backend,
             _execution_id=claimed["work_id"],
         )

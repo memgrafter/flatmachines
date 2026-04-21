@@ -1,33 +1,25 @@
 spec: flatmachine
-spec_version: "2.0.0"
-
+spec_version: 2.0.0
 data:
   name: echo_processor
-  
-  # Trivial job processor for testing.
-  # Just echoes the input after a configurable delay.
-  
   context:
     delay_seconds: 1
-  
-  hooks: "distributed-worker"
-  
   states:
     start:
       type: initial
       transitions:
-        - to: process
-    
+      - to: process
+      hooks: distributed-worker
     process:
-      # Simulate processing with a delay
       action: echo_delay
       output_to_context:
-        processed: "{{ output.processed }}"
+        processed: '{{ output.processed }}'
       transitions:
-        - to: done
-    
+      - to: done
+      hooks: distributed-worker
     done:
       type: final
       output:
-        status: "completed"
-        processed: "{{ context.processed }}"
+        status: completed
+        processed: '{{ context.processed }}'
+      hooks: distributed-worker

@@ -15,7 +15,7 @@ import sys
 # Add src to path for local imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from flatmachines import FlatMachine, get_logger
+from flatmachines import FlatMachine, HooksRegistry, get_logger
 from dynamic_agent.hooks import OTFAgentHooks, UserQuit
 
 logger = get_logger(__name__)
@@ -42,10 +42,13 @@ async def main(task: str, style_hints: str = "") -> None:
     # Create hooks (with profiles for dynamically generated agents)
     hooks = OTFAgentHooks(profiles_file=profiles_path)
     
+    registry = HooksRegistry()
+    registry.register("otf-hooks", lambda: hooks)
+
     # Create and run machine
     machine = FlatMachine(
         config_file=config_path,
-        hooks=hooks
+        hooks_registry=registry
     )
     
     try:

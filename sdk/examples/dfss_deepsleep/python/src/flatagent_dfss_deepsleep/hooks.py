@@ -271,7 +271,7 @@ class DeepSleepHooks(MachineHooks):
     # ── Action dispatch ────────────────────────────────────────
     # HookAction in flatmachines awaits coroutines, so async actions work.
 
-    async def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    async def on_action(self, state_name: str, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         dispatch = {
             # Scheduler actions (async — touch durable backends)
             "seed_work": self._seed_work,

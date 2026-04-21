@@ -25,6 +25,7 @@ from typing import Any, Optional
 from flatmachines import (
     CheckpointManager,
     FlatMachine,
+    HooksRegistry,
     SQLiteCheckpointBackend,
     SQLiteLeaseLock,
     SQLiteSignalBackend,
@@ -186,7 +187,7 @@ class DiscordMachineHooks(CLIToolHooks):
         )
         return context
 
-    async def on_action(self, action_name: str, context: dict[str, Any]) -> dict[str, Any]:
+    async def on_action(self, state_name: str, action_name: str, context: dict[str, Any]) -> dict[str, Any]:
         state_name = str(context.get("_history_last_state") or "unknown")
 
         if action_name == "queue_feedback":
@@ -357,10 +358,12 @@ class CodingMachineBatchResponder(BatchResponder):
             await self.signal_backend.send(wait_channel, machine_input)
 
         hooks = DiscordMachineHooks(working_dir=self.working_dir, api=self.api)
+        registry = HooksRegistry()
+        registry.register("discord-tool-hooks", lambda: hooks)
         machine = FlatMachine(
             config_file=_config_path("discord_machine.yml"),
             profiles_file=_config_path("profiles.yml"),
-            hooks=hooks,
+            hooks_registry=registry,
             persistence=self.checkpoint_backend,
             lock=self.machine_lock,
             signal_backend=self.signal_backend,
@@ -584,9 +587,11 @@ async def run_machine(
 ):
     """Run a single task via FlatMachine machine-driven tool loop."""
     resolved_hooks = hooks or CLIToolHooks(working_dir=working_dir, auto_approve=not human_review)
+    registry = HooksRegistry()
+    registry.register("discord-tool-hooks", lambda: resolved_hooks)
     machine = FlatMachine(
         config_file=_config_path("machine.yml"),
-        hooks=resolved_hooks,
+        hooks_registry=registry,
     )
 
     result = await machine.execute(input={

@@ -70,7 +70,7 @@ class CodingAgentHooks(MachineHooks):
                     pass
         return context
 
-    def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def on_action(self, state_name: str, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """Route actions to their handlers."""
         handlers = {
             "explore_codebase": self._explore_codebase,

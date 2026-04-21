@@ -1,41 +1,37 @@
 spec: flatmachine
-spec_version: "2.0.0"
-
+spec_version: 2.0.0
 data:
   name: stale_worker_reaper
-  
   context:
-    pool_id: "{{ input.pool_id | default('default') }}"
+    pool_id: '{{ input.pool_id | default(''default'') }}'
     stale_threshold_seconds: input.stale_threshold_seconds
-  
-  hooks: "distributed-worker"
-  
   states:
     start:
       type: initial
       transitions:
-        - to: find_stale_workers
-    
+      - to: find_stale_workers
+      hooks: distributed-worker
     find_stale_workers:
       action: list_stale_workers
       output_to_context:
         stale_workers: output.workers
         stale_count: output.stale_count
       transitions:
-        - condition: "context.stale_count == 0"
-          to: done
-        - to: reap_workers
-    
+      - condition: context.stale_count == 0
+        to: done
+      - to: reap_workers
+      hooks: distributed-worker
     reap_workers:
       action: reap_stale_workers
       output_to_context:
         reaped_count: output.reaped_count
         reaped_workers: output.reaped_workers
       transitions:
-        - to: done
-    
+      - to: done
+      hooks: distributed-worker
     done:
       type: final
       output:
-        reaped_count: "{{ context.reaped_count | default(0) }}"
-        stale_workers: "{{ context.stale_workers | default([]) }}"
+        reaped_count: '{{ context.reaped_count | default(0) }}'
+        stale_workers: '{{ context.stale_workers | default([]) }}'
+      hooks: distributed-worker

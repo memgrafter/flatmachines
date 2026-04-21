@@ -76,7 +76,7 @@ class CharacterCardHooks(MachineHooks):
         self.card_data = None
         self.user_agent: Optional[FlatAgent] = None
     
-    async def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    async def on_action(self, state_name: str, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         if action_name == "load_card":
             return self._load_card(context)
         elif action_name == "show_greeting":

@@ -1,60 +1,57 @@
-# Hello World Loop Machine
-# Builds a target string character by character
-
 spec: flatmachine
-spec_version: "2.0.0"
-
+spec_version: 2.0.0
 data:
   name: hello-world-loop
-  
   context:
-    target: "{{ input.target }}"
-    current: ""
-  
+    target: '{{ input.target }}'
+    current: ''
   agents:
     builder: ./agent.yml
-
-  hooks: hello-world-hooks
-  
   states:
     start:
       type: initial
       transitions:
-        - condition: "context.current == context.target"
-          to: done
-        - to: build_char
-    
+      - condition: context.current == context.target
+        to: done
+      - to: build_char
+      hooks: hello-world-hooks
     build_char:
       agent: builder
       execution:
         type: retry
         retry_on_empty: true
-        backoffs: [2, 8, 16, 35]  # Delay seconds: 2 + 8 + 16 + 35 = 61s total
-        jitter: 0.1  # 10% of each delay added/subtracted randomly
+        backoffs:
+        - 2
+        - 8
+        - 16
+        - 35
+        jitter: 0.1
       input:
-        current: "{{ context.current }}"
-        target: "{{ context.target }}"
+        current: '{{ context.current }}'
+        target: '{{ context.target }}'
       output_to_context:
-        expected_char: "{{ context.target[context.current|length] }}"
-        last_output: "{{ output.next_char or output.content }}"
+        expected_char: '{{ context.target[context.current|length] }}'
+        last_output: '{{ output.next_char or output.content }}'
       transitions:
-        - condition: "context.last_output != null and context.last_output != '' and context.last_output[0] == context.expected_char"
-          to: append_char
-        - to: build_char
-
+      - condition: context.last_output != null and context.last_output != '' and context.last_output[0] == context.expected_char
+        to: append_char
+      - to: build_char
+      hooks: hello-world-hooks
     append_char:
       action: append_char
       transitions:
-        - condition: "context.current == context.target"
-          to: done
-        - to: build_char
-    
+      - condition: context.current == context.target
+        to: done
+      - to: build_char
+      hooks: hello-world-hooks
     done:
       type: final
       output:
-        result: "{{ context.current }}"
+        result: '{{ context.current }}'
         success: true
-
+      hooks: hello-world-hooks
 metadata:
-  description: "Builds a target string character by character"
-  tags: ["demo", "loop"]
+  description: Builds a target string character by character
+  tags:
+  - demo
+  - loop

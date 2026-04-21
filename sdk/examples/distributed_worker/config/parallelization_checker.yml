@@ -1,54 +1,48 @@
 spec: flatmachine
-spec_version: "2.0.0"
-
+spec_version: 2.0.0
 data:
   name: parallelization_checker
-  
   context:
-    pool_id: "{{ input.pool_id | default('default') }}"
+    pool_id: '{{ input.pool_id | default(''default'') }}'
     max_workers: input.max_workers
-  
-  hooks: "distributed-worker"
-  
   machines:
     job_worker: ./job_worker.yml
-  
   states:
     start:
       type: initial
       transitions:
-        - to: check_state
-    
+      - to: check_state
+      hooks: distributed-worker
     check_state:
       action: get_pool_state
       output_to_context:
         queue_depth: output.queue_depth
         active_workers: output.active_workers
       transitions:
-        - to: calculate_spawn
-    
+      - to: calculate_spawn
+      hooks: distributed-worker
     calculate_spawn:
       action: calculate_spawn
       output_to_context:
         workers_needed: output.workers_needed
         workers_to_spawn: output.workers_to_spawn
       transitions:
-        - condition: "context.workers_to_spawn > 0"
-          to: spawn_workers
-        - to: done
-    
+      - condition: context.workers_to_spawn > 0
+        to: spawn_workers
+      - to: done
+      hooks: distributed-worker
     spawn_workers:
-      # Use action-based spawning (hook handles subprocess launch)
       action: spawn_workers
       output_to_context:
         spawned_ids: output.spawned_ids
       transitions:
-        - to: done
-    
+      - to: done
+      hooks: distributed-worker
     done:
       type: final
       output:
-        spawned: "{{ context.workers_to_spawn | default(0) }}"
-        spawned_ids: "{{ context.spawned_ids | default([]) }}"
-        queue_depth: "{{ context.queue_depth }}"
-        active_workers: "{{ context.active_workers }}"
+        spawned: '{{ context.workers_to_spawn | default(0) }}'
+        spawned_ids: '{{ context.spawned_ids | default([]) }}'
+        queue_depth: '{{ context.queue_depth }}'
+        active_workers: '{{ context.active_workers }}'
+      hooks: distributed-worker

@@ -18,7 +18,7 @@ data:
       max_tokens: 10
 
   # Default profile used when agent has no model config
-  default: 
+  default: fast-cheap
 
   # Override profile - uncomment to force all agents to use this
   # override: smart-expensive

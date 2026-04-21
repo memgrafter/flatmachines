@@ -28,7 +28,7 @@ async def run():
     logger.info("=" * 60)
 
     config_path = Path(__file__).parent.parent.parent.parent / "config" / "machine.json"
-    machine = FlatMachine(config_file=str(config_path), hooks=LoggingHooks())
+    machine = FlatMachine(config_file=str(config_path), lifecycle_hooks=LoggingHooks())
 
     input_data = {
         "ticket_id": "TCK-1042",

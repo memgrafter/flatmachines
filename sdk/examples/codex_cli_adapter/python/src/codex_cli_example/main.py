@@ -17,7 +17,7 @@ import os
 import sys
 from pathlib import Path
 
-from flatmachines import FlatMachine
+from flatmachines import FlatMachine, HooksRegistry
 
 from .hooks import CodexCliHooks
 
@@ -48,9 +48,12 @@ def _validate_answer(answer: str, label: str) -> bool:
 
 async def run(config_name: str):
     """Run a cache demo."""
+    hooks = CodexCliHooks()
+    registry = HooksRegistry()
+    registry.register("codex-cli-hooks", lambda: hooks)
     machine = FlatMachine(
         config_file=str(_CONFIG_DIR / config_name),
-        hooks=CodexCliHooks(),
+        hooks_registry=registry,
     )
 
     result = await machine.execute(input={})
@@ -76,6 +79,12 @@ async def run(config_name: str):
     # Fanout demo validation
     fanout = result.get("fanout_results")
     if fanout:
+        if isinstance(fanout, str):
+            try:
+                fanout = json.loads(fanout)
+            except json.JSONDecodeError:
+                pass
+
         print(f"Fanout results type: {type(fanout).__name__}")
         print(f"Fanout results: {json.dumps(fanout, indent=2, default=str)[:2000]}")
         print()

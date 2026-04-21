@@ -23,7 +23,7 @@ class RLMHooks(MachineHooks):
     Stateless hooks for RLM. No instance variables - all state in context.
     """
 
-    def on_action(self, action_name: str, context: dict[str, Any]) -> dict[str, Any]:
+    def on_action(self, state_name: str, action_name: str, context: dict[str, Any]) -> dict[str, Any]:
         """Route actions to handlers."""
         handlers = {
             "init_repl": self._init_repl,

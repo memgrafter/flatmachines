@@ -32,7 +32,7 @@ class HelloWorldHooks(LoggingHooks):
                 print(f"{current}{ch} ({status})")
         return output
 
-    def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def on_action(self, state_name: str, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         if action_name == "append_char":
             last_output = context.get("last_output", "")
             if last_output:

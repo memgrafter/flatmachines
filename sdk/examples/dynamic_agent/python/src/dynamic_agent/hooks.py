@@ -49,7 +49,7 @@ class OTFAgentHooks(MachineHooks):
             except Exception as e:
                 logger.warning(f"Failed to load profiles from {self._profiles_file}: {e}")
 
-    def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def on_action(self, state_name: str, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """Handle custom actions."""
         if action_name == "parse_generator_spec":
             return self._parse_generator_spec(context)

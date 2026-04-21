@@ -22,11 +22,13 @@ def task_config() -> dict:
                 "start": {
                     "type": "initial",
                     "transitions": [{"to": "execute_task"}],
+                    "hooks": "dfss-pipeline-task-hooks",
                 },
                 "execute_task": {
                     "action": "run_task",
                     "on_error": "error_exit",
                     "transitions": [{"to": "done"}],
+                    "hooks": "dfss-pipeline-task-hooks",
                 },
                 "done": {
                     "type": "final",
@@ -38,6 +40,7 @@ def task_config() -> dict:
                         "result": "context.result",
                         "children": "context.children",
                     },
+                    "hooks": "dfss-pipeline-task-hooks",
                 },
                 "error_exit": {
                     "type": "final",
@@ -46,6 +49,7 @@ def task_config() -> dict:
                         "root_id": "context.root_id",
                         "error": "context.last_error",
                     },
+                    "hooks": "dfss-pipeline-task-hooks",
                 },
             },
         },

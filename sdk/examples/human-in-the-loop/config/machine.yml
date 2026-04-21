@@ -1,83 +1,82 @@
-# Human-in-the-Loop Machine
-# Demonstrates pausing for human approval before proceeding
-
 spec: flatmachine
-spec_version: "2.0.0"
-
+spec_version: 2.0.0
 data:
   name: human-in-loop
-  # Initial context
   context:
-    topic: "{{ input.topic }}"
+    topic: '{{ input.topic }}'
     raw_draft: null
     draft: null
     human_approved: false
     max_revisions: input.max_revisions
     revision_count: 0
-
-  # Agent references
   agents:
     drafter: ./drafter.yml
     draft_extractor: ./draft_extractor.yml
-
-  # State machine
   states:
     start:
       type: initial
       transitions:
-        - to: generate_draft
-
+      - to: generate_draft
+      hooks: human-in-loop-hooks
     generate_draft:
       agent: drafter
       execution:
         type: retry
-        backoffs: [2, 8, 16]
+        backoffs:
+        - 2
+        - 8
+        - 16
       input:
-        topic: "{{ context.topic }}"
-        previous_draft: "{{ context.draft }}"
-        feedback: "{{ context.human_feedback }}"
+        topic: '{{ context.topic }}'
+        previous_draft: '{{ context.draft }}'
+        feedback: '{{ context.human_feedback }}'
       output_to_context:
-        raw_draft: "{{ output.content }}"
+        raw_draft: '{{ output.content }}'
       transitions:
-        - to: extract_draft
-
+      - to: extract_draft
+      hooks: human-in-loop-hooks
     extract_draft:
       agent: draft_extractor
       execution:
         type: retry
-        backoffs: [2, 8, 16, 35]
+        backoffs:
+        - 2
+        - 8
+        - 16
+        - 35
         jitter: 0.1
       input:
-        text: "{{ context.raw_draft }}"
+        text: '{{ context.raw_draft }}'
       output_to_context:
-        draft: "{{ output.content }}"
+        draft: '{{ output.content }}'
       transitions:
-        - to: await_human_review
-
+      - to: await_human_review
+      hooks: human-in-loop-hooks
     await_human_review:
-      # This state pauses for human input via the hook
       action: human_review
       transitions:
-        - condition: "context.human_approved == true"
-          to: done
-        - condition: "context.revision_count >= context.max_revisions"
-          to: max_revisions_reached
-        - to: generate_draft
-
+      - condition: context.human_approved == true
+        to: done
+      - condition: context.revision_count >= context.max_revisions
+        to: max_revisions_reached
+      - to: generate_draft
+      hooks: human-in-loop-hooks
     max_revisions_reached:
       type: final
       output:
-        content: "{{ context.draft }}"
-        status: "max_revisions_reached"
+        content: '{{ context.draft }}'
+        status: max_revisions_reached
         revisions: context.revision_count
-
+      hooks: human-in-loop-hooks
     done:
       type: final
       output:
-        content: "{{ context.draft }}"
-        status: "approved"
+        content: '{{ context.draft }}'
+        status: approved
         revisions: context.revision_count
-
+      hooks: human-in-loop-hooks
 metadata:
-  description: "Human-in-the-loop content approval workflow"
-  tags: ["human-in-loop", "approval"]
+  description: Human-in-the-loop content approval workflow
+  tags:
+  - human-in-loop
+  - approval

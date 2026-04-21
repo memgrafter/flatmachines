@@ -61,7 +61,7 @@ class IPDPlayerHooks(MachineHooks):
             print(f"[DEBUG][AGENT OUTPUT RAW] {role} output_obj={output!r}")
         return output
 
-    def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def on_action(self, state_name: str, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         if action_name == "route_decision":
             return self._route_decision(context)
         if action_name == "choose_cooperate":
@@ -151,7 +151,7 @@ class IPDPlayerHooks(MachineHooks):
 class IPDMatchHooks(MachineHooks):
     """Hooks for match-level setup/scoring actions."""
 
-    def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def on_action(self, state_name: str, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         if action_name == "init_match":
             return self._init_match(context)
         if action_name == "score_round":

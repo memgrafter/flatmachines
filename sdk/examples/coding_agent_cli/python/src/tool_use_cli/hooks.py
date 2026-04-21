@@ -28,7 +28,7 @@ class CLIToolHooks(MachineHooks):
     def get_tool_provider(self, state_name: str):
         return self._provider
 
-    def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def on_action(self, state_name: str, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         if action_name == "human_review":
             return self._human_review(context)
         return context

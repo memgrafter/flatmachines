@@ -14,7 +14,7 @@ import logging
 import os
 from pathlib import Path
 
-from flatmachines import FlatMachine
+from flatmachines import FlatMachine, HooksRegistry
 
 from .hooks import ClaudeCodeHooks
 
@@ -46,9 +46,11 @@ async def run(
     else:
         config_file = _config_path("machine.yml")
 
+    registry = HooksRegistry()
+    registry.register("claude-code-hooks", lambda: hooks)
     machine = FlatMachine(
         config_file=config_file,
-        hooks=hooks,
+        hooks_registry=registry,
     )
 
     # Build input — multi-state and refs machines use "feature", single uses "task"

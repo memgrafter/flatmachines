@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore", message=".*validation.*")
 warnings.filterwarnings("ignore", message=".*Flatmachine.*")
 warnings.filterwarnings("ignore", message=".*Flatagent.*")
 
-from flatmachines import FlatMachine  # noqa: E402
+from flatmachines import FlatMachine, HooksRegistry  # noqa: E402
 from flatagents import FlatAgent  # noqa: E402
 from flatagents.tool_loop import ToolLoopAgent, Guardrails, StopReason  # noqa: E402
 
@@ -48,9 +48,11 @@ def _config_path(name: str) -> str:
 async def run_machine(task: str, working_dir: str):
     """Run a single task via FlatMachine with tool loop + human review."""
     hooks = CLIToolHooks(working_dir=working_dir)
+    registry = HooksRegistry()
+    registry.register("cli-tool-hooks", lambda: hooks)
     machine = FlatMachine(
         config_file=_config_path("machine.yml"),
-        hooks=hooks,
+        hooks_registry=registry,
     )
 
     result = await machine.execute(input={

@@ -17,7 +17,7 @@ class HumanInLoopHooks(MachineHooks):
     for approval or feedback in the terminal.
     """
     
-    def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def on_action(self, state_name: str, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """Handle custom actions."""
         if action_name == "human_review":
             return self._human_review(context)

@@ -95,7 +95,7 @@ class TaskHooks(MachineHooks):
 
         return children
 
-    def on_action(self, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def on_action(self, state_name: str, action_name: str, context: Dict[str, Any]) -> Dict[str, Any]:
         if action_name != "run_task":
             return context
 

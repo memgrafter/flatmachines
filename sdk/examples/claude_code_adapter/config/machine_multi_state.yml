@@ -1,14 +1,12 @@
 spec: flatmachine
-spec_version: "2.0.0"
-
+spec_version: 2.0.0
 data:
   name: claude-code-multi-state
   context:
-    feature: "{{ input.feature }}"
-    working_dir: "{{ input.working_dir }}"
-    session_id: ""
-    plan: ""
-
+    feature: '{{ input.feature }}'
+    working_dir: '{{ input.working_dir }}'
+    session_id: ''
+    plan: ''
   agents:
     coder:
       type: claude-code
@@ -17,63 +15,70 @@ data:
         effort: high
         permission_mode: bypassPermissions
         tools:
-          - Bash
-          - Read
-          - Write
-          - Edit
-          - Glob
-          - Grep
-        append_system_prompt: |
-          You are an expert coding agent working in a sandboxed environment.
-          When you have completed the task fully, include <<AGENT_EXIT>> on
-          its own line in your final response. Do not include it until all
-          work is done.
-        max_continuations: 100
+        - Bash
+        - Read
+        - Write
+        - Edit
+        - Glob
+        - Grep
+        append_system_prompt: 'You are an expert coding agent working in a sandboxed environment.
 
+          When you have completed the task fully, include <<AGENT_EXIT>> on
+
+          its own line in your final response. Do not include it until all
+
+          work is done.
+
+          '
+        max_continuations: 100
   states:
     start:
       type: initial
       transitions:
-        - to: plan
-
+      - to: plan
+      hooks: claude-code-hooks
     plan:
       agent: coder
       input:
-        task: "Plan the implementation of: {{ context.feature }}. Read the codebase first, then output a detailed plan."
+        task: 'Plan the implementation of: {{ context.feature }}. Read the codebase first, then output a detailed plan.'
       output_to_context:
-        session_id: "{{ output.session_id }}"
-        plan: "{{ output.result }}"
+        session_id: '{{ output.session_id }}'
+        plan: '{{ output.result }}'
       transitions:
-        - to: implement
-
+      - to: implement
+      hooks: claude-code-hooks
     implement:
       agent: coder
       input:
-        task: "Implement the plan you just described."
-        resume_session: "{{ context.session_id }}"
+        task: Implement the plan you just described.
+        resume_session: '{{ context.session_id }}'
       output_to_context:
-        result: "{{ output.result }}"
-        session_id: "{{ output.session_id }}"
+        result: '{{ output.result }}'
+        session_id: '{{ output.session_id }}'
       transitions:
-        - to: test
-
+      - to: test
+      hooks: claude-code-hooks
     test:
       agent: coder
       input:
-        task: "Run the tests and fix any failures."
-        resume_session: "{{ context.session_id }}"
+        task: Run the tests and fix any failures.
+        resume_session: '{{ context.session_id }}'
       output_to_context:
-        result: "{{ output.result }}"
-        session_id: "{{ output.session_id }}"
+        result: '{{ output.result }}'
+        session_id: '{{ output.session_id }}'
       transitions:
-        - to: done
-
+      - to: done
+      hooks: claude-code-hooks
     done:
       type: final
       output:
-        result: "{{ context.result }}"
-        session_id: "{{ context.session_id }}"
-
+        result: '{{ context.result }}'
+        session_id: '{{ context.session_id }}'
+      hooks: claude-code-hooks
 metadata:
-  description: "Multi-state Claude Code example: plan → implement → test with session resume"
-  tags: ["claude-code", "cli", "multi-state", "session-resume"]
+  description: "Multi-state Claude Code example: plan \u2192 implement \u2192 test with session resume"
+  tags:
+  - claude-code
+  - cli
+  - multi-state
+  - session-resume
