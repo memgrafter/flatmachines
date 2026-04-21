@@ -23,48 +23,65 @@
  *
  * DATA FIELDS:
  * ------------
+ * Core:
  * name               - Machine identifier
  * expression_engine  - "simple" (default) or "cel"
+ *
+ * Context + references:
  * context            - Initial context values (Jinja2 templates)
  * agents             - Map of agent name to AgentRef (path, inline config, or typed adapter ref)
  * machines           - Map of machine name to config file path or inline config
+ *
+ * Orchestration + runtime config:
  * states             - Map of state name to state definition
  * settings           - Optional settings (hooks, etc.)
+ * persistence        - Checkpoint backend settings
+ * hooks              - Hook reference(s) resolved by runtime registry
  *
  * STATE FIELDS:
  * -------------
+ * Lifecycle / control flow:
  * type              - "initial" or "final" (optional)
- * agent             - Agent name to execute (from agents map)
- * machine           - Machine name or array for parallel execution (from machines map)
- * execution         - Execution type config: {type: "retry", backoffs: [...], jitter: 0.1}
  * on_error          - Error handling: "error_state" or {default: "...", ErrorType: "..."}
- * action            - Hook action to execute
- * wait_for          - Channel to wait for external signal (Jinja2 template)
- * input             - Input mapping (Jinja2 templates)
- * output_to_context - Map agent output to context (Jinja2 templates)
- * output            - Final output (for final states)
- * transitions       - Ordered list of transitions
+ * timeout           - State timeout in seconds (context-dependent)
+ * transitions       - Ordered list of transitions ({ condition?: string, to: string })
  *
- * PARALLEL EXECUTION (v0.4.0):
- * ----------------------------
- * machine           - Can be string[] for parallel machine invocation
+ * Data mapping:
+ * input             - Input mapping (Jinja2 templates)
+ * output_to_context - Map output to context (Jinja2 templates)
+ * output            - Final output mapping (typically for final states)
+ *
+ * Agent execution:
+ * agent             - Agent name to execute (from agents map)
+ * execution         - Execution type config: {type: "retry", backoffs: [...], jitter: 0.1}
+ * sampling          - Sampling hint (single|multi)
+ * tool_loop         - Enable/configure model-driven tool loop
+ * session_id        - Optional stable session key passed to executors
+ *
+ * Machine invocation / parallelism:
+ * machine           - Machine name or array for parallel execution (from machines map)
  * foreach           - Jinja2 expression yielding array for dynamic parallelism
- * as                - Variable name for current item in foreach (default: "item")
- * key               - Jinja2 expression for result key (optional, results array if omitted)
+ * as                - Variable name for foreach item (default: "item")
+ * key               - Optional key expression for foreach result mapping
  * mode              - Completion semantics: "settled" (default) or "any"
- * timeout           - Timeout in seconds (0 = never)
- * launch            - Machine(s) to start fire-and-forget
+ *
+ * Hook action:
+ * action            - Hook action to execute
+ *
+ * External signal wait:
+ * wait_for          - Channel to wait for external signal (Jinja2 template)
+ *
+ * Fire-and-forget launch:
+ * launch            - Machine(s) to start without blocking
  * launch_input      - Input for launched machines
  *
- * EXTERNAL SIGNALS (v1.2.0):
- * --------------------------
- * wait_for          - Channel name (Jinja2 template) to wait for external signal
- *
- * NOTE: Only `machine` supports parallel invocation (string[]), not `agent`.
- * Machines are self-healing with checkpoint/resume and error handling.
- * Agents are raw LLM calls that can fail without recovery. Wrap agents in
- * machines to get retry logic, checkpointing, and proper failure handling
- * before running them in parallel.
+ * STATE NOTES:
+ * ------------
+ * - Only `machine` supports array-based parallel invocation (`machine: [a, b, c]`), not `agent`.
+ * - `wait_for` checkpoints the machine and exits; it resumes when a matching signal arrives.
+ * - `launch` is fire-and-forget, while `machine` performs launch + blocking read.
+ * - For fault-tolerant parallelism, run work as machines (checkpoint/retry/error handling),
+ *   not raw agent calls.
  *
  * RUNTIME MODEL (v0.4.0):
  * -----------------------
@@ -84,11 +101,6 @@
  *
  * Launch intents are checkpointed before execution (outbox pattern).
  * On resume, SDK checks if launched machine exists before re-launching.
- *
- * TRANSITION FIELDS:
- * ------------------
- * condition         - Expression to evaluate (optional, default: always true)
- * to                - Target state name
  *
  * EXPRESSION SYNTAX (Simple Mode):
  * --------------------------------
@@ -378,24 +390,37 @@ export interface MachineSettings {
 }
 
 export interface StateDefinition {
-  type?: "initial" | "final";
-  agent?: string;
-  machine?: string | string[] | MachineInput[];
-  action?: string;
-  execution?: ExecutionConfig;
+  // Lifecycle / control flow
   on_error?: string | Record<string, string>;
-  wait_for?: string;
-  input?: Record<string, any>;
-  output_to_context?: Record<string, any>;
-  output?: Record<string, any>;
-  transitions?: Transition[];
-  tool_loop?: boolean | ToolLoopStateConfig;
-  sampling?: "single" | "multi";
-  foreach?: string;
-  as?: string;
-  key?: string;
-  mode?: "settled" | "any";
   timeout?: number;
+  transitions?: Transition[];
+  type?: "initial" | "final";
+
+  // Data mapping
+  input?: Record<string, any>;
+  output?: Record<string, any>;
+  output_to_context?: Record<string, any>;
+
+  // Agent execution
+  agent?: string;
+  execution?: ExecutionConfig;
+  sampling?: "single" | "multi";
+  tool_loop?: boolean | ToolLoopStateConfig;
+
+  // Machine invocation / parallelism
+  as?: string;
+  foreach?: string;
+  key?: string;
+  machine?: string | string[] | MachineInput[];
+  mode?: "settled" | "any";
+
+  // Hook action
+  action?: string;
+
+  // External signal wait
+  wait_for?: string;
+
+  // Fire-and-forget launch
   launch?: string | string[];
   launch_input?: Record<string, any>;
 }
