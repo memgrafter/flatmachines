@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import {
   CheckpointManager,
   FlatMachine,
+  HooksRegistry,
   MemoryBackend,
   SQLiteCheckpointBackend,
   SQLiteLeaseLock,
@@ -20,6 +21,23 @@ const toEventList = (fetchMock: ReturnType<typeof vi.fn>) =>
     return JSON.parse(String(body ?? '{}')).event as string | undefined
   })
 
+const withStateHooks = <T extends Record<string, any>>(config: T, hooksRef: any): T => {
+  const cloned = structuredClone(config)
+  const states = cloned?.data?.states ?? {}
+  for (const state of Object.values(states) as Record<string, any>[]) {
+    if (state && typeof state === 'object' && (state.action || state.tool_loop || state.agent)) {
+      state.hooks ??= hooksRef
+    }
+  }
+  return cloned
+}
+
+const makeHooksRegistry = (name: string, hooks: any) => {
+  const registry = new HooksRegistry()
+  registry.register(name, (() => hooks) as any)
+  return registry
+}
+
 class CounterHooks {
   private crashAt?: number
   private crashed = false
@@ -28,7 +46,7 @@ class CounterHooks {
     this.crashAt = opts?.crashAt
   }
 
-  async onAction(action: string, context: Record<string, any>) {
+  async onAction(_state: string, action: string, context: Record<string, any>) {
     if (action === 'increment') {
       context.count = (context.count ?? 0) + 1
       if (this.crashAt && context.count === this.crashAt && !this.crashed) {
@@ -41,7 +59,7 @@ class CounterHooks {
 }
 
 class RetryHooks {
-  async onAction(action: string, context: Record<string, any>) {
+  async onAction(_state: string, action: string, context: Record<string, any>) {
     if (action === 'work') {
       context.attempts = (context.attempts ?? 0) + 1
       if (context.attempts === 1) {
@@ -57,7 +75,7 @@ class RetryHooks {
 }
 
 class AlwaysFailHooks {
-  async onAction(action: string, context: Record<string, any>) {
+  async onAction(_state: string, action: string, context: Record<string, any>) {
     if (action === 'fail') {
       throw new Error('permanent failure')
     }
@@ -69,7 +87,7 @@ class AlwaysFailHooks {
 }
 
 class ErrorContextHooks {
-  async onAction(action: string, context: Record<string, any>) {
+  async onAction(_state: string, action: string, context: Record<string, any>) {
     if (action === 'explode') {
       throw new TypeError('boom!')
     }
@@ -115,8 +133,10 @@ describe('persistence integration parity', () => {
       },
     }
 
-    const m1 = new FlatMachine({ config, hooks: new CounterHooks(), persistence: backend })
-    const m2 = new FlatMachine({ config, hooks: new CounterHooks(), persistence: backend })
+    const registry = makeHooksRegistry('counter', new CounterHooks())
+    const hookedConfig = withStateHooks(config, 'counter' as any)
+    const m1 = new FlatMachine({ config: hookedConfig, hooksRegistry: registry, persistence: backend })
+    const m2 = new FlatMachine({ config: hookedConfig, hooksRegistry: registry, persistence: backend })
     await m1.execute({})
     await m2.execute({})
 
@@ -152,8 +172,10 @@ describe('persistence integration parity', () => {
       },
     }
 
-    const m1 = new FlatMachine({ config, hooks: new CounterHooks(), persistence: backend })
-    const m2 = new FlatMachine({ config, hooks: new CounterHooks(), persistence: backend })
+    const registry = makeHooksRegistry('counter', new CounterHooks())
+    const hookedConfig = withStateHooks(config, 'counter' as any)
+    const m1 = new FlatMachine({ config: hookedConfig, hooksRegistry: registry, persistence: backend })
+    const m2 = new FlatMachine({ config: hookedConfig, hooksRegistry: registry, persistence: backend })
     await m1.execute({})
     await m2.execute({})
 
@@ -371,16 +393,16 @@ describe('persistence integration parity', () => {
     }
 
     const firstRun = new FlatMachine({
-      config,
-      hooks: new CounterHooks({ crashAt: 2 }),
+      config: withStateHooks(config, 'counter' as any),
+      hooksRegistry: makeHooksRegistry('counter', new CounterHooks({ crashAt: 2 })),
       persistence: backend,
     })
 
     await expect(firstRun.execute({})).rejects.toThrow('Crash at 2')
 
     const resumed = new FlatMachine({
-      config,
-      hooks: new CounterHooks(),
+      config: withStateHooks(config, 'counter' as any),
+      hooksRegistry: makeHooksRegistry('counter', new CounterHooks()),
       persistence: backend,
     })
 
@@ -418,8 +440,8 @@ describe('persistence integration parity', () => {
     }
 
     const machine = new FlatMachine({
-      config,
-      hooks: new CounterHooks(),
+      config: withStateHooks(config, 'counter' as any),
+      hooksRegistry: makeHooksRegistry('counter', new CounterHooks()),
       persistence: backend,
     })
 
@@ -503,7 +525,7 @@ describe('persistence integration parity', () => {
       },
     }
 
-    const machine = new FlatMachine({ config, hooks: new RetryHooks() })
+    const machine = new FlatMachine({ config: withStateHooks(config, 'retry' as any), hooksRegistry: makeHooksRegistry('retry', new RetryHooks()) })
     const result = await machine.execute({})
 
     expect(result).toEqual({ count: 1, retries: 1, attempts: 2 })
@@ -536,7 +558,7 @@ describe('persistence integration parity', () => {
       },
     }
 
-    const machine = new FlatMachine({ config, hooks: new ErrorContextHooks() })
+    const machine = new FlatMachine({ config: withStateHooks(config, 'error' as any), hooksRegistry: makeHooksRegistry('error', new ErrorContextHooks()) })
     const result = await machine.execute({})
 
     expect(result.last_error).toBe('boom!')
@@ -569,15 +591,15 @@ describe('persistence integration parity', () => {
     }
 
     const crashing = new FlatMachine({
-      config,
-      hooks: new CounterHooks({ crashAt: 1 }),
+      config: withStateHooks(config, 'counter' as any),
+      hooksRegistry: makeHooksRegistry('counter', new CounterHooks({ crashAt: 1 })),
       persistence: backend,
     })
     await expect(crashing.execute({})).rejects.toThrow('Crash at 1')
 
     const resumed = new FlatMachine({
-      config,
-      hooks: new CounterHooks(),
+      config: withStateHooks(config, 'counter' as any),
+      hooksRegistry: makeHooksRegistry('counter', new CounterHooks()),
       persistence: backend,
     })
 
@@ -620,7 +642,7 @@ describe('persistence integration parity', () => {
       },
     }
 
-    const machine = new FlatMachine({ config, hooks: new AlwaysFailHooks() })
+    const machine = new FlatMachine({ config: withStateHooks(config, 'failer' as any), hooksRegistry: makeHooksRegistry('failer', new AlwaysFailHooks()) })
     const result = await machine.execute({})
 
     expect(result).toEqual({
@@ -649,7 +671,7 @@ describe('persistence integration parity', () => {
 
     const machine = new FlatMachine({
       config,
-      hooks: new WebhookHooks('https://example.test/webhooks'),
+      lifecycleHooks: new WebhookHooks('https://example.test/webhooks'),
     })
 
     await machine.execute({})
@@ -679,9 +701,11 @@ describe('persistence integration parity', () => {
       },
     }
 
+    const registry = makeHooksRegistry('webhook', new WebhookHooks('https://example.test/webhooks'))
+    const hookedConfig = withStateHooks(config, 'webhook' as any)
     const machine = new FlatMachine({
-      config,
-      hooks: new WebhookHooks('https://example.test/webhooks'),
+      config: hookedConfig,
+      hooksRegistry: registry,
     })
 
     await machine.execute({})
@@ -713,7 +737,7 @@ describe('persistence integration parity', () => {
 
     const machine = new FlatMachine({
       config,
-      hooks: new WebhookHooks('https://example.test/webhooks'),
+      lifecycleHooks: new WebhookHooks('https://example.test/webhooks'),
       persistence: new MemoryBackend(),
     })
 
@@ -762,7 +786,7 @@ describe('persistence integration parity', () => {
 
     const machine = new FlatMachine({
       config,
-      hooks: new WebhookHooks('https://example.test/webhooks'),
+      lifecycleHooks: new WebhookHooks('https://example.test/webhooks'),
     })
 
     const result = await machine.execute({})

@@ -57,7 +57,7 @@ export class DeepSleepHooks implements MachineHooks {
     this.rngState = Math.max(1, opts.seed >>> 0);
   }
 
-  async onAction(action: string, context: Record<string, any>): Promise<Record<string, any>> {
+  async onAction(_state: string, action: string, context: Record<string, any>): Promise<Record<string, any>> {
     switch (action) {
       case 'seed_work':
         return this.seedWork(context);

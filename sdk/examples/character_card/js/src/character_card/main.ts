@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { FlatMachine } from '@memgrafter/flatmachines';
+import { FlatMachine, HooksRegistry } from '@memgrafter/flatmachines';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync } from 'fs';
@@ -102,10 +102,13 @@ async function main() {
     configDir,
   });
 
+  const hooksRegistry = new HooksRegistry();
+  hooksRegistry.register('character-card-hooks', () => hooks);
+
   const machine = new FlatMachine({
     config: join(configDir, 'machine.yml'),
     configDir,
-    hooks,
+    hooksRegistry,
   });
 
   console.log('\nType \'/quit\' to exit.\n');

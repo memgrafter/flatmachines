@@ -163,11 +163,14 @@ DynamoDB Streams is implicit (no trigger code needed).
 
 ## Hooks
 
+Use `data.lifecycle_hooks` for machine lifecycle callbacks and `states.<name>.hooks`
+for state-local behavior.
+
 `on_machine_start`, `on_machine_end`, `on_state_enter`, `on_state_exit`, `on_transition`, `on_error`, `on_action`
 
 ```python
 class MyHooks(MachineHooks):
-    def on_action(self, action: str, context: dict) -> dict:
+    def on_action(self, state: str, action: str, context: dict) -> dict:
         if action == "fetch": context["data"] = api_call()
         return context
 ```

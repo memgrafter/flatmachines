@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CheckpointManager,
   FlatMachine,
+  HooksRegistry,
   MemoryBackend,
   MemorySignalBackend,
   type MachineConfig,
@@ -54,10 +55,26 @@ const buildCaptureHooks = () => {
   return { hooks, stateEntries }
 }
 
+const buildMachine = (
+  config: MachineConfig,
+  hooks: MachineHooks,
+  extra: Record<string, any> = {},
+) => {
+  const registry = new HooksRegistry()
+  registry.register('state-hooks', (() => hooks) as any)
+  const hookedConfig = structuredClone(config)
+  for (const state of Object.values(hookedConfig.data.states) as Record<string, any>[]) {
+    if (state && typeof state === 'object') {
+      state.hooks ??= 'state-hooks'
+    }
+  }
+  return new FlatMachine({ config: hookedConfig, hooksRegistry: registry, ...extra } as any)
+}
+
 describe('context-machine parity (python unit test_context_machine.py)', () => {
   it(`${PY_FILE}::TestContextMachinePresent.test_context_machine_present_at_state_enter`, async () => {
     const { hooks, stateEntries } = buildCaptureHooks()
-    const machine = new FlatMachine({ config: simpleConfig(), hooks })
+    const machine = buildMachine(simpleConfig(), hooks)
 
     await machine.execute({ task: 'test' })
 
@@ -67,7 +84,7 @@ describe('context-machine parity (python unit test_context_machine.py)', () => {
 
   it(`${PY_FILE}::TestContextMachinePresent.test_context_machine_has_all_fields`, async () => {
     const { hooks, stateEntries } = buildCaptureHooks()
-    const machine = new FlatMachine({ config: simpleConfig(), hooks })
+    const machine = buildMachine(simpleConfig(), hooks)
 
     await machine.execute({ task: 'test' })
 
@@ -85,7 +102,7 @@ describe('context-machine parity (python unit test_context_machine.py)', () => {
 
   it(`${PY_FILE}::TestContextMachinePresent.test_context_machine_values_correct`, async () => {
     const { hooks, stateEntries } = buildCaptureHooks()
-    const machine = new FlatMachine({ config: simpleConfig(), hooks })
+    const machine = buildMachine(simpleConfig(), hooks)
 
     await machine.execute({ task: 'test' })
 
@@ -109,7 +126,7 @@ describe('context-machine parity (python unit test_context_machine.py)', () => {
       },
     }
 
-    const machine = new FlatMachine({ config: simpleConfig(), hooks })
+    const machine = buildMachine(simpleConfig(), hooks)
     await machine.execute({ task: 'test' })
 
     expect(capturedMachine).toBeDefined()
@@ -131,7 +148,7 @@ describe('context-machine parity (python unit test_context_machine.py)', () => {
       },
     }
 
-    const machine = new FlatMachine({ config: simpleConfig(), hooks })
+    const machine = buildMachine(simpleConfig(), hooks)
     await machine.execute({ task: 'test' })
 
     expect(errorRaised).toBe(true)
@@ -155,7 +172,7 @@ describe('context-machine parity (python unit test_context_machine.py)', () => {
       },
     }
 
-    const machine = new FlatMachine({ config: simpleConfig(), hooks })
+    const machine = buildMachine(simpleConfig(), hooks)
     await machine.execute({ task: 'test' })
 
     expect(sawOverwrite).toBe(true)
@@ -165,7 +182,7 @@ describe('context-machine parity (python unit test_context_machine.py)', () => {
 
   it(`${PY_FILE}::TestContextMachineUpdates.test_step_increments`, async () => {
     const { hooks, stateEntries } = buildCaptureHooks()
-    const machine = new FlatMachine({ config: simpleConfig(), hooks })
+    const machine = buildMachine(simpleConfig(), hooks)
 
     await machine.execute({ task: 'test' })
 
@@ -176,7 +193,7 @@ describe('context-machine parity (python unit test_context_machine.py)', () => {
 
   it(`${PY_FILE}::TestContextMachineUpdates.test_current_state_updates`, async () => {
     const { hooks, stateEntries } = buildCaptureHooks()
-    const machine = new FlatMachine({ config: simpleConfig(), hooks })
+    const machine = buildMachine(simpleConfig(), hooks)
 
     await machine.execute({ task: 'test' })
 
@@ -219,8 +236,8 @@ describe('context-machine parity (python unit test_context_machine.py)', () => {
       },
     }
 
-    const machine = new FlatMachine({
-      config: simpleConfig({
+    const machine = buildMachine(
+      simpleConfig({
         start: {
           type: 'initial',
           transitions: [{ to: 'check' }],
@@ -241,7 +258,7 @@ describe('context-machine parity (python unit test_context_machine.py)', () => {
         },
       }),
       hooks,
-    })
+    )
 
     const result = await machine.execute({ task: 'test' })
     expect(result).toEqual({ matched: true })

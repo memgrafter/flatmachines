@@ -8,6 +8,7 @@ import * as flatmachines from '@memgrafter/flatmachines'
 import {
   CheckpointManager,
   FlatMachine,
+  HooksRegistry,
   MemoryBackend,
   MemorySignalBackend,
   SignalDispatcher,
@@ -131,6 +132,12 @@ const dispatcherWaitConfig = (channel = 'test/ch') => ({
   },
 })
 
+const makeHooksRegistry = (name: string, hooks: MachineHooks) => {
+  const registry = new HooksRegistry()
+  registry.register(name, (() => hooks) as any)
+  return registry
+}
+
 const approvalConfig = () => ({
   spec: 'flatmachine' as const,
   spec_version: '1.1.1',
@@ -151,6 +158,7 @@ const approvalConfig = () => ({
       },
       prepare: {
         action: 'prepare',
+        hooks: 'approval' as any,
         transitions: [{ to: 'wait_for_approval' }],
       },
       wait_for_approval: {
@@ -167,10 +175,12 @@ const approvalConfig = () => ({
       },
       finalize: {
         action: 'finalize',
+        hooks: 'approval' as any,
         transitions: [{ to: 'done' }],
       },
       rejected: {
         action: 'finalize',
+        hooks: 'approval' as any,
         transitions: [{ to: 'done' }],
       },
       done: {
@@ -216,7 +226,7 @@ const quotaConfig = () => ({
 })
 
 const approvalHooks = (): MachineHooks => ({
-  onAction(action, context) {
+  onAction(_state, action, context) {
     if (action === 'prepare') {
       context.prepared = true
       context.task_id = context.task_id ?? 'unknown'
@@ -588,7 +598,7 @@ describe('wait_for lifecycle parity', () => {
 
     const first = new FlatMachine({
       config: approvalConfig(),
-      hooks: approvalHooks(),
+      hooksRegistry: makeHooksRegistry('approval', approvalHooks()),
       persistence,
       signalBackend,
     } as any)
@@ -604,7 +614,7 @@ describe('wait_for lifecycle parity', () => {
 
     const second = new FlatMachine({
       config: approvalConfig(),
-      hooks: approvalHooks(),
+      hooksRegistry: makeHooksRegistry('approval', approvalHooks()),
       persistence,
       signalBackend,
     } as any)
@@ -624,7 +634,7 @@ describe('wait_for lifecycle parity', () => {
 
     const first = new FlatMachine({
       config: approvalConfig(),
-      hooks: approvalHooks(),
+      hooksRegistry: makeHooksRegistry('approval', approvalHooks()),
       persistence,
       signalBackend,
     } as any)
@@ -635,7 +645,7 @@ describe('wait_for lifecycle parity', () => {
 
     const second = new FlatMachine({
       config: approvalConfig(),
-      hooks: approvalHooks(),
+      hooksRegistry: makeHooksRegistry('approval', approvalHooks()),
       persistence,
       signalBackend,
     } as any)
@@ -654,7 +664,7 @@ describe('wait_for lifecycle parity', () => {
 
     const first = new FlatMachine({
       config: approvalConfig(),
-      hooks: approvalHooks(),
+      hooksRegistry: makeHooksRegistry('approval', approvalHooks()),
       persistence,
       signalBackend,
     } as any)
@@ -668,7 +678,7 @@ describe('wait_for lifecycle parity', () => {
       resumeFn: async (executionId) => {
         const machine = new FlatMachine({
           config: approvalConfig(),
-          hooks: approvalHooks(),
+          hooksRegistry: makeHooksRegistry('approval', approvalHooks()),
           persistence,
           signalBackend,
         } as any)
@@ -690,8 +700,7 @@ describe('wait_for lifecycle parity', () => {
     for (let i = 0; i < 3; i += 1) {
       const machine = new FlatMachine({
         config: quotaConfig(),
-        hooks: {},
-        persistence,
+                persistence,
         signalBackend,
       } as any)
 
@@ -724,7 +733,7 @@ describe('wait_for lifecycle parity', () => {
 
     const first = new FlatMachine({
       config: approvalConfig(),
-      hooks: approvalHooks(),
+      hooksRegistry: makeHooksRegistry('approval', approvalHooks()),
       persistence,
       signalBackend,
     } as any)
@@ -738,7 +747,7 @@ describe('wait_for lifecycle parity', () => {
 
     const second = new FlatMachine({
       config: approvalConfig(),
-      hooks: approvalHooks(),
+      hooksRegistry: makeHooksRegistry('approval', approvalHooks()),
       persistence,
       signalBackend,
     } as any)
@@ -756,7 +765,7 @@ describe('wait_for lifecycle parity', () => {
 
     const machine = new FlatMachine({
       config: approvalConfig(),
-      hooks: approvalHooks(),
+      hooksRegistry: makeHooksRegistry('approval', approvalHooks()),
       persistence,
       signalBackend,
     } as any)

@@ -98,7 +98,7 @@ export class TaskHooks implements MachineHooks {
     return children;
   }
 
-  onAction(action: string, context: Record<string, any>): Record<string, any> {
+  onAction(_state: string, action: string, context: Record<string, any>): Record<string, any> {
     if (action !== 'run_task') return context;
 
     if (this.random() < this.failRate) {

@@ -944,7 +944,7 @@ describe('FlatMachine', () => {
     it('should accept hooks configuration', () => {
       const mockHooks = createMockHooks()
       const config = createMinimalMachineConfig()
-      const machine = new FlatMachine({ config, hooks: mockHooks })
+      const machine = new FlatMachine({ config, lifecycleHooks: mockHooks })
       expect(machine).toBeDefined()
     })
 
@@ -962,7 +962,7 @@ describe('FlatMachine', () => {
       }
       
       const config = createMinimalMachineConfig()
-      const machine = new FlatMachine({ config, hooks: partialHooks })
+      const machine = new FlatMachine({ config, lifecycleHooks: partialHooks })
       expect(machine).toBeDefined()
     })
   })

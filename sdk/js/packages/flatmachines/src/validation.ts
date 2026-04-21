@@ -10,6 +10,16 @@ export interface ValidationResult {
   warnings: string[];
 }
 
+function isHooksRef(value: any): boolean {
+  if (typeof value === 'string') return true;
+  if (Array.isArray(value)) return value.every((item) => isHooksRef(item));
+  if (value && typeof value === 'object') {
+    if (typeof value.name !== 'string') return false;
+    return value.args == null || typeof value.args === 'object';
+  }
+  return false;
+}
+
 /**
  * Validate a flatmachine configuration.
  */
@@ -41,6 +51,14 @@ export function validateFlatMachineConfig(config: any): ValidationResult {
     return { valid: errors.length === 0, errors, warnings };
   }
 
+  if ('hooks' in data) {
+    errors.push('data.hooks is no longer supported; use data.lifecycle_hooks and states.<name>.hooks');
+  }
+
+  if (data.lifecycle_hooks != null && !isHooksRef(data.lifecycle_hooks)) {
+    errors.push('data.lifecycle_hooks: invalid hook reference');
+  }
+
   const stateNames = Object.keys(data.states);
   if (stateNames.length === 0) {
     errors.push('data.states: must have at least one state');
@@ -52,6 +70,10 @@ export function validateFlatMachineConfig(config: any): ValidationResult {
   for (const [name, state] of Object.entries(data.states) as [string, any][]) {
     if (state?.type === 'initial') hasInitial = true;
     if (state?.type === 'final') hasFinal = true;
+
+    if (state?.hooks != null && !isHooksRef(state.hooks)) {
+      errors.push(`data.states.${name}.hooks: invalid hook reference`);
+    }
 
     if (state?.transitions && Array.isArray(state.transitions)) {
       for (const t of state.transitions) {

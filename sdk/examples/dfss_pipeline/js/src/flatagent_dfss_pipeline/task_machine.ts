@@ -21,6 +21,7 @@ export function taskConfig(): Record<string, any> {
         },
         execute_task: {
           action: 'run_task',
+          hooks: 'dfss-task-hooks',
           on_error: 'error_exit',
           transitions: [{ to: 'done' }],
         },

@@ -87,7 +87,8 @@ export class FlatMachine {
   private executors = new Map<string, AgentExecutor>();
   private context: Record<string, any> = {};
   private input: Record<string, any> = {};
-  private hooks?: MachineHooks;
+  private lifecycleHooks?: MachineHooks;
+  private stateHooksCache = new Map<string, MachineHooks | null>();
   private _hooksRegistry: HooksRegistry;
   private checkpointManager?: CheckpointManager;
   private resultBackend?: ResultBackend;
@@ -124,7 +125,10 @@ export class FlatMachine {
       ? yaml.parse(readFileSync(options.config as string, "utf-8")) as MachineConfig
       : options.config as MachineConfig;
     this._hooksRegistry = options.hooksRegistry ?? new HooksRegistry();
-    this.hooks = this.resolveHooks(options.hooks);
+    if ('hooks' in (options as Record<string, any>)) {
+      throw new Error('hooks= is no longer supported; use lifecycleHooks= or config.data.lifecycle_hooks');
+    }
+    this.lifecycleHooks = this.resolveLifecycleHooks(options.lifecycleHooks);
     this.configDir = options.configDir ?? (configIsPath ? dirname(resolve(options.config as string)) : process.cwd());
     // FlatMachine does NOT auto-discover profiles.yml — only resolve explicit or config-level paths
     if (options.profilesFile) {
@@ -241,11 +245,25 @@ export class FlatMachine {
     this.close();
   }
 
-  private resolveHooks(explicit?: MachineHooks): MachineHooks | undefined {
+  private resolveLifecycleHooks(explicit?: MachineHooks): MachineHooks | undefined {
     if (explicit) return explicit;
-    const hooksConfig = this.config.data.hooks;
+    const hooksConfig = this.config.data.lifecycle_hooks;
     if (!hooksConfig) return undefined;
     return this._hooksRegistry.resolve(hooksConfig);
+  }
+
+  private getStateHooks(stateName: string): MachineHooks | undefined {
+    if (this.stateHooksCache.has(stateName)) {
+      return this.stateHooksCache.get(stateName) ?? undefined;
+    }
+    const hooksConfig = this.config.data.states[stateName]?.hooks;
+    if (!hooksConfig) {
+      this.stateHooksCache.set(stateName, null);
+      return undefined;
+    }
+    const hooks = this._hooksRegistry.resolve(hooksConfig);
+    this.stateHooksCache.set(stateName, hooks);
+    return hooks;
   }
 
   async execute(input?: Record<string, any>, resumeSnapshot?: MachineSnapshot): Promise<any> {
@@ -292,7 +310,7 @@ export class FlatMachine {
     } else {
       this.input = input ?? {};
       this.context = this.render(this.config.data.context ?? {}, { input: this.input });
-      this.context = await this.hooks?.onMachineStart?.(this.context) ?? this.context;
+      this.context = await this.lifecycleHooks?.onMachineStart?.(this.context) ?? this.context;
       state = this.findInitialState();
       steps = 0;
       this.pendingLaunches = [];
@@ -306,13 +324,14 @@ export class FlatMachine {
 
     while (steps++ < maxSteps) {
       const def = this.config.data.states[state]!;
+      const stateHooks = this.getStateHooks(state);
       this.currentState = state;
       this.currentStep = steps;
 
       // Inject machine metadata into context
       this.injectMachineMetadata(state, steps);
 
-      this.context = await this.hooks?.onStateEnter?.(state, this.context) ?? this.context;
+      this.context = await stateHooks?.onStateEnter?.(state, this.context) ?? this.context;
       if (this.shouldCheckpoint("execute")) {
         await this.checkpoint(state, steps, "execute");
       }
@@ -324,7 +343,7 @@ export class FlatMachine {
         if (this.shouldCheckpoint("machine_end")) {
           await this.checkpoint(state, steps, "machine_end", output);
         }
-        return await this.hooks?.onMachineEnd?.(this.context, output) ?? output;
+        return await this.lifecycleHooks?.onMachineEnd?.(this.context, output) ?? output;
       }
 
       // Execute state
@@ -342,7 +361,7 @@ export class FlatMachine {
         }
         // 1. Handle action
         else if (def.action) {
-          const actionResult = await this.hooks?.onAction?.(def.action, this.context);
+          const actionResult = await stateHooks?.onAction?.(state, def.action, this.context);
           if (actionResult !== undefined) {
             this.context = actionResult;
             output = actionResult;
@@ -367,7 +386,7 @@ export class FlatMachine {
         if (err instanceof WaitingForSignal) throw err;
         this.context.last_error = (err as Error).message;
         this.context.last_error_type = (err as Error).name || (err as Error).constructor?.name;
-        const recovery = await this.hooks?.onError?.(state, err as Error, this.context);
+        const recovery = await stateHooks?.onError?.(state, err as Error, this.context);
         if (recovery) { state = recovery; continue; }
         if (def.on_error) {
           if (typeof def.on_error === "string") {
@@ -392,9 +411,9 @@ export class FlatMachine {
       // Fire-and-forget launches
       if (def.launch) await this.launchMachines(def);
 
-      output = await this.hooks?.onStateExit?.(state, this.context, output) ?? output;
+      output = await stateHooks?.onStateExit?.(state, this.context, output) ?? output;
       const next = this.evaluateTransitions(def, output);
-      state = await this.hooks?.onTransition?.(state, next, this.context) ?? next;
+      state = await stateHooks?.onTransition?.(state, next, this.context) ?? next;
     }
 
     throw new Error("Max steps exceeded");
@@ -500,10 +519,11 @@ export class FlatMachine {
       throw new Error(`Agent '${agentName}' does not support tool calls (execute_with_tools). Use a tool-capable adapter.`);
     }
 
-    // Resolve tool provider (hooks can override)
+    // Resolve tool provider (state hooks can override)
     let activeToolProvider = this.toolProvider;
-    if (this.hooks?.get_tool_provider) {
-      const hookProvider = this.hooks.get_tool_provider(stateName, this.context);
+    const stateHooks = this.getStateHooks(stateName);
+    if (stateHooks?.get_tool_provider) {
+      const hookProvider = stateHooks.get_tool_provider(stateName, this.context);
       if (hookProvider) activeToolProvider = hookProvider;
     }
 
@@ -589,8 +609,8 @@ export class FlatMachine {
       }
 
       // Fire on_tool_calls hook
-      if (this.hooks?.on_tool_calls && pendingCalls.length) {
-        const hookResult = await this.hooks.on_tool_calls(stateName, pendingCalls, context);
+      if (stateHooks?.on_tool_calls && pendingCalls.length) {
+        const hookResult = await stateHooks.on_tool_calls(stateName, pendingCalls, context);
         if (hookResult) context = hookResult;
         if (context._abort_tool_loop) { context._tool_loop_stop = 'aborted'; break; }
       }
@@ -636,8 +656,8 @@ export class FlatMachine {
         context._tool_calls_count = toolCallsCount;
 
         // Fire on_tool_result hook
-        if (this.hooks?.on_tool_result) {
-          const hookResult = await this.hooks.on_tool_result(stateName, {
+        if (stateHooks?.on_tool_result) {
+          const hookResult = await stateHooks.on_tool_result(stateName, {
             ...tc,
             name: tc.name ?? tc.tool,
             result: toolResult,
@@ -988,8 +1008,8 @@ export class FlatMachine {
       config_hash: this._config_hash,
     };
     await this.checkpointManager.checkpoint(snapshot);
-    if (this.hooks?.onCheckpoint) {
-      await this.hooks.onCheckpoint(snapshot as any);
+    if (this.lifecycleHooks?.onCheckpoint) {
+      await this.lifecycleHooks.onCheckpoint(snapshot as any);
     }
   }
 

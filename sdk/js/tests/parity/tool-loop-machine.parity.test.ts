@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import {
   FlatMachine,
+  HooksRegistry,
   MemoryBackend,
   CompositeHooks,
   coerceAgentResult,
@@ -155,10 +156,20 @@ function buildMachine(options: {
   config?: MachineConfig;
   persistence?: MemoryBackend;
 }) {
+  const config = structuredClone(options.config ?? makeMachineConfig());
+  const hooksRegistry = new HooksRegistry();
+  if (options.hooks) {
+    hooksRegistry.register('test-hooks', (() => options.hooks) as any);
+    for (const state of Object.values((config.data?.states ?? {})) as any[]) {
+      if (state && typeof state === 'object' && (state.action || state.tool_loop || state.agent)) {
+        state.hooks ??= 'test-hooks';
+      }
+    }
+  }
   const machine = new FlatMachine({
-    config: options.config ?? makeMachineConfig(),
+    config,
     toolProvider: options.toolProvider,
-    hooks: options.hooks as any,
+    hooksRegistry,
     persistence: options.persistence,
   } as any);
   const executor = new MockExecutor(options.responses);

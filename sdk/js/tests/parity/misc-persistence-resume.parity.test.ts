@@ -60,7 +60,6 @@ const HOOKS_CONFIG = `spec: flatmachine
 spec_version: "2.1.0"
 data:
   name: hooks-resume-test
-  hooks: "tracking"
   context:
     val: null
     tracked: false
@@ -70,6 +69,7 @@ data:
       transitions:
         - to: wait
     wait:
+      hooks: "tracking"
       wait_for: "test/ch"
       output_to_context:
         val: "{{ output.v }}"
@@ -395,7 +395,7 @@ describe('resume parity', () => {
         signalBackend,
         persistenceBackend: persistence,
         configStore,
-        hooks: new TrackingHooks(),
+        lifecycleHooks: new TrackingHooks(),
       })
       const result = await resumer.resume(executionId, { v: 'hooks' })
       expect(result.val).toBe('hooks')
@@ -929,7 +929,7 @@ describe('clone snapshot parity', () => {
         agents: {},
         states: {
           start: { type: 'initial', transitions: [{ to: 'capture' }] },
-          capture: { transitions: [{ to: 'guard' }] },
+          capture: { hooks: 'capture-hooks' as any, transitions: [{ to: 'guard' }] },
           guard: {
             wait_for: 'clone/signal',
             transitions: [
@@ -946,11 +946,14 @@ describe('clone snapshot parity', () => {
       },
     }
 
+    const registry = new HooksRegistry()
+    registry.register('capture-hooks', (() => captureHooks) as any)
+
     const sourceMachine = new FlatMachine({
       config,
       persistence,
       signalBackend,
-      hooks: captureHooks,
+      hooksRegistry: registry,
     })
     const sourceId = sourceMachine.executionId
     const result1 = await sourceMachine.execute({})
@@ -969,7 +972,7 @@ describe('clone snapshot parity', () => {
       config,
       persistence,
       signalBackend,
-      hooks: captureHooks,
+      hooksRegistry: registry,
     })
     const parentResult = await parentMachine.resume(sourceId)
     expect(parentResult).toEqual({ branch: 'parent' })
@@ -978,7 +981,7 @@ describe('clone snapshot parity', () => {
       config,
       persistence,
       signalBackend,
-      hooks: captureHooks,
+      hooksRegistry: registry,
     })
     const cloneResult = await cloneMachine.resume(cloneId)
     expect(cloneResult).toEqual({ branch: 'clone' })

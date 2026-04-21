@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -203,7 +203,7 @@ describe('python parity :: sqlite persistence config', () => {
       backend = (machine as any).checkpointManager?.backend
 
       expect(backend).toBeInstanceOf(SQLiteCheckpointBackend)
-      expect((backend as any).db.location()).toBe(resolve(dbPath))
+      expect(realpathSync((backend as any).db.location())).toBe(realpathSync(resolve(dbPath)))
     } finally {
       closeMaybe(backend)
       cleanupDir(dir)
@@ -270,7 +270,7 @@ describe('python parity :: sqlite persistence config', () => {
       lock = (machine as any).executionLock
 
       expect(lock).toBeInstanceOf(SQLiteLeaseLock)
-      expect((lock as any).db.location()).toBe(resolve(dbPath))
+      expect(realpathSync((lock as any).db.location())).toBe(realpathSync(resolve(dbPath)))
     } finally {
       closeMaybe(lock)
       closeMaybe(backend)

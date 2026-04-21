@@ -14,6 +14,7 @@ import {
   CheckpointManager,
   FinishReason,
   FlatMachine,
+  HooksRegistry,
   Guardrails,
   LocalFileBackend,
   MemoryBackend,
@@ -288,10 +289,21 @@ function makeScriptedMachine(args: {
   const registry = new AgentAdapterRegistry();
   registry.register(new ScriptedAdapter({ coder: executor }));
 
+  const config = structuredClone(args.config);
+  const hooksRegistry = new HooksRegistry();
+  if (args.hooks) {
+    hooksRegistry.register('test-hooks', (() => args.hooks) as any);
+    for (const state of Object.values((config.data?.states ?? {})) as any[]) {
+      if (state && typeof state === 'object' && (state.action || state.tool_loop || state.agent)) {
+        state.hooks ??= 'test-hooks';
+      }
+    }
+  }
+
   const machine = new FlatMachine({
-    config: args.config as any,
+    config: config as any,
     toolProvider: args.toolProvider,
-    hooks: args.hooks,
+    hooksRegistry,
     persistence: args.persistence ?? new MemoryBackend(),
     agentRegistry: registry,
   });
@@ -1089,7 +1101,7 @@ describe('tool-loop parity (python unit + integration tool loop)', () => {
     };
 
     const hooks = {
-      onAction: (actionName: string, context: Record<string, any>) => {
+      onAction: (_stateName: string, actionName: string, context: Record<string, any>) => {
         if (actionName === 'verify_output') {
           const outputPath = join(workDir, 'output.txt');
           return readFile(outputPath, 'utf-8')

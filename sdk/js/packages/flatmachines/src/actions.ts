@@ -24,11 +24,11 @@ export interface Action {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HookAction — delegates to machine hooks (on_action)
+// HookAction — delegates to current state hooks (onAction)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class HookAction implements Action {
-  constructor(private hooks: any) {}
+  constructor(private hooks: any, private stateName: string) {}
 
   async execute(
     actionName: string,
@@ -36,7 +36,7 @@ export class HookAction implements Action {
     config: Record<string, any>,
   ): Promise<Record<string, any>> {
     if (this.hooks?.onAction) {
-      const result = await this.hooks.onAction(actionName, context);
+      const result = await this.hooks.onAction(this.stateName, actionName, context);
       return result ?? context;
     }
     return context;

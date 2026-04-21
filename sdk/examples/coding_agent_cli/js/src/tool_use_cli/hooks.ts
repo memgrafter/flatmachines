@@ -38,7 +38,7 @@ export class CLIToolHooks implements MachineHooks {
     return this.provider;
   }
 
-  async onAction(actionName: string, context: Context): Promise<Context> {
+  async onAction(_stateName: string, actionName: string, context: Context): Promise<Context> {
     if (actionName === 'human_review') {
       return await this.humanReview(context);
     }

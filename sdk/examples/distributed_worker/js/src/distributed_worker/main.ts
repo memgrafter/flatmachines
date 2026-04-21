@@ -33,7 +33,7 @@ if (!(globalThis as any).require) {
 
 const exampleRoot = join(__dirname, '..', '..', '..');
 const configDir = join(exampleRoot, 'config');
-const defaultDbPath = join(exampleRoot, 'data', 'worker.sqlite');
+const defaultDbPath = join(exampleRoot, 'data', 'worker-js.sqlite');
 
 function parseArgs(argv: string[]): Args {
   const args: Args = {

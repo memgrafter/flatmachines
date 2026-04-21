@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { FlatAgent, FlatMachine, Guardrails, MockLLMBackend, ToolLoopAgent } from '@memgrafter/flatmachines';
+import { FlatAgent, FlatMachine, Guardrails, HooksRegistry, MockLLMBackend, ToolLoopAgent } from '@memgrafter/flatmachines';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { createInterface } from 'readline/promises';
@@ -98,10 +98,13 @@ async function runMachine(task: string, workingDir: string): Promise<any> {
   const configDir = configDirFromHere();
 
   const hooks = new CLIToolHooks(workingDir, false);
+  const hooksRegistry = new HooksRegistry();
+  hooksRegistry.register('cli-tool-hooks', () => hooks);
+
   const machine = new FlatMachine({
     config: join(configDir, 'machine.yml'),
     configDir,
-    hooks,
+    hooksRegistry,
   });
 
   return await machine.execute({

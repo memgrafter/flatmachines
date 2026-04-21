@@ -23,7 +23,7 @@ export class DistributedWorkerHooks implements MachineHooks {
     this._work = work;
   }
 
-  async onAction(action: string, context: Record<string, any>): Promise<Record<string, any>> {
+  async onAction(_state: string, action: string, context: Record<string, any>): Promise<Record<string, any>> {
     const handlers: Record<string, (ctx: Record<string, any>) => Promise<Record<string, any>>> = {
       get_pool_state: ctx => this._getPoolState(ctx),
       claim_job: ctx => this._claimJob(ctx),

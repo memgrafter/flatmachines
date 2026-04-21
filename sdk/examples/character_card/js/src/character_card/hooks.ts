@@ -57,7 +57,7 @@ export class CharacterCardHooks implements MachineHooks {
     this.configDir = options.configDir;
   }
 
-  async onAction(action: string, context: Record<string, any>): Promise<Record<string, any>> {
+  async onAction(_state: string, action: string, context: Record<string, any>): Promise<Record<string, any>> {
     if (action === 'load_card') {
       return this.loadCard(context);
     }

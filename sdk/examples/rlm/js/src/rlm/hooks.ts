@@ -4,7 +4,7 @@ import { REPLExecutor } from './repl.js';
 type Context = Record<string, any>;
 
 export class RLMHooks implements MachineHooks {
-  async onAction(action: string, context: Context): Promise<Context> {
+  async onAction(_state: string, action: string, context: Context): Promise<Context> {
     const handlers: Record<string, (ctx: Context) => Promise<Context> | Context> = {
       init_repl: this.initRepl.bind(this),
       execute_repl: this.executeRepl.bind(this),

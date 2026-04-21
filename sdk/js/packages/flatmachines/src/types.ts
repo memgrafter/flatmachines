@@ -24,7 +24,7 @@ export interface MachineConfig {
     expression_engine?: "simple" | "cel";
     context?: Record<string, any>;
     profiles?: string;
-    hooks?: HooksRef;
+    lifecycle_hooks?: HooksRef;
     agents?: Record<string, string | Record<string, any>>;
     machines?: Record<string, string | MachineConfig | MachineWrapper | MachineReference>;
     states: Record<string, State>;
@@ -38,6 +38,7 @@ export interface State {
   agent?: string;
   machine?: string | string[] | MachineInput[];
   action?: string;
+  hooks?: HooksRef;
   execution?: { type: "default" | "retry" | "parallel" | "mdap_voting"; backoffs?: number[]; jitter?: number; n_samples?: number; k_margin?: number; max_candidates?: number };
   input?: Record<string, any>;
   output_to_context?: Record<string, any>;
@@ -107,7 +108,7 @@ export interface MachineHooks {
   onStateExit?(state: string, context: Record<string, any>, output: any): any | Promise<any>;
   onTransition?(from: string, to: string, context: Record<string, any>): string | Promise<string>;
   onError?(state: string, error: Error, context: Record<string, any>): string | null | Promise<string | null>;
-  onAction?(action: string, context: Record<string, any>): Record<string, any> | Promise<Record<string, any>>;
+  onAction?(state: string, action: string, context: Record<string, any>): Record<string, any> | Promise<Record<string, any>>;
   onCheckpoint?(snapshot: MachineSnapshot): void | Promise<void>;
   // Tool loop hooks
   on_tool_calls?(state: string, toolCalls: any[], context: Record<string, any>): Record<string, any> | Promise<Record<string, any>>;
@@ -145,7 +146,7 @@ export type HooksFactory =
 
 export interface MachineOptions {
   config: MachineConfig | string;
-  hooks?: MachineHooks;
+  lifecycleHooks?: MachineHooks;
   hooksRegistry?: import('./hooks').HooksRegistry;
   persistence?: PersistenceBackend;
   resultBackend?: ResultBackend;

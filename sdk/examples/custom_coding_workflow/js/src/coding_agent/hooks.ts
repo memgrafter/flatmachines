@@ -43,7 +43,7 @@ export class CodingAgentHooks implements MachineHooks {
     return value.trim();
   }
 
-  async onAction(action: string, context: Context): Promise<Context> {
+  async onAction(_state: string, action: string, context: Context): Promise<Context> {
     const handlers: Record<string, (ctx: Context) => Promise<Context> | Context> = {
       explore_codebase: this.exploreCodebase.bind(this),
       run_tree: this.runTree.bind(this),

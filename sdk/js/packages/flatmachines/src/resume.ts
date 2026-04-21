@@ -54,7 +54,7 @@ export interface ConfigStoreResumerOptions {
   persistenceBackend: PersistenceBackend;
   configStore: ConfigStore;
   refResolver?: ReferenceResolver;
-  hooks?: MachineHooks;
+  lifecycleHooks?: MachineHooks;
   hooksRegistry?: HooksRegistry;
   toolProvider?: ToolProvider;
 }
@@ -64,7 +64,7 @@ export class ConfigStoreResumer implements MachineResumer {
   private _persistence: PersistenceBackend;
   private _configStore: ConfigStore;
   private _refResolver: ReferenceResolver | null;
-  private _hooks: MachineHooks | undefined;
+  private _lifecycleHooks: MachineHooks | undefined;
   private _hooksRegistry: HooksRegistry | undefined;
   private _toolProvider: ToolProvider | undefined;
 
@@ -73,7 +73,7 @@ export class ConfigStoreResumer implements MachineResumer {
     this._persistence = opts.persistenceBackend;
     this._configStore = opts.configStore;
     this._refResolver = opts.refResolver ?? null;
-    this._hooks = opts.hooks;
+    this._lifecycleHooks = opts.lifecycleHooks;
     this._hooksRegistry = opts.hooksRegistry;
     this._toolProvider = opts.toolProvider;
   }
@@ -164,7 +164,7 @@ export class ConfigStoreResumer implements MachineResumer {
     return new FlatMachine({
       config: configDict,
       persistence: this._persistence,
-      hooks: this._hooks,
+      lifecycleHooks: this._lifecycleHooks,
       hooksRegistry: this._hooksRegistry,
       signalBackend: this._signalBackend,
       toolProvider: this._toolProvider,

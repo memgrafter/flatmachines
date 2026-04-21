@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   CheckpointManager,
   FlatMachine,
+  HooksRegistry,
   SQLiteCheckpointBackend,
   SQLiteWorkBackend,
 } from '@memgrafter/flatmachines';
@@ -379,6 +380,8 @@ async function runPipeline(args: Args): Promise<number> {
   };
 
   const hooks = new TaskHooks(args.maxDepth, args.failRate, seedValue);
+  const hooksRegistry = new HooksRegistry();
+  hooksRegistry.register('dfss-task-hooks', () => hooks);
   const machineCfg = taskConfig();
 
   const announcedComplete = new Set<string>();
@@ -420,7 +423,7 @@ async function runPipeline(args: Args): Promise<number> {
 
     const machine = new FlatMachine({
       config: machineCfg as any,
-      hooks,
+      hooksRegistry,
       persistence: checkpointBackend,
       executionId: String(claimed.work_id),
     });

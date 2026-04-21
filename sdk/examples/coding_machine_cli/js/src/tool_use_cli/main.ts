@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { FlatMachine } from '@memgrafter/flatmachines';
+import { FlatMachine, HooksRegistry } from '@memgrafter/flatmachines';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { createInterface } from 'readline/promises';
@@ -89,10 +89,13 @@ async function runMachine(task: string, workingDir: string, humanReview = true):
   const configDir = configDirFromHere();
 
   const hooks = new CLIToolHooks(workingDir, !humanReview);
+  const hooksRegistry = new HooksRegistry();
+  hooksRegistry.register('cli-tool-hooks', () => hooks);
+
   const machine = new FlatMachine({
     config: join(configDir, 'machine.yml'),
     configDir,
-    hooks,
+    hooksRegistry,
   });
 
   return await machine.execute({

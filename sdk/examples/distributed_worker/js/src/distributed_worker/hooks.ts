@@ -17,7 +17,7 @@ export class DemoHooks extends DistributedWorkerHooks {
     this.dbPath = dbPath;
   }
 
-  async onAction(action: string, context: Record<string, any>): Promise<Record<string, any>> {
+  async onAction(stateName: string, action: string, context: Record<string, any>): Promise<Record<string, any>> {
     if (action === 'echo_delay') {
       const delaySeconds = Number(context.delay_seconds ?? context?.job?.delay_seconds ?? 1);
       const delayMs = Math.max(0, delaySeconds) * 1000;
@@ -27,6 +27,6 @@ export class DemoHooks extends DistributedWorkerHooks {
       return context;
     }
 
-    return super.onAction(action, context);
+    return super.onAction(stateName, action, context);
   }
 }

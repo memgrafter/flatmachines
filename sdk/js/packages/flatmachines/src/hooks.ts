@@ -46,8 +46,8 @@ export class WebhookHooks implements MachineHooks {
     return output;
   }
 
-  async onAction(action: string, context: Record<string, any>) {
-    await this.send("action", { action, context });
+  async onAction(state: string, action: string, context: Record<string, any>) {
+    await this.send("action", { state, action, context });
     return context;
   }
 
@@ -157,14 +157,14 @@ export class CompositeHooks implements MachineHooks {
     return result;
   }
 
-  async onAction(action: string, context: Record<string, any>): Promise<Record<string, any>> {
+  async onAction(state: string, action: string, context: Record<string, any>): Promise<Record<string, any>> {
     let result = context;
     for (const hook of this.hooks) {
       if (hook.onAction) {
         try {
-          result = await hook.onAction(action, result);
+          result = await hook.onAction(state, action, result);
         } catch (e) {
-          logger.warning(`Hook onAction failed for '${action}': ${e instanceof Error ? e.message : String(e)}`);
+          logger.warning(`Hook onAction failed in state '${state}' for '${action}': ${e instanceof Error ? e.message : String(e)}`);
         }
       }
     }
@@ -264,8 +264,8 @@ export class LoggingHooks implements MachineHooks {
     return null;
   }
 
-  async onAction(action: string, context: Record<string, any>): Promise<Record<string, any>> {
-    logger.info(`action: ${action}`);
+  async onAction(state: string, action: string, context: Record<string, any>): Promise<Record<string, any>> {
+    logger.info(`action in ${state}: ${action}`);
     return context;
   }
 
@@ -283,9 +283,10 @@ export class LoggingHooks implements MachineHooks {
 /**
  * Name-based registry for resolving hooks from machine config.
  *
- * Machine configs reference hooks by name (e.g., hooks: "my-hooks").
- * The registry maps names to factory classes/functions and resolves
- * them at runtime, keeping configs language-agnostic.
+ * Machine configs reference hooks by name (e.g., lifecycle_hooks: "logging"
+ * or states.review.hooks: "review-hooks"). The registry maps names to
+ * factory classes/functions and resolves them at runtime, keeping configs
+ * language-agnostic.
  */
 export class HooksRegistry {
   private factories = new Map<string, HooksFactory>();

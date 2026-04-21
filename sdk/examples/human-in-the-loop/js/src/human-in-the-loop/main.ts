@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { FlatMachine, MachineHooks } from '@memgrafter/flatmachines';
+import { FlatMachine, HooksRegistry, MachineHooks } from '@memgrafter/flatmachines';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import * as readline from 'node:readline';
@@ -15,7 +15,7 @@ const rl = readline.createInterface({
 });
 
 class HumanInLoopHooks implements MachineHooks {
-  async onAction(action: string, context: Record<string, any>): Promise<Record<string, any>> {
+  async onAction(_state: string, action: string, context: Record<string, any>): Promise<Record<string, any>> {
     if (action !== 'human_review') {
       return context;
     }
@@ -50,6 +50,10 @@ class HumanInLoopHooks implements MachineHooks {
   }
 
   private askQuestion(question: string): Promise<string> {
+    if (!process.stdin.isTTY) {
+      console.log(`${question}y`);
+      return Promise.resolve('y');
+    }
     return new Promise((resolve) => {
       rl.question(question, resolve);
     });
@@ -58,10 +62,13 @@ class HumanInLoopHooks implements MachineHooks {
 
 async function main() {
   const hooks = new HumanInLoopHooks();
+  const hooksRegistry = new HooksRegistry();
+  hooksRegistry.register('human-in-loop-hooks', () => hooks);
+
   const machine = new FlatMachine({
     config: join(configDir, 'machine.yml'),
     configDir,
-    hooks: hooks,
+    hooksRegistry,
   });
 
   try {

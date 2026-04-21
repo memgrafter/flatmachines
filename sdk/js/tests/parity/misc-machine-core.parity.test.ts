@@ -87,7 +87,7 @@ const saveSnapshot = async (
 }
 
 class CounterHooks implements MachineHooks {
-  async onAction(action: string, context: Record<string, any>): Promise<Record<string, any>> {
+  async onAction(_state: string, action: string, context: Record<string, any>): Promise<Record<string, any>> {
     if (action === 'increment') {
       context.count = (context.count ?? 0) + 1
     }
@@ -102,7 +102,7 @@ class CounterWithStepHooks implements MachineHooks {
     this.step = args?.step ?? 1
   }
 
-  async onAction(action: string, context: Record<string, any>): Promise<Record<string, any>> {
+  async onAction(_state: string, action: string, context: Record<string, any>): Promise<Record<string, any>> {
     if (action === 'increment') {
       context.count = (context.count ?? 0) + this.step
     }
@@ -111,7 +111,7 @@ class CounterWithStepHooks implements MachineHooks {
 }
 
 class AppendHooks implements MachineHooks {
-  async onAction(action: string, context: Record<string, any>): Promise<Record<string, any>> {
+  async onAction(_state: string, action: string, context: Record<string, any>): Promise<Record<string, any>> {
     if (action === 'append') {
       context.result = `${context.result ?? ''}${context.char ?? 'x'}`
     }
@@ -142,7 +142,7 @@ class LifecycleTracker implements MachineHooks {
     return output
   }
 
-  async onAction(action: string, context: Record<string, any>): Promise<Record<string, any>> {
+  async onAction(_state: string, action: string, context: Record<string, any>): Promise<Record<string, any>> {
     this.events.push(`action:${action}`)
     if (action === 'increment') {
       context.count = (context.count ?? 0) + 1
@@ -156,12 +156,12 @@ const COUNTER_MACHINE: MachineConfig = {
   spec_version: '1.2.0',
   data: {
     name: 'counter',
-    hooks: 'counter' as any,
     context: { count: 0 },
     states: {
       start: { type: 'initial', transitions: [{ to: 'count_up' }] },
       count_up: {
         action: 'increment',
+        hooks: 'counter' as any,
         transitions: [
           { condition: 'context.count >= 3', to: 'done' },
           { to: 'count_up' },
@@ -177,12 +177,12 @@ const COUNTER_WITH_ARGS_MACHINE: MachineConfig = {
   spec_version: '1.2.0',
   data: {
     name: 'counter-with-args',
-    hooks: { name: 'counter-step', args: { step: 5 } } as any,
     context: { count: 0 },
     states: {
       start: { type: 'initial', transitions: [{ to: 'count_up' }] },
       count_up: {
         action: 'increment',
+        hooks: { name: 'counter-step', args: { step: 5 } } as any,
         transitions: [
           { condition: 'context.count >= 10', to: 'done' },
           { to: 'count_up' },
@@ -198,12 +198,13 @@ const COMPOSITE_HOOKS_MACHINE: MachineConfig = {
   spec_version: '1.2.0',
   data: {
     name: 'composite',
-    hooks: ['lifecycle', 'counter'] as any,
+    lifecycle_hooks: 'lifecycle' as any,
     context: { count: 0 },
     states: {
       start: { type: 'initial', transitions: [{ to: 'count_up' }] },
       count_up: {
         action: 'increment',
+        hooks: ['lifecycle', 'counter'] as any,
         transitions: [
           { condition: 'context.count >= 2', to: 'done' },
           { to: 'count_up' },
@@ -232,7 +233,6 @@ const PARENT_CHILD_MACHINE: MachineConfig = {
   spec_version: '1.2.0',
   data: {
     name: 'parent',
-    hooks: 'append' as any,
     context: { result: '', char: 'P' },
     machines: {
       child: {
@@ -240,11 +240,10 @@ const PARENT_CHILD_MACHINE: MachineConfig = {
         spec_version: '1.2.0',
         data: {
           name: 'child',
-          hooks: 'append' as any,
           context: { result: '{{ input.prefix }}', char: 'C' },
           states: {
             start: { type: 'initial', transitions: [{ to: 'do_append' }] },
-            do_append: { action: 'append', transitions: [{ to: 'done' }] },
+            do_append: { action: 'append', hooks: 'append' as any, transitions: [{ to: 'done' }] },
             done: { type: 'final', output: { child_result: '{{ context.result }}' } },
           },
         },
@@ -252,7 +251,7 @@ const PARENT_CHILD_MACHINE: MachineConfig = {
     },
     states: {
       start: { type: 'initial', transitions: [{ to: 'parent_append' }] },
-      parent_append: { action: 'append', transitions: [{ to: 'call_child' }] },
+      parent_append: { action: 'append', hooks: 'append' as any, transitions: [{ to: 'call_child' }] },
       call_child: {
         machine: 'child',
         input: { prefix: '{{ context.result }}' },
@@ -336,13 +335,15 @@ describe('helloworld machine parity', () => {
 
   it('sdk/python/tests/unit/test_helloworld_machine.py::TestHelloworldAppendAction.test_append_char_action', async () => {
     const hooks: MachineHooks = {
-      async onAction(action, context) {
+      async onAction(_state, action, context) {
         if (action === 'append_char') {
           context.current = `${context.current}${context.last_output}`
         }
         return context
       },
     }
+    const registry = new HooksRegistry()
+    registry.register('append-char', (() => hooks) as any)
 
     const machine = new FlatMachine({
       config: {
@@ -354,6 +355,7 @@ describe('helloworld machine parity', () => {
             start: {
               type: 'initial',
               action: 'append_char',
+              hooks: 'append-char' as any,
               transitions: [{ to: 'done' }],
             },
             done: {
@@ -363,7 +365,7 @@ describe('helloworld machine parity', () => {
           },
         },
       },
-      hooks,
+      hooksRegistry: registry,
     })
 
     const result = await machine.execute()
@@ -372,13 +374,15 @@ describe('helloworld machine parity', () => {
 
   it('sdk/python/tests/unit/test_helloworld_machine.py::TestHelloworldAppendAction.test_append_char_from_empty', async () => {
     const hooks: MachineHooks = {
-      async onAction(action, context) {
+      async onAction(_state, action, context) {
         if (action === 'append_char') {
           context.current = `${context.current}${context.last_output}`
         }
         return context
       },
     }
+    const registry = new HooksRegistry()
+    registry.register('append-char', (() => hooks) as any)
 
     const machine = new FlatMachine({
       config: {
@@ -390,6 +394,7 @@ describe('helloworld machine parity', () => {
             start: {
               type: 'initial',
               action: 'append_char',
+              hooks: 'append-char' as any,
               transitions: [{ to: 'done' }],
             },
             done: {
@@ -399,7 +404,7 @@ describe('helloworld machine parity', () => {
           },
         },
       },
-      hooks,
+      hooksRegistry: registry,
     })
 
     const result = await machine.execute()
@@ -1257,14 +1262,34 @@ describe('hooks registry parity', () => {
   })
 
   it('sdk/python/tests/integration/hooks_registry/test_hooks_registry.py::TestHooksRegistryMachineIntegration.test_explicit_hooks_bypasses_registry', async () => {
-    const hooks = new CounterWithStepHooks({ step: 100 })
-    const machine = new FlatMachine({ config: COUNTER_MACHINE, hooks })
+    const lifecycleHooks: MachineHooks = {
+      async onMachineStart(context) {
+        context.started = true
+        return context
+      },
+    }
+    const machine = new FlatMachine({
+      config: {
+        spec: 'flatmachine',
+        spec_version: '1.2.0',
+        data: {
+          name: 'lifecycle-explicit',
+          context: {},
+          states: {
+            start: { type: 'initial', transitions: [{ to: 'done' }] },
+            done: { type: 'final', output: { started: '{{ context.started }}' } },
+          },
+        },
+      },
+      lifecycleHooks,
+    })
     const result = await machine.execute()
-    expect(Number(result.total)).toBe(100)
+    expect(result.started).toBe('True')
   })
 
-  it('sdk/python/tests/integration/hooks_registry/test_hooks_registry.py::TestHooksRegistryMachineIntegration.test_unregistered_hooks_raises', () => {
-    expect(() => new FlatMachine({ config: COUNTER_MACHINE })).toThrow("No hooks registered for name 'counter'")
+  it('sdk/python/tests/integration/hooks_registry/test_hooks_registry.py::TestHooksRegistryMachineIntegration.test_unregistered_hooks_raises', async () => {
+    const machine = new FlatMachine({ config: COUNTER_MACHINE })
+    await expect(machine.execute()).rejects.toThrow("No hooks registered for name 'counter'")
   })
 
   it('sdk/python/tests/integration/hooks_registry/test_hooks_registry.py::TestHooksRegistryMachineIntegration.test_registry_passed_to_constructor', async () => {

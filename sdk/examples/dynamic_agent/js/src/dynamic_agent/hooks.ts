@@ -25,7 +25,7 @@ export class OTFAgentHooks implements MachineHooks {
     this.profilesFile = join(configDir, 'profiles.yml');
   }
 
-  async onAction(action: string, context: Record<string, any>): Promise<Record<string, any>> {
+  async onAction(_state: string, action: string, context: Record<string, any>): Promise<Record<string, any>> {
     if (action === 'parse_generator_spec') {
       return this.parseGeneratorSpec(context);
     }

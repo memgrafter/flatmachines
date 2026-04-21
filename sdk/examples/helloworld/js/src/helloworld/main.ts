@@ -40,7 +40,7 @@ class HelloWorldHooks implements MachineHooks {
     return output;
   }
 
-  onAction(action: string, context: Record<string, any>) {
+  onAction(_state: string, action: string, context: Record<string, any>) {
     if (action === 'append_char') {
       const lastOutput = context.last_output ?? '';
       if (lastOutput) {

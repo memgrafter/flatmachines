@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { FlatMachine } from '@memgrafter/flatmachines';
+import { FlatMachine, HooksRegistry } from '@memgrafter/flatmachines';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { ClaudeCodeHooks } from './hooks.js';
@@ -84,6 +84,8 @@ function configPath(name: string): string {
 
 async function run(task: string, workingDir: string, multiState: boolean, configName?: string): Promise<any> {
   const hooks = new ClaudeCodeHooks();
+  const hooksRegistry = new HooksRegistry();
+  hooksRegistry.register('claude-code-hooks', () => hooks);
 
   const configFile = configName
     ? configPath(configName)
@@ -94,7 +96,8 @@ async function run(task: string, workingDir: string, multiState: boolean, config
   const machine = new FlatMachine({
     config: configFile,
     configDir,
-    hooks,
+    lifecycleHooks: hooks,
+    hooksRegistry,
   });
 
   const usesFeature = multiState || Boolean(configName && configName.includes('ref'));

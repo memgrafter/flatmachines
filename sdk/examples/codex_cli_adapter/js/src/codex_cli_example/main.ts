@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { FlatMachine } from '@memgrafter/flatmachines';
+import { FlatMachine, HooksRegistry } from '@memgrafter/flatmachines';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { CodexCliHooks } from './hooks.js';
@@ -56,10 +56,15 @@ function configPath(name: string): string {
 }
 
 async function run(configName: string): Promise<number> {
+  const hooks = new CodexCliHooks();
+  const hooksRegistry = new HooksRegistry();
+  hooksRegistry.register('codex-cli-hooks', () => hooks);
+
   const machine = new FlatMachine({
     config: configPath(configName),
     configDir,
-    hooks: new CodexCliHooks(),
+    lifecycleHooks: hooks,
+    hooksRegistry,
   });
 
   const result = await machine.execute({});

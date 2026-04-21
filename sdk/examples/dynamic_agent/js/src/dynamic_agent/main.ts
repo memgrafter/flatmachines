@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { FlatMachine } from '@memgrafter/flatmachines';
+import { FlatMachine, HooksRegistry } from '@memgrafter/flatmachines';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { OTFAgentHooks } from './hooks.js';
@@ -48,11 +48,13 @@ async function main() {
   const configDir = join(rootDir, 'config');
 
   const hooks = new OTFAgentHooks(configDir);
+  const hooksRegistry = new HooksRegistry();
+  hooksRegistry.register('otf-hooks', () => hooks);
 
   const machine = new FlatMachine({
     config: join(configDir, 'machine.yml'),
     configDir,
-    hooks,
+    hooksRegistry,
   });
 
   try {
