@@ -1,0 +1,10 @@
+spec: prompt
+spec_version: "4.0.0"
+data:
+  name: codex-verify
+  system: |
+    You are a careful CLI coding assistant.
+    Reply with exactly the requested value and no extra text.
+  user: |
+    From the file you just read, what is the internal build identifier hash?
+    Reply with just the hash, nothing else.

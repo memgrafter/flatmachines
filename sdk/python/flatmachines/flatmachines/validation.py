@@ -93,6 +93,45 @@ def _coerce_templated_tool_loop_guardrails_for_validation(
     return cloned
 
 
+def _normalize_flatagent_bundles_for_validation(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize prompt/profile flatagent bundles for stale bundled schema.
+
+    The runtime accepts `flatagent` bundles with `data.prompt` + `data.profile`,
+    but bundled machine schemas may still only know the legacy inline LLM shape.
+    For validation only, coerce those agent configs to a minimal legacy-shaped
+    flatagent object so machines do not emit false-positive warnings.
+    """
+    cloned = copy.deepcopy(config)
+    data = cloned.get("data") or {}
+    if not isinstance(data, dict):
+        return cloned
+
+    agents = data.get("agents") or {}
+    if not isinstance(agents, dict):
+        return cloned
+
+    for agent_name, agent in list(agents.items()):
+        if not isinstance(agent, dict):
+            continue
+        if agent.get("spec") != "flatagent":
+            continue
+        agent_data = agent.get("data") or {}
+        if not (isinstance(agent_data, dict) and "prompt" in agent_data and "profile" in agent_data):
+            continue
+        agents[agent_name] = {
+            "spec": "flatagent",
+            "spec_version": agent.get("spec_version", "4.0.0"),
+            "data": {
+                "model": {"provider": "compat", "name": "bundle"},
+                "system": "{{ input._system | default('') }}",
+                "user": "{{ input.task | default(input.prompt | default('')) }}",
+            },
+        }
+
+    return cloned
+
+
+
 def _normalize_hook_role_fields_for_validation(config: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize hook-role fields so stale bundled schema can still validate.
 
@@ -105,8 +144,6 @@ def _normalize_hook_role_fields_for_validation(config: Dict[str, Any]) -> Dict[s
     if not isinstance(data, dict):
         return cloned
 
-    if "lifecycle_hooks" in data and "hooks" not in data:
-        data["hooks"] = copy.deepcopy(data["lifecycle_hooks"])
     data.pop("lifecycle_hooks", None)
 
     states = data.get("states") or {}
@@ -155,6 +192,7 @@ def _validate_with_jsonschema(config: Dict[str, Any], schema: Dict[str, Any]) ->
         return []
 
     validation_config = _coerce_templated_tool_loop_guardrails_for_validation(config)
+    validation_config = _normalize_flatagent_bundles_for_validation(validation_config)
     validation_config = _normalize_hook_role_fields_for_validation(validation_config)
 
     errors: List[str] = []

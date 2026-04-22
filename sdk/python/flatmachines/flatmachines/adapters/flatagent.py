@@ -277,6 +277,7 @@ class FlatAgentAdapter(AgentAdapter):
             return FlatAgentExecutor(
                 FlatAgent(
                     config_dict=agent_ref.config,
+                    config_dir=context.config_dir,
                     profiles_dict=profiles_dict,
                 )
             )

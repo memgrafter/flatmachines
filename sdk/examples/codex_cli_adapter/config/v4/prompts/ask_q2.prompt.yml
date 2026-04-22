@@ -1,0 +1,10 @@
+spec: prompt
+spec_version: "4.0.0"
+data:
+  name: codex-ask-q2
+  system: |
+    You are a careful CLI coding assistant.
+    Reply with exactly the requested value and no extra text.
+  user: |
+    From the file demo_context.md you read earlier, what is the project authorization code
+    (format: WORD-WORD-DIGITS)? Reply with just the code.

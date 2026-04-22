@@ -1,0 +1,46 @@
+spec: flatmachine
+spec_version: 3.0.0
+data:
+  name: claude-code-example-v4
+  context:
+    task: '{{ input.task }}'
+    working_dir: '{{ input.working_dir }}'
+    session_id: ''
+  agents:
+    coder:
+      spec: flatagent
+      spec_version: "4.0.0"
+      data:
+        prompt: ./prompts/coder.prompt.yml
+        profile: ./profiles/claude-coder.profile.yml
+  states:
+    start:
+      type: initial
+      transitions:
+      - to: work
+      hooks: claude-code-hooks
+    work:
+      agent: coder
+      input:
+        task: '{{ context.task }}'
+        resume_session: '{{ context.session_id }}'
+      output_to_context:
+        result: '{{ output.result }}'
+        session_id: '{{ output.session_id }}'
+      transitions:
+      - to: done
+      hooks: claude-code-hooks
+    done:
+      type: final
+      output:
+        result: '{{ context.result }}'
+        session_id: '{{ context.session_id }}'
+      hooks: claude-code-hooks
+metadata:
+  description: Claude Code example using flatagent prompt/profile refs
+  tags:
+  - claude-code
+  - cli
+  - coding
+  - flatagent
+  - prompt-profile

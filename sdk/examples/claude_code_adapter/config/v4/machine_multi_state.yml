@@ -1,0 +1,69 @@
+spec: flatmachine
+spec_version: 3.0.0
+data:
+  name: claude-code-multi-state-v4
+  context:
+    feature: '{{ input.feature }}'
+    working_dir: '{{ input.working_dir }}'
+    session_id: ''
+    plan: ''
+  agents:
+    coder:
+      spec: flatagent
+      spec_version: "4.0.0"
+      data:
+        prompt: ./prompts/coder.prompt.yml
+        profile: ./profiles/claude-coder.profile.yml
+  states:
+    start:
+      type: initial
+      transitions:
+      - to: plan
+      hooks: claude-code-hooks
+    plan:
+      agent: coder
+      input:
+        task: 'Plan the implementation of: {{ context.feature }}. Read the codebase first, then output a detailed plan.'
+      output_to_context:
+        session_id: '{{ output.session_id }}'
+        plan: '{{ output.result }}'
+      transitions:
+      - to: implement
+      hooks: claude-code-hooks
+    implement:
+      agent: coder
+      input:
+        task: Implement the plan you just described.
+        resume_session: '{{ context.session_id }}'
+      output_to_context:
+        result: '{{ output.result }}'
+        session_id: '{{ output.session_id }}'
+      transitions:
+      - to: test
+      hooks: claude-code-hooks
+    test:
+      agent: coder
+      input:
+        task: Run the tests and fix any failures.
+        resume_session: '{{ context.session_id }}'
+      output_to_context:
+        result: '{{ output.result }}'
+        session_id: '{{ output.session_id }}'
+      transitions:
+      - to: done
+      hooks: claude-code-hooks
+    done:
+      type: final
+      output:
+        result: '{{ context.result }}'
+        session_id: '{{ context.session_id }}'
+      hooks: claude-code-hooks
+metadata:
+  description: Multi-state Claude Code example using shared flatagent profile/prompt refs
+  tags:
+  - claude-code
+  - cli
+  - multi-state
+  - session-resume
+  - flatagent
+  - prompt-profile

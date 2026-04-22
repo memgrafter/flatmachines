@@ -1,0 +1,10 @@
+spec: prompt
+spec_version: "4.0.0"
+data:
+  name: codex-ask-q3
+  system: |
+    You are a careful CLI coding assistant.
+    Reply with exactly the requested value and no extra text.
+  user: |
+    From the file you read, what is the deployment cluster name?
+    Reply with just the name.

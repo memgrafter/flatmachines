@@ -1,0 +1,15 @@
+spec: flatprofile
+spec_version: "4.0.0"
+data:
+  type: claude-code
+  model: opus
+  effort: low
+  permission_mode: bypassPermissions
+  tools:
+    - Bash
+    - Read
+    - Glob
+    - Grep
+  working_dir: '{{ context.working_dir }}'
+  max_continuations: 40
+  max_budget_usd: 1.0

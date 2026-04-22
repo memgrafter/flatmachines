@@ -1,0 +1,81 @@
+spec: flatmachine
+spec_version: 3.0.0
+data:
+  name: claude-code-ref-example-v4
+  context:
+    feature: '{{ input.feature }}'
+    working_dir: '{{ input.working_dir }}'
+    session_id: ''
+    plan: ''
+  agents:
+    planner:
+      spec: flatagent
+      spec_version: "4.0.0"
+      data:
+        prompt: ./prompts/planner.prompt.yml
+        profile: ./profiles/claude-planner.profile.yml
+    coder:
+      spec: flatagent
+      spec_version: "4.0.0"
+      data:
+        prompt: ./prompts/coder.prompt.yml
+        profile: ./profiles/claude-coder.profile.yml
+    reviewer:
+      spec: flatagent
+      spec_version: "4.0.0"
+      data:
+        prompt: ./prompts/reviewer.prompt.yml
+        profile: ./profiles/claude-reviewer.profile.yml
+  states:
+    start:
+      type: initial
+      transitions:
+      - to: plan
+      hooks: claude-code-hooks
+    plan:
+      agent: planner
+      input:
+        task: 'Plan the implementation of: {{ context.feature }}. Read the codebase first.'
+      output_to_context:
+        session_id: '{{ output.session_id }}'
+        plan: '{{ output.result }}'
+      transitions:
+      - to: implement
+      hooks: claude-code-hooks
+    implement:
+      agent: coder
+      input:
+        task: 'Implement this plan:
+
+          {{ context.plan }}
+
+          '
+      output_to_context:
+        result: '{{ output.result }}'
+        session_id: '{{ output.session_id }}'
+      transitions:
+      - to: review
+      hooks: claude-code-hooks
+    review:
+      agent: reviewer
+      input:
+        task: Review the implementation. Check for bugs, missing tests, and style issues.
+      output_to_context:
+        review: '{{ output.result }}'
+      transitions:
+      - to: done
+      hooks: claude-code-hooks
+    done:
+      type: final
+      output:
+        result: '{{ context.result }}'
+        review: '{{ context.review }}'
+      hooks: claude-code-hooks
+metadata:
+  description: Claude Code example using prompt/profile flatagent refs per agent
+  tags:
+  - claude-code
+  - file-refs
+  - multi-agent
+  - flatagent
+  - prompt-profile

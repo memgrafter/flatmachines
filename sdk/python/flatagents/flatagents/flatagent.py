@@ -443,7 +443,7 @@ class FlatAgent:
             yaml = None
 
         config = {}
-        config_dir = os.getcwd()
+        config_dir = kwargs.get("config_dir") or os.getcwd()
 
         if config_file is not None:
             if not os.path.exists(config_file):
