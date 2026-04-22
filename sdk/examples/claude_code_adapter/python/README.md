@@ -1,7 +1,10 @@
 # Claude Code Adapter Example
 
 Drives the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)
-as a FlatMachine agent using the `claude-code` adapter.
+through native `prompt` + `flatprofile` + `flatagent` configs.
+
+The Python runner uses `config/v4/`, where machines embed FlatAgent bundles,
+and each bundle references a prompt file plus a Claude Code profile.
 
 ## Prerequisites
 
@@ -42,36 +45,29 @@ python -m claude_code_example.main -p "add a /health endpoint"
 
 ### `machine.yml` — Single-shot task
 
-One `work` state, inline agent config. Simplest form.
+One `work` state using an inline FlatAgent bundle that references `./prompts/coder.prompt.yml`
+and `claude-coder`.
 
 ### `machine_multi_state.yml` — Plan → implement → test
 
-Three states sharing one session via `--resume`. Each state sees the full
-prior conversation. Cache keeps costs flat.
+Three states sharing one Claude session via `resume_session`. The runtime profile
+stays fixed while the machine carries the live session ID in context.
 
-### `machine_with_refs.yml` — Per-agent config files
+### `machine_with_refs.yml` — Per-agent prompt/profile bundles
 
-Three agents (`planner`, `coder`, `reviewer`), each referencing a
-separate JSON config file:
+Three agents (`planner`, `coder`, `reviewer`), each defined as an inline
+FlatAgent bundle with prompt refs and named profiles:
 
 ```yaml
 agents:
   planner:
-    type: claude-code
-    ref: ./claude-planner.json       # read-only tools
-  coder:
-    type: claude-code
-    ref: ./claude-coder.json         # full tool set
-  reviewer:
-    type: claude-code
-    ref: ./claude-coder.json         # same base as coder
-    config:
-      max_budget_usd: 1.0            # inline overrides file
-      effort: low
+    spec: flatagent
+    data:
+      prompt: ./prompts/planner.prompt.yml
+      profile: claude-planner
 ```
 
-File refs are resolved at machine load time and embedded in the config.
-Checkpoints are self-contained — no path resolution needed on resume.
+This keeps authored prompt text in prompt configs and runtime knobs in profiles.
 
 ## How It Works
 
@@ -96,17 +92,19 @@ cache keeps `cache_read_input_tokens` high and costs low.
 
 ## Config Reference
 
-Config keys map 1:1 to Claude Code CLI flags. Put them in a JSON file
-and reference via `ref`, or inline in the machine YAML:
+Prompt text lives in `config/v4/prompts/*.prompt.yml`.
+Runtime knobs live as named entries in `config/v4/profiles.yml`.
+FlatAgent bundles in `config/v4/agents/*.flatagent.yml` tie those together.
+
+Representative Claude profile fields:
 
 | Field | Default | Description |
 |-------|---------|-------------|
 | `model` | `opus` | Model alias or full name |
 | `effort` | `high` | Effort level |
-| `permission_mode` | *(required)* | `bypassPermissions` for headless |
+| `permission_mode` | *(required)* | `bypassPermissions` or `plan` |
 | `tools` | *(all)* | Exact tool whitelist (`--tools`) |
-| `system_prompt` | *(CLI default)* | Replace system prompt |
-| `append_system_prompt` | *(none)* | Append to system prompt |
+| `working_dir` | config-dependent | Working directory, supports `{{ context.* }}` |
 | `max_budget_usd` | `0` (disabled) | Cost cap |
 | `timeout` | `0` (disabled) | Subprocess timeout (seconds) |
 | `max_continuations` | `100` | Auto-continue limit |

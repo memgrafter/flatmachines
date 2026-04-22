@@ -42,8 +42,8 @@ Start with a clear default profile, then let agents reference it by name:
 
 **config/profiles.yml**
 ```yaml
-spec: flatprofiles
-spec_version: "3.0.0"
+spec: flatprofile
+spec_version: "4.0.0"
 data:
   model_profiles:
     fast:
@@ -66,7 +66,7 @@ data:
 **config/agent.yml**
 ```yaml
 spec: flatagent
-spec_version: "3.0.0"
+spec_version: "4.0.0"
 data:
   name: hello-world-agent
   model:
@@ -84,7 +84,7 @@ data:
 **config/machine.yml**
 ```yaml
 spec: flatmachine
-spec_version: "3.0.0"
+spec_version: "4.0.0"
 data:
   name: hello-world-loop
   context:
@@ -200,9 +200,10 @@ Runnable examples in [`./sdk/examples`](./sdk/examples):
 ## Specs
 
 TypeScript definitions are the source of truth:
-- [`flatagent.d.ts`](./flatagent.d.ts) — agent config schema
+- [`flatagent.d.ts`](./flatagent.d.ts) — agent bundle schema
 - [`flatmachine.d.ts`](./flatmachine.d.ts) — machine config schema
-- [`profiles.d.ts`](./profiles.d.ts) — model profile schema
+- [`prompt.d.ts`](./prompt.d.ts) — prompt/output contract schema
+- [`profile.d.ts`](./profile.d.ts) — execution profile schema
 - [`flatagents-runtime.d.ts`](./flatagents-runtime.d.ts) — runtime interfaces + backend configuration contract
 
 ### Runtime definitions (from `flatagents-runtime.d.ts`)

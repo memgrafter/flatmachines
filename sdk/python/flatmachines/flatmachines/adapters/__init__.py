@@ -8,7 +8,11 @@ from ..agents import AgentAdapterRegistry
 
 
 def register_builtin_adapters(registry: AgentAdapterRegistry) -> None:
-    """Register built-in adapters if their dependencies are installed."""
+    """Register built-in adapters if their dependencies are installed.
+
+    Legacy runtime adapters remain registered for compatibility/tests, but
+    FlatMachine normalizes non-flatagent refs through the FlatAgent adapter.
+    """
     try:
         from .flatagent import FlatAgentAdapter
 
@@ -43,6 +47,7 @@ def register_builtin_adapters(registry: AgentAdapterRegistry) -> None:
         registry.register(CodexCliAdapter())
     except ImportError:
         pass
+
 
 
 def create_registry(with_builtins: bool = True) -> AgentAdapterRegistry:

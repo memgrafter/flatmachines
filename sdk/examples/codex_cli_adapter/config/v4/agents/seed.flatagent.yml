@@ -1,0 +1,7 @@
+spec: flatagent
+spec_version: "4.0.0"
+data:
+  prompt: ../prompts/seed.prompt.yml
+  profile: codex-readonly
+metadata:
+  description: Seed the Codex thread by reading demo_context.md

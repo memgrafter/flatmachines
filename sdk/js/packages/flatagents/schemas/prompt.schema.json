@@ -1,0 +1,213 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/PromptWrapper",
+  "definitions": {
+    "PromptWrapper": {
+      "type": "object",
+      "properties": {
+        "spec": {
+          "type": "string",
+          "const": "prompt"
+        },
+        "spec_version": {
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/definitions/PromptData"
+        },
+        "metadata": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "spec",
+        "spec_version",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "PromptData": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "system": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        },
+        "instruction_suffix": {
+          "type": "string"
+        },
+        "output": {
+          "$ref": "#/definitions/OutputSchema"
+        },
+        "mcp": {
+          "$ref": "#/definitions/MCPConfig"
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ToolDefinition"
+          }
+        }
+      },
+      "required": [
+        "user"
+      ],
+      "additionalProperties": false
+    },
+    "OutputSchema": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/OutputFieldDef"
+      }
+    },
+    "OutputFieldDef": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "str",
+            "int",
+            "float",
+            "bool",
+            "json",
+            "list",
+            "object"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "enum": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "items": {
+          "$ref": "#/definitions/OutputFieldDef"
+        },
+        "properties": {
+          "$ref": "#/definitions/OutputSchema"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "MCPConfig": {
+      "type": "object",
+      "properties": {
+        "servers": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/MCPServerDef"
+          }
+        },
+        "tool_filter": {
+          "$ref": "#/definitions/ToolFilter"
+        },
+        "tool_prompt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "servers",
+        "tool_prompt"
+      ],
+      "additionalProperties": false
+    },
+    "MCPServerDef": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "server_url": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "timeout": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ToolFilter": {
+      "type": "object",
+      "properties": {
+        "allow": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deny": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ToolDefinition": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "function"
+        },
+        "function": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "parameters": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "function"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

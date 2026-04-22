@@ -22,7 +22,7 @@
   - Python FlatAgent (`flatagent.py` L367-383): currently calls `discover_profiles_file` + `resolve_profiles_with_fallback`. Replace with chain discovery.
   - JS FlatAgent (`flatagent.ts` L79-83): currently checks only configDir. Replace with chain discovery.
   - FlatMachine profile propagation (`flatmachine.py` L151-152, L666-667, L936-937): child machines/agents should inherit the parent's resolved chain, not just a single profiles_dict. Or: the chain is resolved once at the top-level entry point and the merged result propagates down (simpler, already how `_profiles_dict` works).
-  - Spec: `profiles.d.ts` doc comments should document the directory-walk resolution.
+  - Spec: `profile.d.ts` doc comments should document the directory-walk resolution.
   - Tests: chain discovery with nested dirs, git-root boundary, ~/.agents fallback, merge semantics (child profile overrides parent profile by name, parent-only profiles survive, `default`/`override` nearest-wins).
   **Git root detection:** Use `git rev-parse --show-toplevel` or walk looking for `.git`. Cache the result. Non-git projects: walk to filesystem root or stop at a sentinel file (e.g., `.flatagents-root`).
 
@@ -68,6 +68,7 @@
   3. Tests: add tests confirming (a) default setup_logging() adds no handlers and sets propagate=True, (b) FLATAGENTS_LOG_HANDLER=stdout adds the handler and sets propagate=False, (c) default _init_metrics() with otel installed does not create a console exporter, (d) OTEL_METRICS_EXPORTER=console creates the exporter.
   Motivation: sterling-swarm prototype needed 15 lines of workaround code to suppress flatagents console output. Any headful app (CLI, TUI, REPL) embedding flatagents hits the same problem. The fix is backward-compatible: headless/daemon users who already see logs on stdout can set FLATAGENTS_LOG_HANDLER=stdout to preserve current behavior.
 
+- Add live/integration coverage for FlatAgents-side `smolagents` and `pi-agent` runtimes. Current migration moved those single-agent runtime adapters into Python FlatAgents, but we do not yet have live end-to-end tests/examples validating auth/environment/session behavior the way Codex/Claude paths are exercised. Add at least smoke tests and one example per runtime once credentials/tooling are available.
 - JS Codex CLI adapter mocked test suite (unit + integration-style): add tests that mock `child_process.spawn` and feed NDJSON event streams to validate success/error/timeout/resume parsing without live Codex auth.
 - Python codex_cli adapter regression: fix `CodexCliExecutor.execute()` compatibility with execution layer `session_id` kwarg (`TypeError: unexpected keyword argument 'session_id'`) so `sdk/examples/codex_cli_adapter/python` runs again.
 - Parity checker strict mode: harden `scripts/check-example-sdk-parity.mjs` to fail on capability mismatch (not only target resolution), with optional flag to keep current permissive behavior for transitional runs.

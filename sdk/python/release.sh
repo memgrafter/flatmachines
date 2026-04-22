@@ -146,7 +146,7 @@ cd "$SDK_DIR"
 # Copy root TypeScript specs to sdk assets for each package
 for PKG in $PACKAGES; do
     ASSETS_DIR="$SDK_DIR/$PKG/$PKG/assets"
-    cp "$REPO_ROOT/flatagent.d.ts" "$REPO_ROOT/flatmachine.d.ts" "$REPO_ROOT/profiles.d.ts" "$ASSETS_DIR/"
+    cp "$REPO_ROOT/flatagent.d.ts" "$REPO_ROOT/flatmachine.d.ts" "$REPO_ROOT/profile.d.ts" "$REPO_ROOT/prompt.d.ts" "$REPO_ROOT/flatagents-runtime.d.ts" "$ASSETS_DIR/"
 done
 
 # Extract versions from root TypeScript specs
@@ -158,13 +158,15 @@ if [ ! -d "$REPO_ROOT/scripts/node_modules" ]; then
 fi
 FLATAGENT_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$REPO_ROOT/flatagent.d.ts")
 FLATMACHINE_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$REPO_ROOT/flatmachine.d.ts")
-PROFILES_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$REPO_ROOT/profiles.d.ts")
+PROFILE_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$REPO_ROOT/profile.d.ts")
+PROMPT_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$REPO_ROOT/prompt.d.ts")
 RUNTIME_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$REPO_ROOT/flatagents-runtime.d.ts")
 
 echo "TypeScript spec versions:"
 echo "  flatagent.d.ts:          $FLATAGENT_VERSION"
 echo "  flatmachine.d.ts:        $FLATMACHINE_VERSION"
-echo "  profiles.d.ts:           $PROFILES_VERSION"
+echo "  profile.d.ts:            $PROFILE_VERSION"
+echo "  prompt.d.ts:             $PROMPT_VERSION"
 echo "  flatagents-runtime.d.ts: $RUNTIME_VERSION"
 echo ""
 
@@ -188,11 +190,18 @@ else
     echo "  ✓ SDK version matches flatmachine.d.ts ($FLATMACHINE_VERSION)"
 fi
 
-if [[ "$PYPROJECT_VERSION" != "$PROFILES_VERSION" ]]; then
-    echo "  ✗ SDK version ($PYPROJECT_VERSION) != profiles.d.ts ($PROFILES_VERSION)"
+if [[ "$PYPROJECT_VERSION" != "$PROFILE_VERSION" ]]; then
+    echo "  ✗ SDK version ($PYPROJECT_VERSION) != profile.d.ts ($PROFILE_VERSION)"
     FAILED=1
 else
-    echo "  ✓ SDK version matches profiles.d.ts ($PROFILES_VERSION)"
+    echo "  ✓ SDK version matches profile.d.ts ($PROFILE_VERSION)"
+fi
+
+if [[ "$PYPROJECT_VERSION" != "$PROMPT_VERSION" ]]; then
+    echo "  ✗ SDK version ($PYPROJECT_VERSION) != prompt.d.ts ($PROMPT_VERSION)"
+    FAILED=1
+else
+    echo "  ✓ SDK version matches prompt.d.ts ($PROMPT_VERSION)"
 fi
 
 if [[ "$PYPROJECT_VERSION" != "$RUNTIME_VERSION" ]]; then
@@ -221,7 +230,7 @@ for PKG in $PACKAGES; do
     echo "Verifying $PKG spec assets..."
     FAILED=0
 
-    for file in flatagent.d.ts flatmachine.d.ts profiles.d.ts flatagents-runtime.d.ts; do
+    for file in flatagent.d.ts flatmachine.d.ts profile.d.ts prompt.d.ts flatagents-runtime.d.ts; do
         if [ ! -f "$ASSETS_DIR/$file" ]; then
             echo "  ✗ $file (missing)"
             FAILED=1
@@ -233,8 +242,8 @@ for PKG in $PACKAGES; do
         fi
     done
 
-    for file in flatagent.slim.d.ts flatmachine.slim.d.ts profiles.slim.d.ts flatagents-runtime.slim.d.ts \
-                flatagent.schema.json flatmachine.schema.json profiles.schema.json flatagents-runtime.schema.json; do
+    for file in flatagent.slim.d.ts flatmachine.slim.d.ts profile.slim.d.ts prompt.slim.d.ts flatagents-runtime.slim.d.ts \
+                flatagent.schema.json flatmachine.schema.json profile.schema.json prompt.schema.json flatagents-runtime.schema.json; do
         if [ ! -f "$ASSETS_DIR/$file" ]; then
             echo "  ✗ $file (missing)"
             FAILED=1

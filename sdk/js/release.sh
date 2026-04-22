@@ -83,27 +83,33 @@ fi
 echo "Extracting spec versions from TypeScript files..."
 FLATAGENT_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$REPO_ROOT/flatagent.d.ts")
 FLATMACHINE_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$REPO_ROOT/flatmachine.d.ts")
-PROFILES_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$REPO_ROOT/profiles.d.ts")
+PROFILE_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$REPO_ROOT/profile.d.ts")
+PROMPT_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$REPO_ROOT/prompt.d.ts")
 RUNTIME_VERSION=$(cd "$REPO_ROOT/scripts" && npx tsx generate-spec-assets.ts --extract-version "$REPO_ROOT/flatagents-runtime.d.ts")
 
 echo "TypeScript spec versions:"
 echo "  flatagent.d.ts:          $FLATAGENT_VERSION"
 echo "  flatmachine.d.ts:        $FLATMACHINE_VERSION"
-echo "  profiles.d.ts:           $PROFILES_VERSION"
+echo "  profile.d.ts:            $PROFILE_VERSION"
+echo "  prompt.d.ts:             $PROMPT_VERSION"
 echo "  flatagents-runtime.d.ts: $RUNTIME_VERSION"
 echo ""
 
 FAILED=0
 
-for SPEC_NAME in FLATAGENT FLATMACHINE PROFILES RUNTIME; do
-    SPEC_VAR="${SPEC_NAME}_VERSION"
-    SPEC_VAL="${!SPEC_VAR}"
-    SPEC_NAME_LOWER=$(printf '%s' "$SPEC_NAME" | tr '[:upper:]' '[:lower:]')
+for entry in \
+    "flatagent.d.ts:$FLATAGENT_VERSION" \
+    "flatmachine.d.ts:$FLATMACHINE_VERSION" \
+    "profile.d.ts:$PROFILE_VERSION" \
+    "prompt.d.ts:$PROMPT_VERSION" \
+    "flatagents-runtime.d.ts:$RUNTIME_VERSION"; do
+    SPEC_FILE="${entry%%:*}"
+    SPEC_VAL="${entry#*:}"
     if [[ "$PACKAGE_VERSION" != "$SPEC_VAL" ]]; then
-        echo "  ✗ SDK version ($PACKAGE_VERSION) != ${SPEC_NAME_LOWER}.d.ts ($SPEC_VAL)"
+        echo "  ✗ SDK version ($PACKAGE_VERSION) != $SPEC_FILE ($SPEC_VAL)"
         FAILED=1
     else
-        echo "  ✓ SDK version matches ${SPEC_NAME_LOWER}.d.ts ($SPEC_VAL)"
+        echo "  ✓ SDK version matches $SPEC_FILE ($SPEC_VAL)"
     fi
 done
 
@@ -120,7 +126,7 @@ echo ""
 # ─────────────────────────────────────────────────────────────────────────────
 
 echo "Checking schemas/ versions..."
-SCHEMA_SPECS=("flatagent" "flatmachine" "profiles" "flatagents-runtime")
+SCHEMA_SPECS=("flatagent" "flatmachine" "profile" "prompt" "flatagents-runtime")
 SCHEMA_FAILED=0
 
 for PKG in flatagents flatmachines; do

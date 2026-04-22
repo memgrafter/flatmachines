@@ -29,21 +29,38 @@
     "AgentData": {
       "type": "object",
       "properties": {
-        "name": {
+        "prompt": {
+          "$ref": "#/definitions/PromptRef"
+        },
+        "profile": {
+          "$ref": "#/definitions/ProfileRef"
+        }
+      },
+      "required": [
+        "prompt",
+        "profile"
+      ],
+      "additionalProperties": false
+    },
+    "PromptRef": {
+      "anyOf": [
+        {
           "type": "string"
         },
-        "model": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "$ref": "#/definitions/ModelConfig"
-            },
-            {
-              "$ref": "#/definitions/ProfiledModelConfig"
-            }
-          ]
+        {
+          "$ref": "#/definitions/PromptData"
+        },
+        {
+          "$ref": "#/definitions/PromptWrapper"
+        }
+      ],
+      "description": "Prompt inline-or-ref value.\n- string: path/ref to a prompt file\n- object: inline prompt config"
+    },
+    "PromptData": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
         },
         "system": {
           "type": "string"
@@ -68,150 +85,7 @@
         }
       },
       "required": [
-        "model",
-        "system",
         "user"
-      ],
-      "additionalProperties": false
-    },
-    "ModelConfig": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "provider": {
-          "type": "string"
-        },
-        "temperature": {
-          "type": "number"
-        },
-        "max_tokens": {
-          "type": "number"
-        },
-        "top_p": {
-          "type": "number"
-        },
-        "top_k": {
-          "type": "number"
-        },
-        "frequency_penalty": {
-          "type": "number"
-        },
-        "presence_penalty": {
-          "type": "number"
-        },
-        "seed": {
-          "type": "number"
-        },
-        "base_url": {
-          "type": "string"
-        },
-        "backend": {
-          "type": "string",
-          "enum": [
-            "litellm",
-            "aisuite",
-            "codex",
-            "copilot"
-          ]
-        },
-        "api": {
-          "type": "string"
-        },
-        "oauth": {
-          "$ref": "#/definitions/OAuthConfig"
-        }
-      },
-      "required": [
-        "name"
-      ],
-      "additionalProperties": false
-    },
-    "OAuthConfig": {
-      "type": "object",
-      "properties": {
-        "provider": {
-          "type": "string"
-        },
-        "auth_file": {
-          "type": "string"
-        },
-        "refresh": {
-          "type": "boolean"
-        },
-        "originator": {
-          "type": "string"
-        },
-        "timeout_seconds": {
-          "type": "number"
-        },
-        "max_retries": {
-          "type": "number"
-        },
-        "token_url": {
-          "type": "string"
-        },
-        "client_id": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false
-    },
-    "ProfiledModelConfig": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "provider": {
-          "type": "string"
-        },
-        "temperature": {
-          "type": "number"
-        },
-        "max_tokens": {
-          "type": "number"
-        },
-        "top_p": {
-          "type": "number"
-        },
-        "top_k": {
-          "type": "number"
-        },
-        "frequency_penalty": {
-          "type": "number"
-        },
-        "presence_penalty": {
-          "type": "number"
-        },
-        "seed": {
-          "type": "number"
-        },
-        "base_url": {
-          "type": "string"
-        },
-        "backend": {
-          "type": "string",
-          "enum": [
-            "litellm",
-            "aisuite",
-            "codex",
-            "copilot"
-          ]
-        },
-        "api": {
-          "type": "string"
-        },
-        "oauth": {
-          "$ref": "#/definitions/OAuthConfig"
-        },
-        "profile": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "profile"
       ],
       "additionalProperties": false
     },
@@ -362,6 +236,452 @@
       "required": [
         "type",
         "function"
+      ],
+      "additionalProperties": false
+    },
+    "PromptWrapper": {
+      "type": "object",
+      "properties": {
+        "spec": {
+          "type": "string",
+          "const": "prompt"
+        },
+        "spec_version": {
+          "type": "string"
+        },
+        "data": {
+          "$ref": "#/definitions/PromptData"
+        },
+        "metadata": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "spec",
+        "spec_version",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "ProfileRef": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/definitions/ProfileWrapper"
+        }
+      ],
+      "description": "Profile reference value.\n- string: named profile lookup in the active `flatprofile` catalog\n- object: inline `flatprofile` catalog wrapper (uses its default/override resolution)"
+    },
+    "ProfileWrapper": {
+      "type": "object",
+      "properties": {
+        "spec": {
+          "type": "string",
+          "const": "flatprofile"
+        },
+        "spec_version": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "model_profiles": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/definitions/ProfileData"
+              }
+            },
+            "default": {
+              "type": "string"
+            },
+            "override": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "model_profiles"
+          ],
+          "additionalProperties": false
+        },
+        "metadata": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "spec",
+        "spec_version",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "ProfileData": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ModelConfig"
+        },
+        {
+          "$ref": "#/definitions/LLMProfile"
+        },
+        {
+          "$ref": "#/definitions/ClaudeCodeProfile"
+        },
+        {
+          "$ref": "#/definitions/CodexCliProfile"
+        },
+        {
+          "$ref": "#/definitions/SmolagentsProfile"
+        },
+        {
+          "$ref": "#/definitions/PiAgentProfile"
+        }
+      ]
+    },
+    "ModelConfig": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "temperature": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "number"
+        },
+        "top_p": {
+          "type": "number"
+        },
+        "top_k": {
+          "type": "number"
+        },
+        "frequency_penalty": {
+          "type": "number"
+        },
+        "presence_penalty": {
+          "type": "number"
+        },
+        "seed": {
+          "type": "number"
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "stream": {
+          "type": "boolean"
+        },
+        "backend": {
+          "type": "string",
+          "enum": [
+            "litellm",
+            "aisuite",
+            "codex",
+            "copilot"
+          ]
+        },
+        "api": {
+          "type": "string"
+        },
+        "oauth": {
+          "$ref": "#/definitions/OAuthConfig"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "OAuthConfig": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "auth_file": {
+          "type": "string"
+        },
+        "refresh": {
+          "type": "boolean"
+        },
+        "originator": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "type": "number"
+        },
+        "max_retries": {
+          "type": "number"
+        },
+        "token_url": {
+          "type": "string"
+        },
+        "client_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "LLMProfile": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "llm"
+        },
+        "model": {
+          "$ref": "#/definitions/ModelConfig"
+        }
+      },
+      "required": [
+        "type",
+        "model"
+      ],
+      "additionalProperties": false
+    },
+    "ClaudeCodeProfile": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "claude-code"
+        },
+        "model": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "max"
+          ]
+        },
+        "permission_mode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "acceptEdits",
+            "bypassPermissions",
+            "dontAsk",
+            "plan",
+            "auto"
+          ]
+        },
+        "dangerously_skip_permissions": {
+          "type": "boolean"
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "max_budget_usd": {
+          "type": "number"
+        },
+        "add_dirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "claude_bin": {
+          "type": "string"
+        },
+        "working_dir": {
+          "type": "string"
+        },
+        "timeout": {
+          "type": "number"
+        },
+        "max_continuations": {
+          "type": "number"
+        },
+        "exit_sentinel": {
+          "type": "string"
+        },
+        "continuation_prompt": {
+          "type": "string"
+        },
+        "mcp_config": {
+          "type": "string"
+        },
+        "rate_limit_delay": {
+          "type": "number"
+        },
+        "rate_limit_jitter": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "CodexCliProfile": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "codex-cli"
+        },
+        "model": {
+          "type": "string"
+        },
+        "reasoning_effort": {
+          "type": "string",
+          "enum": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
+        },
+        "sandbox": {
+          "type": "string",
+          "enum": [
+            "read-only",
+            "workspace-write",
+            "danger-full-access"
+          ]
+        },
+        "approval_policy": {
+          "type": "string",
+          "enum": [
+            "untrusted",
+            "on-request",
+            "never"
+          ]
+        },
+        "dangerously_bypass_approvals_and_sandbox": {
+          "type": "boolean"
+        },
+        "add_dirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "codex_bin": {
+          "type": "string"
+        },
+        "working_dir": {
+          "type": "string"
+        },
+        "timeout": {
+          "type": "number"
+        },
+        "skip_git_repo_check": {
+          "type": "boolean"
+        },
+        "ephemeral": {
+          "type": "boolean"
+        },
+        "search": {
+          "type": "boolean"
+        },
+        "config_overrides": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          }
+        },
+        "feature_enable": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "feature_disable": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rate_limit_delay": {
+          "type": "number"
+        },
+        "rate_limit_jitter": {
+          "type": "number"
+        },
+        "use_app_server": {
+          "type": "boolean"
+        },
+        "session_source": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "SmolagentsProfile": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "smolagents"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "config": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "type",
+        "ref"
+      ],
+      "additionalProperties": false
+    },
+    "PiAgentProfile": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "pi-agent"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "runner": {
+          "type": "string"
+        },
+        "node": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "timeout": {
+          "type": "number"
+        },
+        "agent_config": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "type",
+        "ref"
       ],
       "additionalProperties": false
     }

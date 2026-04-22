@@ -1,0 +1,5 @@
+spec: flatagent
+spec_version: "4.0.0"
+data:
+  prompt: ../prompts/reviewer.prompt.yml
+  profile: claude-reviewer

@@ -1,0 +1,31 @@
+spec: flatmachine
+spec_version: "3.0.0"
+data:
+  name: ask-q3-v4
+  context:
+    thread_id: input.thread_id
+  agents:
+    asker:
+      spec: flatagent
+      spec_version: "4.0.0"
+      data:
+        prompt: ./prompts/ask_q3.prompt.yml
+        profile: codex-readonly
+  states:
+    start:
+      type: initial
+      transitions:
+        - to: ask
+    ask:
+      agent: asker
+      input:
+        resume_session: context.thread_id
+      output_to_context:
+        answer: output.result
+      transitions:
+        - to: done
+    done:
+      type: final
+      output:
+        question: "cluster name"
+        answer: context.answer

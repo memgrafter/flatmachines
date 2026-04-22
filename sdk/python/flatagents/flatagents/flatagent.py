@@ -147,15 +147,10 @@ class FlatAgent:
 
         self._profiles_file = profiles_file
         self._profiles_dict = profiles_dict
+        self._init_overrides = dict(kwargs)
         self._load_config(config_file, config_dict, **kwargs)
         self._validate_spec()
         self._parse_agent_config()
-
-        # Determine backend: explicit param > resolved model config > auto-detect
-        model_config = self._model_config_raw if isinstance(self._model_config_raw, dict) else {}
-        config_backend = model_config.get('backend')
-        self._backend = backend or config_backend or self._auto_detect_backend()
-        self._init_backend()
 
         # MCP support
         self._tool_provider = tool_provider
@@ -164,6 +159,15 @@ class FlatAgent:
         # Tracking
         self.total_cost = 0.0
         self.total_api_calls = 0
+
+        if self._runtime_type == "llm":
+            model_config = self._model_config_raw if isinstance(self._model_config_raw, dict) else {}
+            config_backend = model_config.get('backend')
+            self._backend = backend or config_backend or self._auto_detect_backend()
+            self._init_backend()
+        else:
+            self._backend = self._runtime_type
+            self._runtime_executor = self._init_runtime_executor()
 
         logger.info(f"Initialized FlatAgent: {self.agent_name} (backend: {self._backend})")
 
@@ -193,7 +197,7 @@ class FlatAgent:
         )
 
     def _init_backend(self) -> None:
-        """Initialize the selected backend."""
+        """Initialize the selected LLM backend."""
         if self._backend == "aisuite":
             if aisuite is None:
                 raise ImportError("aisuite backend selected but not installed. Install with: pip install aisuite")
@@ -207,6 +211,47 @@ class FlatAgent:
             self._copilot_client = CopilotClient(self._model_config_raw, config_dir=self._config_dir)
         else:
             raise ValueError(f"Unknown backend: {self._backend}. Use 'aisuite', 'litellm', 'codex', or 'copilot'.")
+
+    def _init_runtime_executor(self):
+        """Initialize a non-LLM runtime executor from the resolved profile."""
+        runtime_type = self._runtime_type
+        profile = dict(self._runtime_config_raw or {})
+        settings: Dict[str, Any] = {}
+
+        if runtime_type == "claude-code":
+            from .adapters import create_claude_code_executor
+            return create_claude_code_executor(
+                config={k: v for k, v in profile.items() if k != "type"},
+                config_dir=self._config_dir,
+                settings=settings,
+            )
+
+        if runtime_type == "codex-cli":
+            from .adapters import create_codex_cli_executor
+            return create_codex_cli_executor(
+                config={k: v for k, v in profile.items() if k != "type"},
+                config_dir=self._config_dir,
+                settings=settings,
+            )
+
+        if runtime_type == "smolagents":
+            from .adapters import create_smolagents_executor
+            return create_smolagents_executor(
+                ref=profile.get("ref", ""),
+                config_dir=self._config_dir,
+                config=profile.get("config"),
+            )
+
+        if runtime_type == "pi-agent":
+            from .adapters import create_pi_agent_bridge_executor
+            return create_pi_agent_bridge_executor(
+                ref=profile.get("ref", ""),
+                config=profile,
+                config_dir=self._config_dir,
+                settings=settings,
+            )
+
+        raise ValueError(f"Unsupported runtime profile type: {runtime_type}")
 
     async def _call_llm(self, params: Dict[str, Any]) -> Any:
         """Call the LLM using the selected backend."""
@@ -385,7 +430,12 @@ class FlatAgent:
         config_dict: Optional[Dict],
         **kwargs
     ):
-        """Load v0.6.0 container config with profile resolution."""
+        """Load flatagent config.
+
+        Supports both:
+        - new bundle shape: data.prompt + data.profile
+        - legacy LLM-only shape: data.model + prompt fields
+        """
         import os
         try:
             import yaml
@@ -393,7 +443,7 @@ class FlatAgent:
             yaml = None
 
         config = {}
-        config_dir = os.getcwd()
+        config_dir = kwargs.get("config_dir") or os.getcwd()
 
         if config_file is not None:
             if not os.path.exists(config_file):
@@ -411,52 +461,93 @@ class FlatAgent:
 
         self.config = config
         self._config_dir = config_dir
+        self._bundle_mode = False
+        self._runtime_type = "llm"
+        self._runtime_config_raw: Dict[str, Any] = {}
+        self._runtime_executor = None
 
-        # Always discover own profiles first; own wins, parent is fallback only
-        from .profiles import discover_profiles_file, load_profiles_from_file, resolve_profiles_with_fallback
+        data = config.get('data', {}) if isinstance(config, dict) else {}
+        if isinstance(data, dict) and ("prompt" in data or "profile" in data):
+            self._bundle_mode = True
+            return
+
+        # Legacy model-profile path
+        from .profiles import discover_profiles_file, load_profiles_from_file, resolve_profiles_with_fallback, resolve_model_config
         parent_profiles_dict = self._profiles_dict
         self._profiles_file = discover_profiles_file(self._config_dir, self._profiles_file)
         own_profiles_dict = load_profiles_from_file(self._profiles_file) if self._profiles_file else None
         self._profiles_dict = resolve_profiles_with_fallback(own_profiles_dict, parent_profiles_dict)
 
-        # Extract model config from data section
-        data = config.get('data', {})
         raw_model_config = data.get('model', {})
-
-        # Resolve model config through profiles
-        from .profiles import resolve_model_config
         model_config = resolve_model_config(
             raw_model_config,
             config_dir,
             profiles_dict=self._profiles_dict
         )
+        self._apply_model_config(model_config, kwargs)
 
-        # Build model name from provider/name
+    def _apply_model_config(self, model_config: Dict[str, Any], overrides: Dict[str, Any]) -> None:
+        """Apply resolved llm model config to instance attributes."""
         provider = model_config.get('provider')
         model_name = model_config.get('name')
-        if provider and model_name and '/' not in model_name:
+        if provider and model_name and '/' not in str(model_name):
             full_model_name = f"{provider}/{model_name}"
         else:
             full_model_name = model_name
 
-        # Set model attributes (with kwargs override)
-        self.model = kwargs.get('model', full_model_name)
-        self.temperature = kwargs.get('temperature', model_config.get('temperature'))
-        self.max_tokens = kwargs.get('max_tokens', model_config.get('max_tokens'))
-
-        # Extended model config fields
-        self.top_p = kwargs.get('top_p', model_config.get('top_p'))
-        self.top_k = kwargs.get('top_k', model_config.get('top_k'))
-        self.frequency_penalty = kwargs.get('frequency_penalty', model_config.get('frequency_penalty'))
-        self.presence_penalty = kwargs.get('presence_penalty', model_config.get('presence_penalty'))
-        self.seed = kwargs.get('seed', model_config.get('seed'))
-        self.base_url = kwargs.get('base_url', model_config.get('base_url'))
-        stream_value = kwargs.get('stream', model_config.get('stream', False))
+        self.model = overrides.get('model', full_model_name)
+        self.temperature = overrides.get('temperature', model_config.get('temperature'))
+        self.max_tokens = overrides.get('max_tokens', model_config.get('max_tokens'))
+        self.top_p = overrides.get('top_p', model_config.get('top_p'))
+        self.top_k = overrides.get('top_k', model_config.get('top_k'))
+        self.frequency_penalty = overrides.get('frequency_penalty', model_config.get('frequency_penalty'))
+        self.presence_penalty = overrides.get('presence_penalty', model_config.get('presence_penalty'))
+        self.seed = overrides.get('seed', model_config.get('seed'))
+        self.base_url = overrides.get('base_url', model_config.get('base_url'))
+        stream_value = overrides.get('stream', model_config.get('stream', False))
         self.stream = bool(stream_value)
-        self.stream_options = kwargs.get('stream_options', model_config.get('stream_options'))
-
-        # Store full model config for template access (includes custom fields)
+        self.stream_options = overrides.get('stream_options', model_config.get('stream_options'))
         self._model_config_raw = model_config
+
+    def _load_nested_config_ref(self, ref: str) -> Dict[str, Any]:
+        try:
+            import yaml
+        except ImportError:
+            yaml = None
+
+        path = ref if os.path.isabs(ref) else os.path.join(self._config_dir, ref)
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Referenced config file not found: {path}")
+
+        with open(path, 'r') as f:
+            if path.endswith('.json'):
+                config = json.load(f) or {}
+            else:
+                if yaml is None:
+                    raise ImportError("pyyaml is required for YAML config files.")
+                config = yaml.safe_load(f) or {}
+        return config
+
+    def _resolve_prompt_ref(self, prompt_ref: Any) -> Dict[str, Any]:
+        if isinstance(prompt_ref, str):
+            config = self._load_nested_config_ref(prompt_ref)
+        elif isinstance(prompt_ref, dict):
+            config = prompt_ref
+        else:
+            raise ValueError("Invalid prompt reference. Expected path string or prompt dict.")
+
+        if config.get('spec') == 'prompt':
+            return config.get('data', {})
+        return config.get('data', config) if isinstance(config, dict) else {}
+
+    def _resolve_profile_ref(self, profile_ref: Any) -> Dict[str, Any]:
+        from .profiles import resolve_profile_config
+        return resolve_profile_config(
+            profile_ref,
+            self._config_dir,
+            profiles_file=self._profiles_file,
+            profiles_dict=self._profiles_dict,
+        )
 
     def _validate_spec(self):
         """Validate the spec envelope."""
@@ -482,20 +573,77 @@ class FlatAgent:
             pass  # jsonschema not installed, skip validation
 
     def _parse_agent_config(self):
-        """Parse the v0.6.0 flatagent configuration."""
+        """Parse flatagent config (bundle or legacy)."""
         data = self.config['data']
         self.metadata = self.config.get('metadata', {})
+        self._jinja_env = jinja2.Environment()
 
-        # Agent name
+        if self._bundle_mode:
+            from .profiles import discover_profiles_file, load_profiles_from_file, resolve_profiles_with_fallback
+
+            parent_profiles_dict = self._profiles_dict
+            self._profiles_file = discover_profiles_file(self._config_dir, self._profiles_file)
+            own_profiles_dict = load_profiles_from_file(self._profiles_file) if self._profiles_file else None
+            self._profiles_dict = resolve_profiles_with_fallback(own_profiles_dict, parent_profiles_dict)
+
+            prompt_data = self._resolve_prompt_ref(data.get('prompt'))
+            profile_data = self._resolve_profile_ref(data.get('profile'))
+
+            self._prompt_config_raw = prompt_data
+            self._profile_config_raw = profile_data
+            self._runtime_config_raw = profile_data
+            self._runtime_type = profile_data.get('type', 'llm')
+
+            self.agent_name = (
+                prompt_data.get('name')
+                or data.get('name')
+                or self.metadata.get('name', 'unnamed-agent')
+            )
+
+            self._has_explicit_system_prompt = 'system' in prompt_data
+            self._system_prompt_template = prompt_data.get('system', self.DEFAULT_SYSTEM_PROMPT)
+            self._user_prompt_template = prompt_data.get('user', '')
+            self._instruction_suffix = prompt_data.get('instruction_suffix', '')
+            self.output_schema = prompt_data.get('output', {})
+            self.mcp_config = prompt_data.get('mcp')
+            self.tools = prompt_data.get('tools', [])
+
+            self._compiled_system = self._jinja_env.from_string(self._system_prompt_template)
+            self._compiled_user = self._jinja_env.from_string(self._user_prompt_template)
+            self._compiled_instruction_suffix = (
+                self._jinja_env.from_string(self._instruction_suffix)
+                if self._instruction_suffix
+                else None
+            )
+
+            if self._runtime_type == 'llm':
+                model_config = profile_data.get('model')
+                if not isinstance(model_config, dict):
+                    model_config = {k: v for k, v in profile_data.items() if k != 'type'}
+                self._apply_model_config(model_config, self._init_overrides)
+            else:
+                self._model_config_raw = {}
+                self.model = profile_data.get('model') or profile_data.get('ref') or self._runtime_type
+                self.temperature = None
+                self.max_tokens = None
+                self.top_p = None
+                self.top_k = None
+                self.frequency_penalty = None
+                self.presence_penalty = None
+                self.seed = None
+                self.base_url = None
+                self.stream = False
+                self.stream_options = None
+            return
+
+        # Legacy flatagent shape
         self.agent_name = data.get('name') or self.metadata.get('name', 'unnamed-agent')
-
-        # Prompts
+        self._runtime_type = 'llm'
+        self._runtime_config_raw = {'type': 'llm', 'model': self._model_config_raw}
+        self._has_explicit_system_prompt = 'system' in data
         self._system_prompt_template = data.get('system', self.DEFAULT_SYSTEM_PROMPT)
         self._user_prompt_template = data.get('user', '')
         self._instruction_suffix = data.get('instruction_suffix', '')
-
-        # Compile Jinja2 templates
-        self._jinja_env = jinja2.Environment()
         self._compiled_system = self._jinja_env.from_string(self._system_prompt_template)
         self._compiled_user = self._jinja_env.from_string(self._user_prompt_template)
         self._compiled_instruction_suffix = (
@@ -503,12 +651,9 @@ class FlatAgent:
             if self._instruction_suffix
             else None
         )
-
-        # Output schema (stored for reference, extraction uses json_object mode)
         self.output_schema = data.get('output', {})
-
-        # MCP configuration
         self.mcp_config = data.get('mcp')
+        self.tools = data.get('tools', [])
 
     # ─────────────────────────────────────────────────────────────────────────
     # MCP Tool Support
@@ -759,6 +904,168 @@ class FlatAgent:
                 prompt = f"{prompt}\n\n{suffix}"
         return prompt
 
+    def _runtime_task_from_prompt(self, system_prompt: str, user_prompt: str) -> str:
+        """Flatten prompt fields into a runtime task when needed."""
+        if self._runtime_type == "claude-code":
+            return user_prompt
+
+        parts: List[str] = []
+        if self._has_explicit_system_prompt and system_prompt:
+            parts.append(system_prompt)
+        if user_prompt:
+            parts.append(user_prompt)
+        return "\n\n".join(parts)
+
+    def _coerce_finish_reason(self, value: Optional[str]) -> Optional[FinishReason]:
+        if not value:
+            return None
+        try:
+            return FinishReason(value)
+        except ValueError:
+            mapping = {
+                "end_turn": FinishReason.STOP,
+                "max_tokens": FinishReason.LENGTH,
+                "tool_calls": FinishReason.TOOL_USE,
+                "error": FinishReason.ERROR,
+            }
+            return mapping.get(value)
+
+    def _coerce_usage_info(self, usage: Optional[Dict[str, Any]], cost: Any = None) -> Optional[UsageInfo]:
+        if not usage and cost is None:
+            return None
+        usage = usage or {}
+        usage_info = UsageInfo(
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            total_tokens=usage.get(
+                "total_tokens",
+                usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
+            ),
+            cache_read_tokens=usage.get("cache_read_tokens", usage.get("cached_input_tokens", 0) or 0),
+            cache_write_tokens=usage.get("cache_write_tokens", 0),
+        )
+        if isinstance(cost, dict):
+            usage_info.cost = CostInfo(
+                input=float(cost.get("input", 0) or 0),
+                output=float(cost.get("output", 0) or 0),
+                cache_read=float(cost.get("cache_read", 0) or 0),
+                cache_write=float(cost.get("cache_write", 0) or 0),
+                total=float(cost.get("total", 0) or 0),
+            )
+        elif isinstance(cost, (int, float)):
+            usage_info.cost = CostInfo(total=float(cost))
+        return usage_info
+
+    def _coerce_error_info(self, error: Optional[Dict[str, Any]]) -> Optional[ErrorInfo]:
+        if not error:
+            return None
+        return ErrorInfo(
+            error_type=error.get("type", "RuntimeError"),
+            message=error.get("message", "unknown error"),
+            status_code=error.get("status_code"),
+            retryable=bool(error.get("retryable", False)),
+        )
+
+    def _coerce_rate_limit_info(self, rate_limit: Optional[Dict[str, Any]]) -> Optional[RateLimitInfo]:
+        if not rate_limit:
+            return None
+        info = RateLimitInfo(retry_after=rate_limit.get("retry_after"))
+        windows = rate_limit.get("windows") or []
+        if windows:
+            first = windows[0]
+            info.remaining_requests = first.get("remaining") if first.get("resource") == "requests" else info.remaining_requests
+            info.limit_requests = first.get("limit") if first.get("resource") == "requests" else info.limit_requests
+            for window in windows:
+                resource = window.get("resource")
+                if resource == "requests":
+                    info.remaining_requests = window.get("remaining")
+                    info.limit_requests = window.get("limit")
+                elif resource == "tokens":
+                    info.remaining_tokens = window.get("remaining")
+                    info.limit_tokens = window.get("limit")
+        return info
+
+    def _coerce_external_response(self, result: Any) -> AgentResponse:
+        usage = self._coerce_usage_info(getattr(result, "usage", None), getattr(result, "cost", None))
+        response = AgentResponse(
+            content=getattr(result, "content", None),
+            output=getattr(result, "output", None),
+            raw_response=getattr(result, "raw", None),
+            usage=usage,
+            rate_limit=self._coerce_rate_limit_info(getattr(result, "rate_limit", None)),
+            finish_reason=self._coerce_finish_reason(getattr(result, "finish_reason", None)),
+            error=self._coerce_error_info(getattr(result, "error", None)),
+            rendered_user_prompt=getattr(result, "rendered_user_prompt", None),
+            metadata=getattr(result, "metadata", None),
+            provider_data=getattr(result, "provider_data", None),
+        )
+        tool_calls = []
+        for tool_call in getattr(result, "tool_calls", None) or []:
+            tool_calls.append(ToolCall(
+                id=tool_call.get("id", ""),
+                server=tool_call.get("server", ""),
+                tool=tool_call.get("name") or tool_call.get("tool", ""),
+                arguments=tool_call.get("arguments", {}) or {},
+            ))
+        response.tool_calls = tool_calls or None
+        if self.output_schema and response.output is None and response.content:
+            try:
+                response.output = json.loads(strip_markdown_json(response.content))
+            except json.JSONDecodeError:
+                response.output = {"_raw": response.content}
+        return response
+
+    async def _call_external_runtime(
+        self,
+        *,
+        messages: Optional[List[Dict[str, Any]]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
+        **input_data
+    ) -> AgentResponse:
+        if messages is not None or tools is not None:
+            execute_with_tools = getattr(self._runtime_executor, "execute_with_tools", None)
+            if execute_with_tools is None:
+                raise NotImplementedError(
+                    f"Runtime '{self._runtime_type}' does not support machine-driven tool loops"
+                )
+
+        system_prompt = self._render_system_prompt(input_data, tools_prompt="", tools=[])
+        user_prompt = self._render_user_prompt(input_data, tools_prompt="", tools=[])
+        runtime_input = dict(input_data)
+        runtime_input.setdefault("task", self._runtime_task_from_prompt(system_prompt, user_prompt))
+        runtime_input.setdefault("prompt", runtime_input["task"])
+        if self._runtime_type == "claude-code" and self._has_explicit_system_prompt and system_prompt:
+            runtime_input["_append_system_prompt"] = system_prompt
+
+        if messages is not None or tools is not None:
+            result = await self._runtime_executor.execute_with_tools(
+                runtime_input,
+                tools or [],
+                messages=messages,
+                context=context,
+                session_id=session_id,
+            )
+        else:
+            result = await self._runtime_executor.execute(
+                runtime_input,
+                context=context,
+                session_id=session_id,
+            )
+
+        result_usage = getattr(result, "usage", None) or {}
+        self.total_api_calls += int(result_usage.get("api_calls", 1) or 1)
+        result_cost = getattr(result, "cost", None)
+        if isinstance(result_cost, (int, float)):
+            self.total_cost += float(result_cost)
+        elif isinstance(result_cost, dict):
+            self.total_cost += float(result_cost.get("total", 0) or 0)
+
+        response = self._coerce_external_response(result)
+        response.rendered_user_prompt = user_prompt
+        return response
+
     # ─────────────────────────────────────────────────────────────────────────
     # Execution
     # ─────────────────────────────────────────────────────────────────────────
@@ -768,6 +1075,8 @@ class FlatAgent:
         tool_provider: Optional["MCPToolProvider"] = None,
         messages: Optional[List[Dict[str, Any]]] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
         **input_data
     ) -> "AgentResponse":
         """
@@ -789,6 +1098,15 @@ class FlatAgent:
             self._tool_provider = tool_provider
             self._tools_cache = None  # Clear cache
 
+        if self._runtime_type != "llm":
+            return await self._call_external_runtime(
+                messages=messages,
+                tools=tools,
+                context=context,
+                session_id=session_id,
+                **input_data,
+            )
+
         # Use caller-provided tools or discover via MCP
         if tools is not None:
             # Caller provided tools directly — skip MCP discovery
@@ -796,14 +1114,16 @@ class FlatAgent:
             _mcp_tools: list = []
             tools_prompt = ""
         else:
-            # Discover tools if MCP is configured
+            # Discover MCP tools and include any prompt-local function tools
             _mcp_tools = self._discover_tools()
-            _external_tools = None
+            _external_tools = list(self.tools or [])
             tools_prompt = self._render_tool_prompt(_mcp_tools)
 
         # Session identity is transport metadata, not prompt input.
         # Strip it from input_data so continuation calls (messages=..., no fresh
         # user input) are not misclassified as having new user content.
+        if self._backend == "codex" and session_id is not None and "session_id" not in input_data:
+            input_data["session_id"] = session_id
         codex_session_id = None
         if self._backend == "codex" and "session_id" in input_data:
             codex_session_id = input_data.pop("session_id")
@@ -894,11 +1214,13 @@ class FlatAgent:
             params["session_id"] = codex_session_id
 
         # Add tools if available
+        combined_tools = []
         if _external_tools:
-            # Caller provided tools in OpenAI format — use directly
-            params["tools"] = _external_tools
-        elif _mcp_tools:
-            params["tools"] = self._convert_tools_for_llm(_mcp_tools)
+            combined_tools.extend(_external_tools)
+        if _mcp_tools:
+            combined_tools.extend(self._convert_tools_for_llm(_mcp_tools))
+        if combined_tools:
+            params["tools"] = combined_tools
 
         # Use JSON mode if we have an output schema and no tools
         has_tools = bool(_external_tools or _mcp_tools)
@@ -1203,8 +1525,19 @@ class FlatAgent:
         tool_provider: Optional["MCPToolProvider"] = None,
         messages: Optional[List[Dict[str, Any]]] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        context: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
         **input_data
     ) -> "AgentResponse":
         """Synchronous wrapper for call()."""
         import asyncio
-        return asyncio.run(self.call(tool_provider=tool_provider, messages=messages, tools=tools, **input_data))
+        return asyncio.run(
+            self.call(
+                tool_provider=tool_provider,
+                messages=messages,
+                tools=tools,
+                context=context,
+                session_id=session_id,
+                **input_data,
+            )
+        )

@@ -16,7 +16,8 @@ fi
 
 FLATAGENT_SPEC="$REPO_ROOT/flatagent.d.ts"
 FLATMACHINE_SPEC="$REPO_ROOT/flatmachine.d.ts"
-PROFILES_SPEC="$REPO_ROOT/profiles.d.ts"
+PROFILE_SPEC="$REPO_ROOT/profile.d.ts"
+PROMPT_SPEC="$REPO_ROOT/prompt.d.ts"
 EXTRACTOR="$SCRIPT_DIR/generate-spec-assets.ts"
 
 # Verify spec files exist
@@ -30,8 +31,13 @@ if [[ ! -f "$FLATMACHINE_SPEC" ]]; then
     exit 1
 fi
 
-if [[ ! -f "$PROFILES_SPEC" ]]; then
-    echo "Error: profiles.d.ts not found at $PROFILES_SPEC"
+if [[ ! -f "$PROFILE_SPEC" ]]; then
+    echo "Error: profile.d.ts not found at $PROFILE_SPEC"
+    exit 1
+fi
+
+if [[ ! -f "$PROMPT_SPEC" ]]; then
+    echo "Error: prompt.d.ts not found at $PROMPT_SPEC"
     exit 1
 fi
 
@@ -39,9 +45,10 @@ fi
 echo "Extracting spec versions from SPEC_VERSION constants..."
 FLATAGENT_VERSION=$(cd "$SCRIPT_DIR" && npx tsx generate-spec-assets.ts --extract-version "$FLATAGENT_SPEC")
 FLATMACHINE_VERSION=$(cd "$SCRIPT_DIR" && npx tsx generate-spec-assets.ts --extract-version "$FLATMACHINE_SPEC")
-PROFILES_VERSION=$(cd "$SCRIPT_DIR" && npx tsx generate-spec-assets.ts --extract-version "$PROFILES_SPEC")
+PROFILE_VERSION=$(cd "$SCRIPT_DIR" && npx tsx generate-spec-assets.ts --extract-version "$PROFILE_SPEC")
+PROMPT_VERSION=$(cd "$SCRIPT_DIR" && npx tsx generate-spec-assets.ts --extract-version "$PROMPT_SPEC")
 
-if [[ -z "$FLATAGENT_VERSION" || -z "$FLATMACHINE_VERSION" || -z "$PROFILES_VERSION" ]]; then
+if [[ -z "$FLATAGENT_VERSION" || -z "$FLATMACHINE_VERSION" || -z "$PROFILE_VERSION" || -z "$PROMPT_VERSION" ]]; then
     echo "Error: Could not extract spec versions"
     exit 1
 fi
@@ -49,7 +56,8 @@ fi
 echo "Source of truth:"
 echo "  flatagent.d.ts:   $FLATAGENT_VERSION"
 echo "  flatmachine.d.ts: $FLATMACHINE_VERSION"
-echo "  profiles.d.ts:    $PROFILES_VERSION"
+echo "  profile.d.ts:     $PROFILE_VERSION"
+echo "  prompt.d.ts:      $PROMPT_VERSION"
 echo ""
 
 # Find all YAML/JSON files with spec_version
@@ -57,7 +65,8 @@ cd "$REPO_ROOT"
 
 FLATAGENT_MISMATCHES=()
 FLATMACHINE_MISMATCHES=()
-PROFILES_MISMATCHES=()
+PROFILE_MISMATCHES=()
+PROMPT_MISMATCHES=()
 
 while IFS= read -r file; do
     # Extract spec and spec_version from the file
@@ -77,9 +86,13 @@ while IFS= read -r file; do
         if [[ "$VERSION" != "$FLATMACHINE_VERSION" ]]; then
             FLATMACHINE_MISMATCHES+=("$file: $VERSION (should be $FLATMACHINE_VERSION)")
         fi
-    elif [[ "$SPEC" == "flatprofiles" ]]; then
-        if [[ "$VERSION" != "$PROFILES_VERSION" ]]; then
-            PROFILES_MISMATCHES+=("$file: $VERSION (should be $PROFILES_VERSION)")
+    elif [[ "$SPEC" == "flatprofile" ]]; then
+        if [[ "$VERSION" != "$PROFILE_VERSION" ]]; then
+            PROFILE_MISMATCHES+=("$file: $VERSION (should be $PROFILE_VERSION)")
+        fi
+    elif [[ "$SPEC" == "prompt" ]]; then
+        if [[ "$VERSION" != "$PROMPT_VERSION" ]]; then
+            PROMPT_MISMATCHES+=("$file: $VERSION (should be $PROMPT_VERSION)")
         fi
     fi
 done < <(rg 'spec_version' --type yaml --type json -l)
@@ -100,7 +113,7 @@ for mdfile in README.md AGENTS.md; do
 done
 
 # Report results
-TOTAL_MISMATCHES=$((${#FLATAGENT_MISMATCHES[@]} + ${#FLATMACHINE_MISMATCHES[@]} + ${#PROFILES_MISMATCHES[@]} + ${#MARKDOWN_MISMATCHES[@]}))
+TOTAL_MISMATCHES=$((${#FLATAGENT_MISMATCHES[@]} + ${#FLATMACHINE_MISMATCHES[@]} + ${#PROFILE_MISMATCHES[@]} + ${#PROMPT_MISMATCHES[@]} + ${#MARKDOWN_MISMATCHES[@]}))
 
 if [[ $TOTAL_MISMATCHES -gt 0 ]]; then
     echo "❌ Found $TOTAL_MISMATCHES file(s) with mismatched spec_version:"
@@ -122,9 +135,17 @@ if [[ $TOTAL_MISMATCHES -gt 0 ]]; then
         echo ""
     fi
     
-    if [[ ${#PROFILES_MISMATCHES[@]} -gt 0 ]]; then
-        echo "Profiles mismatches:"
-        for mismatch in "${PROFILES_MISMATCHES[@]}"; do
+    if [[ ${#PROFILE_MISMATCHES[@]} -gt 0 ]]; then
+        echo "Profile mismatches:"
+        for mismatch in "${PROFILE_MISMATCHES[@]}"; do
+            echo "  - $mismatch"
+        done
+        echo ""
+    fi
+
+    if [[ ${#PROMPT_MISMATCHES[@]} -gt 0 ]]; then
+        echo "Prompt mismatches:"
+        for mismatch in "${PROMPT_MISMATCHES[@]}"; do
             echo "  - $mismatch"
         done
         echo ""
@@ -143,7 +164,8 @@ else
     echo "✓ All spec_version references match:"
     echo "  - flatagent configs use v$FLATAGENT_VERSION"
     echo "  - flatmachine configs use v$FLATMACHINE_VERSION"
-    echo "  - profiles configs use v$PROFILES_VERSION"
+    echo "  - profile configs use v$PROFILE_VERSION"
+    echo "  - prompt configs use v$PROMPT_VERSION"
     echo "  - README.md/AGENTS.md inline examples match"
     SPEC_VERSION_FAILED=false
 fi

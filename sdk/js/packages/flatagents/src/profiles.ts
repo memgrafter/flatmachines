@@ -82,9 +82,9 @@ export class ProfileManager {
     const config = yaml.parse(content) as ProfilesConfig | ProfilesConfig["data"];
 
     // Validate spec if present
-    if ("spec" in config && config.spec !== "flatprofiles") {
+    if ("spec" in config && config.spec !== "flatprofile") {
       throw new Error(
-        `Invalid profiles spec: expected 'flatprofiles', got '${config.spec}'`
+        `Invalid profiles spec: expected 'flatprofile', got '${config.spec}'`
       );
     }
 

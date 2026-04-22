@@ -3,9 +3,9 @@
  * Generate spec assets for SDK packages.
  *
  * Creates:
- * - flatagent.d.ts / flatmachine.d.ts (full specs)
- * - flatagent.slim.d.ts / flatmachine.slim.d.ts (no comments, for LLM/machine reading)
- * - flatagent.schema.json / flatmachine.schema.json (JSON schema for validation)
+ * - flatagent.d.ts / flatmachine.d.ts / profile.d.ts / prompt.d.ts / flatagents-runtime.d.ts (full specs)
+ * - *.slim.d.ts (no comments, for LLM/machine reading)
+ * - *.schema.json (JSON schema for validation)
  *
  * Usage:
  *   npx tsx scripts/generate-spec-assets.ts [target-dir]
@@ -31,7 +31,8 @@ interface SpecConfig {
 const SPECS: SpecConfig[] = [
   { filename: "flatagent.d.ts", rootType: "AgentWrapper" },
   { filename: "flatmachine.d.ts", rootType: "MachineWrapper" },
-  { filename: "profiles.d.ts", rootType: "ProfilesWrapper" },
+  { filename: "profile.d.ts", rootType: "FlatprofileConfig" },
+  { filename: "prompt.d.ts", rootType: "PromptWrapper" },
   { filename: "flatagents-runtime.d.ts", rootType: "SDKRuntimeWrapper" },
 ];
 

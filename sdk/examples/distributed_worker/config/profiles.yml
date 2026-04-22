@@ -1,4 +1,4 @@
-spec: flatprofiles
+spec: flatprofile
 spec_version: "2.0.0"
 
 data:

@@ -67,5 +67,5 @@ Entries are grouped by theme. New themes emerge as needed. Nothing is ever delet
 ## Architecture
 
 This is a single-state FlatMachine (`start → interpret → done`) using the
-`codex-cli` agent adapter. The Codex runtime profile lives in
-`config/codex-cli.profile.yml` and is referenced by the machine config.
+`codex-cli` agent adapter. The Codex runtime settings are inlined in the
+machine config's typed adapter entry.

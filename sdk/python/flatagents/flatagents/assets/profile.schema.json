@@ -1,0 +1,420 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/FlatprofileConfig",
+  "definitions": {
+    "FlatprofileConfig": {
+      "$ref": "#/definitions/ProfileWrapper"
+    },
+    "ProfileWrapper": {
+      "type": "object",
+      "properties": {
+        "spec": {
+          "type": "string",
+          "const": "flatprofile"
+        },
+        "spec_version": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "model_profiles": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/definitions/ProfileData"
+              }
+            },
+            "default": {
+              "type": "string"
+            },
+            "override": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "model_profiles"
+          ],
+          "additionalProperties": false
+        },
+        "metadata": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "spec",
+        "spec_version",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "ProfileData": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ModelConfig"
+        },
+        {
+          "$ref": "#/definitions/LLMProfile"
+        },
+        {
+          "$ref": "#/definitions/ClaudeCodeProfile"
+        },
+        {
+          "$ref": "#/definitions/CodexCliProfile"
+        },
+        {
+          "$ref": "#/definitions/SmolagentsProfile"
+        },
+        {
+          "$ref": "#/definitions/PiAgentProfile"
+        }
+      ]
+    },
+    "ModelConfig": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "temperature": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "number"
+        },
+        "top_p": {
+          "type": "number"
+        },
+        "top_k": {
+          "type": "number"
+        },
+        "frequency_penalty": {
+          "type": "number"
+        },
+        "presence_penalty": {
+          "type": "number"
+        },
+        "seed": {
+          "type": "number"
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "stream": {
+          "type": "boolean"
+        },
+        "backend": {
+          "type": "string",
+          "enum": [
+            "litellm",
+            "aisuite",
+            "codex",
+            "copilot"
+          ]
+        },
+        "api": {
+          "type": "string"
+        },
+        "oauth": {
+          "$ref": "#/definitions/OAuthConfig"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "OAuthConfig": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "auth_file": {
+          "type": "string"
+        },
+        "refresh": {
+          "type": "boolean"
+        },
+        "originator": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "type": "number"
+        },
+        "max_retries": {
+          "type": "number"
+        },
+        "token_url": {
+          "type": "string"
+        },
+        "client_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "LLMProfile": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "llm"
+        },
+        "model": {
+          "$ref": "#/definitions/ModelConfig"
+        }
+      },
+      "required": [
+        "type",
+        "model"
+      ],
+      "additionalProperties": false
+    },
+    "ClaudeCodeProfile": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "claude-code"
+        },
+        "model": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "max"
+          ]
+        },
+        "permission_mode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "acceptEdits",
+            "bypassPermissions",
+            "dontAsk",
+            "plan",
+            "auto"
+          ]
+        },
+        "dangerously_skip_permissions": {
+          "type": "boolean"
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "max_budget_usd": {
+          "type": "number"
+        },
+        "add_dirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "claude_bin": {
+          "type": "string"
+        },
+        "working_dir": {
+          "type": "string"
+        },
+        "timeout": {
+          "type": "number"
+        },
+        "max_continuations": {
+          "type": "number"
+        },
+        "exit_sentinel": {
+          "type": "string"
+        },
+        "continuation_prompt": {
+          "type": "string"
+        },
+        "mcp_config": {
+          "type": "string"
+        },
+        "rate_limit_delay": {
+          "type": "number"
+        },
+        "rate_limit_jitter": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "CodexCliProfile": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "codex-cli"
+        },
+        "model": {
+          "type": "string"
+        },
+        "reasoning_effort": {
+          "type": "string",
+          "enum": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
+        },
+        "sandbox": {
+          "type": "string",
+          "enum": [
+            "read-only",
+            "workspace-write",
+            "danger-full-access"
+          ]
+        },
+        "approval_policy": {
+          "type": "string",
+          "enum": [
+            "untrusted",
+            "on-request",
+            "never"
+          ]
+        },
+        "dangerously_bypass_approvals_and_sandbox": {
+          "type": "boolean"
+        },
+        "add_dirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "codex_bin": {
+          "type": "string"
+        },
+        "working_dir": {
+          "type": "string"
+        },
+        "timeout": {
+          "type": "number"
+        },
+        "skip_git_repo_check": {
+          "type": "boolean"
+        },
+        "ephemeral": {
+          "type": "boolean"
+        },
+        "search": {
+          "type": "boolean"
+        },
+        "config_overrides": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          }
+        },
+        "feature_enable": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "feature_disable": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rate_limit_delay": {
+          "type": "number"
+        },
+        "rate_limit_jitter": {
+          "type": "number"
+        },
+        "use_app_server": {
+          "type": "boolean"
+        },
+        "session_source": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "SmolagentsProfile": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "smolagents"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "config": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "type",
+        "ref"
+      ],
+      "additionalProperties": false
+    },
+    "PiAgentProfile": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "pi-agent"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "runner": {
+          "type": "string"
+        },
+        "node": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "timeout": {
+          "type": "number"
+        },
+        "agent_config": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "type",
+        "ref"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

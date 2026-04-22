@@ -1,6 +1,6 @@
 # FlatAgents + FlatMachines Reference
 
-> **Target: <1000 tokens.** LLM-optimized. See `flatagent.d.ts`, `flatmachine.d.ts`, `profiles.d.ts` for schemas.
+> **Target: <1000 tokens.** LLM-optimized. See `flatagent.d.ts`, `flatmachine.d.ts`, `profile.d.ts`, `prompt.d.ts` for schemas.
 >
 > **Versioning:** All specs and SDKs use lockstep versioning.
 
@@ -21,7 +21,7 @@
 
 ```yaml
 # profiles.yml — agents reference by name
-spec: flatprofiles
+spec: flatprofile
 spec_version: "2.5.0"
 data:
   model_profiles:

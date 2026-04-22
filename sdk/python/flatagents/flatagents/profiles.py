@@ -233,8 +233,8 @@ def load_profiles_from_file(profiles_file: str) -> Dict[str, Any]:
 
     # Validate spec if present
     spec = config.get('spec')
-    if spec and spec != 'flatprofiles':
-        raise ValueError(f"Invalid profiles spec: expected 'flatprofiles', got '{spec}'")
+    if spec and spec != 'flatprofile':
+        raise ValueError(f"Invalid profiles spec: expected 'flatprofile', got '{spec}'")
 
     # Support both wrapped (spec/data) and unwrapped format
     data = config.get('data', config)
@@ -325,10 +325,89 @@ def discover_profiles_file(config_dir: str, explicit_path: Optional[str] = None)
     return default_path if os.path.exists(default_path) else None
 
 
+def _profiles_dict_from_flatprofile_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a wrapped flatprofile catalog config to ProfileManager input."""
+    spec = config.get("spec")
+    if spec != "flatprofile":
+        raise ValueError(f"Invalid profile spec: expected 'flatprofile', got '{spec}'")
+
+    data = config.get("data") or {}
+    if not isinstance(data, dict):
+        raise ValueError("Invalid flatprofile config: data must be an object")
+
+    return {
+        "profiles": data.get("model_profiles", {}),
+        "default": data.get("default"),
+        "override": data.get("override"),
+    }
+
+
+def _resolve_default_profile(profiles_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve the default/override profile from a flatprofile catalog."""
+    manager = ProfileManager(profiles_dict)
+    resolved = manager.resolve_model_config(None)
+    if resolved:
+        return resolved
+
+    profiles = profiles_dict.get("profiles", {}) or {}
+    if len(profiles) == 1:
+        return dict(next(iter(profiles.values())))
+
+    raise ValueError(
+        "Inline flatprofile catalogs used as data.profile must set data.default "
+        "or contain exactly one model_profiles entry"
+    )
+
+
+def load_profile_from_file(profile_file: str) -> Dict[str, Any]:
+    """Load a wrapped flatprofile catalog file and resolve its default profile."""
+    try:
+        import yaml
+    except ImportError:
+        yaml = None
+
+    if not os.path.exists(profile_file):
+        raise FileNotFoundError(f"Profile file not found: {profile_file}")
+
+    with open(profile_file, "r") as f:
+        if profile_file.endswith(".json"):
+            config = __import__("json").load(f) or {}
+        else:
+            if yaml is None:
+                raise ImportError("pyyaml is required for YAML profile files")
+            config = yaml.safe_load(f) or {}
+
+    return _resolve_default_profile(_profiles_dict_from_flatprofile_config(config))
+
+
+def resolve_profile_config(
+    profile_ref: Any,
+    config_dir: str,
+    profiles_file: Optional[str] = None,
+    profiles_dict: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Resolve a flatagent data.profile value into concrete execution profile data."""
+    if isinstance(profile_ref, str):
+        effective_profiles = profiles_dict
+        if effective_profiles is None:
+            discovered = discover_profiles_file(config_dir, profiles_file)
+            effective_profiles = load_profiles_from_file(discovered) if discovered else None
+        if not effective_profiles:
+            raise ValueError(f"Profile '{profile_ref}' not found: no flatprofile catalog available")
+        return resolve_model_config(profile_ref, config_dir, profiles_dict=effective_profiles)
+
+    if isinstance(profile_ref, dict):
+        return _resolve_default_profile(_profiles_dict_from_flatprofile_config(profile_ref))
+
+    raise ValueError("Invalid profile reference. Expected profile name string or flatprofile catalog dict.")
+
+
 __all__ = [
     "ProfileManager",
     "load_profiles_from_file",
     "resolve_model_config",
     "resolve_profiles_with_fallback",
     "discover_profiles_file",
+    "load_profile_from_file",
+    "resolve_profile_config",
 ]

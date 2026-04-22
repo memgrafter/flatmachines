@@ -1,4 +1,4 @@
-__version__ = "3.0.0"
+__version__ = "4.0.0"
 
 from .baseagent import (
     # Base agent (abstract, for multi-step agents)
@@ -35,6 +35,8 @@ from .flatagent import FlatAgent
 from .profiles import (
     ProfileManager,
     resolve_model_config,
+    load_profile_from_file,
+    resolve_profile_config,
 )
 from .validation import (
     validate_flatagent_config,
@@ -62,6 +64,21 @@ from .tool_loop import (
     AggregateUsage,
     StopReason,
     SteeringProvider,
+)
+from .adapters import (
+    ClaudeCodeExecutor,
+    create_claude_code_executor,
+    CodexCliExecutor,
+    CodexAppServerTransport,
+    create_codex_cli_executor,
+    SmolagentsExecutor,
+    create_smolagents_executor,
+    PiAgentBridgeExecutor,
+    create_pi_agent_bridge_executor,
+    ClaudeCodeSessionHoldback,
+    ClaudeCodeForkResult,
+    CodexSessionHoldback,
+    CodexForkResult,
 )
 # Provider-specific utilities
 from .providers import (
@@ -159,6 +176,22 @@ __all__ = [
     # Model Profiles
     "ProfileManager",
     "resolve_model_config",
+    "load_profile_from_file",
+    "resolve_profile_config",
+    # Runtime adapters
+    "ClaudeCodeExecutor",
+    "create_claude_code_executor",
+    "CodexCliExecutor",
+    "CodexAppServerTransport",
+    "create_codex_cli_executor",
+    "SmolagentsExecutor",
+    "create_smolagents_executor",
+    "PiAgentBridgeExecutor",
+    "create_pi_agent_bridge_executor",
+    "ClaudeCodeSessionHoldback",
+    "ClaudeCodeForkResult",
+    "CodexSessionHoldback",
+    "CodexForkResult",
     # Tool Use
     "ToolResult",
     "ToolProvider",

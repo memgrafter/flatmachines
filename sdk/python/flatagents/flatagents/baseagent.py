@@ -673,15 +673,17 @@ class AgentResponse:
     Response from an agent call.
 
     Attributes:
-        content: Raw text content from LLM (may be None if only tool calls or error)
+        content: Raw text content from runtime (may be None if only tool calls or error)
         output: Parsed output according to output schema (if defined)
-        tool_calls: List of tool calls requested by LLM (if any)
-        raw_response: Raw LLM response object for advanced use cases
+        tool_calls: List of tool calls requested by runtime (if any)
+        raw_response: Raw runtime response object for advanced use cases
         usage: Token usage information (includes cache tokens and costs)
-        rate_limit: Rate limit info from response headers
-        finish_reason: Why the LLM stopped generating
+        rate_limit: Rate limit info from response headers/events
+        finish_reason: Why the runtime stopped generating
         error: Error information if call failed (None on success)
         rendered_user_prompt: Rendered user prompt used for this call
+        metadata: Runtime-specific structured metadata (stream events, session IDs, tool results, etc.)
+        provider_data: Provider/runtime-specific debugging metadata
     """
     content: Optional[str] = None
     output: Optional[Dict[str, Any]] = None
@@ -692,7 +694,9 @@ class AgentResponse:
     finish_reason: Optional[FinishReason] = None
     error: Optional[ErrorInfo] = None
     rendered_user_prompt: Optional[str] = None
-    
+    metadata: Optional[Dict[str, Any]] = None
+    provider_data: Optional[Dict[str, Any]] = None
+
     @property
     def success(self) -> bool:
         """Whether the call succeeded (no error)."""

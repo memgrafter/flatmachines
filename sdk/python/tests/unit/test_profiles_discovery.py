@@ -26,7 +26,7 @@ class TestDiscoverProfilesFile:
     def test_discovers_profiles_in_config_dir(self, tmp_path):
         """Discovers profiles.yml when it exists in config_dir."""
         profiles_path = tmp_path / "profiles.yml"
-        profiles_path.write_text("spec: flatprofiles\ndata:\n  model_profiles: {}")
+        profiles_path.write_text("spec: flatprofile\ndata:\n  model_profiles: {}")
 
         result = discover_profiles_file(str(tmp_path))
         assert result == str(profiles_path)
@@ -40,7 +40,7 @@ class TestDiscoverProfilesFile:
         """Explicit path takes precedence over auto-discovery."""
         # Create profiles.yml in config_dir
         profiles_path = tmp_path / "profiles.yml"
-        profiles_path.write_text("spec: flatprofiles\ndata:\n  model_profiles: {}")
+        profiles_path.write_text("spec: flatprofile\ndata:\n  model_profiles: {}")
 
         # But provide explicit path
         explicit = "/explicit/profiles.yml"
@@ -50,7 +50,7 @@ class TestDiscoverProfilesFile:
     def test_empty_explicit_path_triggers_discovery(self, tmp_path):
         """Empty string explicit path is falsy, triggers discovery."""
         profiles_path = tmp_path / "profiles.yml"
-        profiles_path.write_text("spec: flatprofiles\ndata:\n  model_profiles: {}")
+        profiles_path.write_text("spec: flatprofile\ndata:\n  model_profiles: {}")
 
         # Empty string is falsy
         result = discover_profiles_file(str(tmp_path), "")
@@ -59,7 +59,7 @@ class TestDiscoverProfilesFile:
     def test_none_explicit_path_triggers_discovery(self, tmp_path):
         """None explicit path triggers discovery."""
         profiles_path = tmp_path / "profiles.yml"
-        profiles_path.write_text("spec: flatprofiles\ndata:\n  model_profiles: {}")
+        profiles_path.write_text("spec: flatprofile\ndata:\n  model_profiles: {}")
 
         result = discover_profiles_file(str(tmp_path), None)
         assert result == str(profiles_path)
@@ -74,7 +74,7 @@ class TestFlatAgentProfileDiscovery:
 
         # Create profiles.yml with a test profile
         profiles_content = """
-spec: flatprofiles
+spec: flatprofile
 spec_version: "0.7.1"
 data:
   model_profiles:
@@ -115,7 +115,7 @@ data:
         profiles_dir = tmp_path / "profiles"
         profiles_dir.mkdir()
         profiles_content = """
-spec: flatprofiles
+spec: flatprofile
 spec_version: "0.7.1"
 data:
   model_profiles:
@@ -183,7 +183,7 @@ class TestFlatMachineProfileDiscovery:
 
         # Create profiles.yml
         profiles_content = """
-spec: flatprofiles
+spec: flatprofile
 spec_version: "0.7.1"
 data:
   model_profiles:
@@ -222,7 +222,7 @@ data:
 
         # Create profiles.yml in machine directory
         profiles_content = """
-spec: flatprofiles
+spec: flatprofile
 spec_version: "0.7.1"
 data:
   model_profiles:
@@ -315,7 +315,7 @@ class TestProfileManagerCache:
     def test_get_instance_caches_by_directory(self, tmp_path):
         """ProfileManager.get_instance caches managers by directory."""
         profiles_content = """
-spec: flatprofiles
+spec: flatprofile
 data:
   model_profiles:
     test: { provider: openai, name: gpt-4 }

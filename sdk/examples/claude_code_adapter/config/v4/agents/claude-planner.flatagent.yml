@@ -1,0 +1,5 @@
+spec: flatagent
+spec_version: "4.0.0"
+data:
+  prompt: ../prompts/planner.prompt.yml
+  profile: claude-planner

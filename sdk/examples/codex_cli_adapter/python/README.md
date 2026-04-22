@@ -1,11 +1,13 @@
 # Codex CLI Adapter — Cache Demo
 
-Demonstrates Responses API prefix caching with the `codex-cli` adapter.
+Demonstrates Responses API prefix caching with the `codex-cli` runtime via
+native `prompt` + `flatprofile` + `flatagent` configs.
 
-A two-state machine sends ~10k tokens of context (`seed`), then resumes
-the same thread with "Reply YES" (`verify`). The monitor log shows
-`(cached: N)` on each call — the second call should show significantly
-higher cached token counts, proving the prefix cache hit.
+The Python runner uses `config/v4/`, where each machine embeds FlatAgent
+bundles, and each bundle references a prompt file plus a shared Codex profile.
+A two-state machine seeds a thread (`seed`), then resumes the same thread
+(`verify`). The second call should show significantly higher cached token
+counts, proving the prefix cache hit.
 
 ## Run
 

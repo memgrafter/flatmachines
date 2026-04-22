@@ -1,0 +1,12 @@
+spec: flatprofile
+spec_version: 4.0.0
+data:
+  model_profiles:
+    codex-readonly:
+      type: codex-cli
+      model: gpt-5.3-codex
+      reasoning_effort: high
+      sandbox: read-only
+      approval_policy: never
+      skip_git_repo_check: true
+  default: codex-readonly

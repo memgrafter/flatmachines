@@ -57,7 +57,7 @@ If `data.output` is provided, FlatAgents requests JSON mode and parses the respo
 ## Model Profiles (profiles.yml)
 
 ```yaml
-spec: flatprofiles
+spec: flatprofile
 spec_version: "0.10.0"
 
 data:
@@ -174,4 +174,5 @@ from flatagents import FlatMachine
 
 Source of truth:
 - [`flatagent.d.ts`](https://github.com/memgrafter/flatagents/blob/main/sdk/python/flatagents/flatagents/assets/flatagent.d.ts)
-- [`profiles.d.ts`](https://github.com/memgrafter/flatagents/blob/main/sdk/python/flatagents/flatagents/assets/profiles.d.ts)
+- [`prompt.d.ts`](https://github.com/memgrafter/flatagents/blob/main/sdk/python/flatagents/flatagents/assets/prompt.d.ts)
+- [`profile.d.ts`](https://github.com/memgrafter/flatagents/blob/main/sdk/python/flatagents/flatagents/assets/profile.d.ts)

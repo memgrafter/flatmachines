@@ -1,0 +1,10 @@
+spec: prompt
+spec_version: "4.0.0"
+data:
+  name: codex-seed
+  system: |
+    You are a careful CLI coding assistant.
+    Follow the requested reply format exactly.
+  user: |
+    Read the file demo_context.md carefully.
+    Acknowledge with exactly: RECEIVED

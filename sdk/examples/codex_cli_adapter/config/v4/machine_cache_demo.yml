@@ -1,0 +1,58 @@
+spec: flatmachine
+spec_version: 3.0.0
+data:
+  name: codex-cli-cache-demo-v4
+  context:
+    thread_id: ''
+  agents:
+    seeder:
+      spec: flatagent
+      spec_version: "4.0.0"
+      data:
+        prompt: ./prompts/seed.prompt.yml
+        profile: codex-readonly
+    verifier:
+      spec: flatagent
+      spec_version: "4.0.0"
+      data:
+        prompt: ./prompts/verify.prompt.yml
+        profile: codex-readonly
+  states:
+    start:
+      type: initial
+      transitions:
+      - to: seed
+      hooks: codex-cli-hooks
+    seed:
+      agent: seeder
+      output_to_context:
+        seed_result: output.result
+        thread_id: output.thread_id
+      transitions:
+      - to: verify
+      hooks: codex-cli-hooks
+    verify:
+      agent: verifier
+      input:
+        resume_session: context.thread_id
+      output_to_context:
+        verify_result: output.result
+      transitions:
+      - to: done
+      hooks: codex-cli-hooks
+    done:
+      type: final
+      output:
+        seed_result: context.seed_result
+        verify_result: context.verify_result
+        thread_id: context.thread_id
+      hooks: codex-cli-hooks
+  lifecycle_hooks: codex-cli-hooks
+metadata:
+  description: Prompt/profile/flatagent cache demo for Codex CLI
+  tags:
+  - codex-cli
+  - cache
+  - demo
+  - flatagent
+  - prompt-profile

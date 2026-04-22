@@ -1,0 +1,43 @@
+spec: flatprofile
+spec_version: 4.0.0
+data:
+  model_profiles:
+    claude-coder:
+      type: claude-code
+      model: opus
+      effort: high
+      permission_mode: bypassPermissions
+      tools:
+      - Bash
+      - Read
+      - Write
+      - Edit
+      - Glob
+      - Grep
+      working_dir: '{{ context.working_dir }}'
+      max_continuations: 100
+    claude-planner:
+      type: claude-code
+      model: opus
+      effort: high
+      permission_mode: plan
+      tools:
+      - Read
+      - Glob
+      - Grep
+      working_dir: '{{ context.working_dir }}'
+      max_continuations: 20
+    claude-reviewer:
+      type: claude-code
+      model: opus
+      effort: low
+      permission_mode: bypassPermissions
+      tools:
+      - Bash
+      - Read
+      - Glob
+      - Grep
+      working_dir: '{{ context.working_dir }}'
+      max_continuations: 40
+      max_budget_usd: 1.0
+  default: claude-coder

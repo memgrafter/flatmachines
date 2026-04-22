@@ -120,8 +120,8 @@ update_file() {
     local pattern="$2"
     local replacement="$3"
 
-    [[ -f "$file" ]] || return
-    rg -q "$pattern" "$file" 2>/dev/null || return  # Pattern not found
+    [[ -f "$file" ]] || return 0
+    rg -q "$pattern" "$file" 2>/dev/null || return 0  # Pattern not found
 
     if [[ "$DRY_RUN" == true ]]; then
         echo "  Would update: $file"
@@ -137,10 +137,10 @@ sync_file() {
     local src="$1"
     local dst="$2"
 
-    [[ -f "$src" ]] || return
+    [[ -f "$src" ]] || return 0
 
     if [[ -f "$dst" ]] && cmp -s "$src" "$dst"; then
-        return
+        return 0
     fi
 
     if [[ "$DRY_RUN" == true ]]; then
@@ -156,7 +156,7 @@ sync_file() {
 remove_file_if_exists() {
     local file="$1"
 
-    [[ -e "$file" || -L "$file" ]] || return
+    [[ -e "$file" || -L "$file" ]] || return 0
 
     if [[ "$DRY_RUN" == true ]]; then
         echo "  Would remove: $file"
@@ -187,7 +187,7 @@ update_yml_files() {
 # 1. ROOT .d.ts SPECS (source of truth)
 # =============================================================================
 echo "Root .d.ts specs:"
-for file in flatagent.d.ts flatmachine.d.ts flatagents-runtime.d.ts profiles.d.ts; do
+for file in flatagent.d.ts flatmachine.d.ts flatagents-runtime.d.ts profile.d.ts prompt.d.ts; do
     update_file "$file" "(SPEC_VERSION = \")[0-9]+\.[0-9]+\.[0-9]+(\")" "\1$NEW_VERSION\2"
 done
 echo ""

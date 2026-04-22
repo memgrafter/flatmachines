@@ -189,4 +189,5 @@ python -m flatmachines.run --config machine.yml --input '{"key": "value"}'
 Source of truth:
 - [`flatmachine.d.ts`](https://github.com/memgrafter/flatagents/blob/main/sdk/python/flatmachines/flatmachines/assets/flatmachine.d.ts)
 - [`flatagent.d.ts`](https://github.com/memgrafter/flatagents/blob/main/sdk/python/flatmachines/flatmachines/assets/flatagent.d.ts)
-- [`profiles.d.ts`](https://github.com/memgrafter/flatagents/blob/main/sdk/python/flatmachines/flatmachines/assets/profiles.d.ts)
+- [`prompt.d.ts`](https://github.com/memgrafter/flatagents/blob/main/sdk/python/flatmachines/flatmachines/assets/prompt.d.ts)
+- [`profile.d.ts`](https://github.com/memgrafter/flatagents/blob/main/sdk/python/flatmachines/flatmachines/assets/profile.d.ts)

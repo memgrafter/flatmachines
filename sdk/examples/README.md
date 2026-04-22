@@ -230,8 +230,8 @@ metadata:
 Do not add `data.profiles` to `config/machine.yml`.
 
 ```yaml
-spec: flatprofiles
-spec_version: "X.X.X"  # Check profiles.d.ts SPEC_VERSION constant
+spec: flatprofile
+spec_version: "X.X.X"  # Check profile.d.ts SPEC_VERSION constant
 
 data:
   model_profiles:

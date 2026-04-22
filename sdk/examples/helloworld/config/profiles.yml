@@ -1,7 +1,7 @@
 # Model Profiles Configuration
 # Centralized model configurations that agents can reference by name
 
-spec: flatprofiles
+spec: flatprofile
 spec_version: "2.0.0"
 
 data:
@@ -9,12 +9,12 @@ data:
     # Fast and cheap - good for development/iteration
     fast-cheap:
       provider: openai
-      name: gpt-5-mini
+      name: gpt-5.4-mini
       max_tokens: 2048
       
     extra-params-demo:
       provider: openai
-      name: gpt-5-mini
+      name: gpt-5.4-mini
       max_tokens: 10
 
   # Default profile used when agent has no model config

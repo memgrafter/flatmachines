@@ -880,7 +880,7 @@ describe('profiles discovery parity', () => {
 
   it('sdk/python/tests/unit/test_profiles_discovery.py::TestDiscoverProfilesFile.test_discovers_profiles_in_config_dir', async () => {
     await withTempDir('profiles-discover-in-config-dir-', (dir) => {
-      writeFileSync(join(dir, 'profiles.yml'), 'spec: flatprofiles\ndata:\n  model_profiles: {}\n', 'utf-8')
+      writeFileSync(join(dir, 'profiles.yml'), 'spec: flatprofile\ndata:\n  model_profiles: {}\n', 'utf-8')
       const machine = new FlatMachine({ config: minimalMachine({}), configDir: dir })
       const resolved = (machine as any).resolveProfilesFile(undefined)
       expect(resolved).toBe(join(dir, 'profiles.yml'))
@@ -897,7 +897,7 @@ describe('profiles discovery parity', () => {
 
   it('sdk/python/tests/unit/test_profiles_discovery.py::TestDiscoverProfilesFile.test_explicit_path_takes_precedence', async () => {
     await withTempDir('profiles-discover-explicit-precedence-', (dir) => {
-      writeFileSync(join(dir, 'profiles.yml'), 'spec: flatprofiles\ndata:\n  model_profiles: {}\n', 'utf-8')
+      writeFileSync(join(dir, 'profiles.yml'), 'spec: flatprofile\ndata:\n  model_profiles: {}\n', 'utf-8')
       const machine = new FlatMachine({ config: minimalMachine({}), configDir: dir })
       const resolved = (machine as any).resolveProfilesFile('/explicit/profiles.yml')
       expect(resolved).toBe('/explicit/profiles.yml')
@@ -906,7 +906,7 @@ describe('profiles discovery parity', () => {
 
   it('sdk/python/tests/unit/test_profiles_discovery.py::TestDiscoverProfilesFile.test_empty_explicit_path_triggers_discovery', async () => {
     await withTempDir('profiles-discover-empty-explicit-', (dir) => {
-      writeFileSync(join(dir, 'profiles.yml'), 'spec: flatprofiles\ndata:\n  model_profiles: {}\n', 'utf-8')
+      writeFileSync(join(dir, 'profiles.yml'), 'spec: flatprofile\ndata:\n  model_profiles: {}\n', 'utf-8')
       const machine = new FlatMachine({ config: minimalMachine({}), configDir: dir })
       const resolved = (machine as any).resolveProfilesFile('')
       expect(resolved).toBe(join(dir, 'profiles.yml'))
@@ -915,7 +915,7 @@ describe('profiles discovery parity', () => {
 
   it('sdk/python/tests/unit/test_profiles_discovery.py::TestDiscoverProfilesFile.test_none_explicit_path_triggers_discovery', async () => {
     await withTempDir('profiles-discover-none-explicit-', (dir) => {
-      writeFileSync(join(dir, 'profiles.yml'), 'spec: flatprofiles\ndata:\n  model_profiles: {}\n', 'utf-8')
+      writeFileSync(join(dir, 'profiles.yml'), 'spec: flatprofile\ndata:\n  model_profiles: {}\n', 'utf-8')
       const machine = new FlatMachine({ config: minimalMachine({}), configDir: dir })
       const resolved = (machine as any).resolveProfilesFile(undefined)
       expect(resolved).toBe(join(dir, 'profiles.yml'))
@@ -925,7 +925,7 @@ describe('profiles discovery parity', () => {
   it('sdk/python/tests/unit/test_profiles_discovery.py::TestFlatAgentProfileDiscovery.test_agent_discovers_profiles_in_config_dir', async () => {
     await withTempDir('profiles-agent-discovers-', (dir) => {
       writeFileSync(join(dir, 'profiles.yml'), [
-        'spec: flatprofiles',
+        'spec: flatprofile',
         'spec_version: "0.7.1"',
         'data:',
         '  model_profiles:',
@@ -964,7 +964,7 @@ describe('profiles discovery parity', () => {
 
       const profilesPath = join(profilesDir, 'profiles.yml')
       writeFileSync(profilesPath, [
-        'spec: flatprofiles',
+        'spec: flatprofile',
         'spec_version: "0.7.1"',
         'data:',
         '  model_profiles:',
@@ -1019,7 +1019,7 @@ describe('profiles discovery parity', () => {
   it('sdk/python/tests/unit/test_profiles_discovery.py::TestFlatMachineProfileDiscovery.test_machine_discovers_profiles_in_config_dir', async () => {
     await withTempDir('profiles-machine-discovers-', (dir) => {
       writeFileSync(join(dir, 'profiles.yml'), [
-        'spec: flatprofiles',
+        'spec: flatprofile',
         'spec_version: "0.7.1"',
         'data:',
         '  model_profiles:',
@@ -1055,7 +1055,7 @@ describe('profiles discovery parity', () => {
   it('sdk/python/tests/unit/test_profiles_discovery.py::TestFlatMachineProfileDiscovery.test_machine_propagates_profiles_to_agents', async () => {
     await withTempDir('profiles-machine-propagates-', (dir) => {
       writeFileSync(join(dir, 'profiles.yml'), [
-        'spec: flatprofiles',
+        'spec: flatprofile',
         'spec_version: "0.7.1"',
         'data:',
         '  model_profiles:',
@@ -1141,7 +1141,7 @@ describe('profiles discovery parity', () => {
   it('sdk/python/tests/unit/test_profiles_discovery.py::TestProfileManagerCache.test_get_instance_caches_by_directory', async () => {
     await withTempDir('profiles-cache-same-instance-', (dir) => {
       writeFileSync(join(dir, 'profiles.yml'), [
-        'spec: flatprofiles',
+        'spec: flatprofile',
         'data:',
         '  model_profiles:',
         '    test: { provider: openai, name: gpt-4 }',

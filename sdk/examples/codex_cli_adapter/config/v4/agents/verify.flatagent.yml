@@ -1,0 +1,7 @@
+spec: flatagent
+spec_version: "4.0.0"
+data:
+  prompt: ../prompts/verify.prompt.yml
+  profile: codex-readonly
+metadata:
+  description: Verify the warmed Codex thread can recall the build hash

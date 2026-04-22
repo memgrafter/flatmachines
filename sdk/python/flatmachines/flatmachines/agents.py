@@ -208,6 +208,28 @@ class AgentAdapter(Protocol):
         ...
 
 
+def wrap_typed_runtime_ref(agent_ref: AgentRef) -> AgentRef:
+    """Wrap a legacy typed runtime ref as an inline flatagent bundle."""
+    prompt = {
+        "user": "{% if input.task is defined and input.task %}{{ input.task }}{% elif input.prompt is defined %}{{ input.prompt }}{% else %}{% endif %}",
+    }
+    profile = {"type": agent_ref.type}
+    if agent_ref.ref is not None:
+        profile["ref"] = agent_ref.ref
+    if isinstance(agent_ref.config, dict):
+        profile.update(agent_ref.config or {})
+
+    wrapped = {
+        "spec": "flatagent",
+        "spec_version": "4.0.0",
+        "data": {
+            "prompt": prompt,
+            "profile": profile,
+        },
+    }
+    return AgentRef(type=DEFAULT_AGENT_TYPE, config=wrapped)
+
+
 class AgentAdapterRegistry:
     """Registry mapping adapter type names to adapter instances."""
 
@@ -232,10 +254,15 @@ class AgentAdapterRegistry:
         agent_ref: AgentRef,
         context: AgentAdapterContext,
     ) -> AgentExecutor:
-        adapter = self.get(agent_ref.type)
+        if agent_ref.type != DEFAULT_AGENT_TYPE:
+            adapter = self.get(DEFAULT_AGENT_TYPE)
+            effective_ref = wrap_typed_runtime_ref(agent_ref)
+        else:
+            adapter = self.get(agent_ref.type)
+            effective_ref = agent_ref
         return adapter.create_executor(
             agent_name=agent_name,
-            agent_ref=agent_ref,
+            agent_ref=effective_ref,
             context=context,
         )
 

@@ -9,7 +9,13 @@ data:
   agents:
     interpreter:
       type: codex-cli
-      ref: ./codex-cli.profile.yml
+      config:
+        model: gpt-5.3-codex
+        reasoning_effort: high
+        sandbox: workspace-write
+        approval_policy: never
+        skip_git_repo_check: true
+        working_dir: "{{ context.working_dir }}"
   states:
     start:
       type: initial

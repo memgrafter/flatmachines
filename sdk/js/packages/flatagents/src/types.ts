@@ -46,7 +46,7 @@ export interface ModelProfileConfig {
  * Profiles configuration (profiles.yml structure).
  */
 export interface ProfilesConfig {
-  spec: "flatprofiles";
+  spec: "flatprofile";
   spec_version: string;
   data: {
     model_profiles: Record<string, ModelProfileConfig>;

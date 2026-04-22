@@ -23,7 +23,7 @@ logging.getLogger().setLevel(_log_level)
 for _name in ("flatagents", "flatmachines"):
     logging.getLogger(_name).setLevel(_log_level)
 
-_CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config"
+_CONFIG_DIR = Path(__file__).parent.parent.parent.parent / "config" / "v4"
 
 
 def _config_path(name: str) -> str:
