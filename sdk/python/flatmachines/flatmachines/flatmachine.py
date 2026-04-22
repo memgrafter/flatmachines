@@ -149,8 +149,10 @@ class FlatMachine:
         if config_dir_override:
             self._config_dir = config_dir_override
 
-        if 'hooks' in kwargs:
-            raise TypeError("hooks= is no longer supported; use lifecycle_hooks= or config data.lifecycle_hooks")
+        legacy_hooks = kwargs.pop('hooks', None)
+        self._legacy_global_hooks = legacy_hooks
+        if legacy_hooks is not None and lifecycle_hooks is None:
+            lifecycle_hooks = legacy_hooks
 
         # Merge kwargs into config data (shallow merge)
         if kwargs and 'data' in self.config:
@@ -634,6 +636,9 @@ class FlatMachine:
         state = self.states.get(state_name, {})
         hooks_config = state.get('hooks')
         if not hooks_config:
+            if self._legacy_global_hooks is not None:
+                self._state_hooks_cache[state_name] = self._legacy_global_hooks
+                return self._legacy_global_hooks
             self._state_hooks_cache[state_name] = self._noop_state_hooks
             return self._noop_state_hooks
 

@@ -42,7 +42,19 @@ class HookAction(Action):
         config: Dict[str, Any]
     ) -> Dict[str, Any]:
         import asyncio
-        result = self.hooks.on_action(self.state_name, action_name, context)
+        import inspect
+
+        try:
+            param_count = len(inspect.signature(self.hooks.on_action).parameters)
+        except (TypeError, ValueError):
+            param_count = 3
+
+        if param_count >= 3:
+            result = self.hooks.on_action(self.state_name, action_name, context)
+        else:
+            # Legacy hook signature: on_action(action_name, context)
+            result = self.hooks.on_action(action_name, context)
+
         if asyncio.iscoroutine(result):
             return await result
         return result

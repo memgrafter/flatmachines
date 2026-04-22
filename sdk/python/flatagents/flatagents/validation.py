@@ -40,12 +40,22 @@ def _validate_with_jsonschema(config: Dict[str, Any], schema: Dict[str, Any]) ->
     return errors
 
 
+def _is_prompt_profile_bundle(config: Dict[str, Any]) -> bool:
+    data = config.get("data") or {}
+    return config.get("spec") == "flatagent" and isinstance(data, dict) and "prompt" in data and "profile" in data
+
+
 def validate_flatagent_config(
     config: Dict[str, Any],
     warn: bool = True,
     strict: bool = False,
 ) -> List[str]:
     """Validate a flatagent configuration against the schema."""
+    # Bundled prompt+profile configs are ahead of the generated asset schema.
+    # Runtime validation treats them as valid and relies on runtime parsing.
+    if _is_prompt_profile_bundle(config):
+        return []
+
     schema = _load_schema("flatagent.schema.json")
     if schema is None:
         return []

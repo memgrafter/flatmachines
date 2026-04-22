@@ -325,10 +325,65 @@ def discover_profiles_file(config_dir: str, explicit_path: Optional[str] = None)
     return default_path if os.path.exists(default_path) else None
 
 
+def load_profile_from_file(profile_file: str) -> Dict[str, Any]:
+    """Load a single execution profile from YAML or JSON.
+
+    Supports either wrapped form::
+
+        spec: flatprofile
+        data: { type: llm, model: {...} }
+
+    or unwrapped raw profile dict::
+
+        type: llm
+        model: {...}
+    """
+    try:
+        import yaml
+    except ImportError:
+        yaml = None
+
+    if not os.path.exists(profile_file):
+        raise FileNotFoundError(f"Profile file not found: {profile_file}")
+
+    with open(profile_file, "r") as f:
+        if profile_file.endswith(".json"):
+            config = __import__("json").load(f) or {}
+        else:
+            if yaml is None:
+                raise ImportError("pyyaml is required for YAML profile files")
+            config = yaml.safe_load(f) or {}
+
+    spec = config.get("spec")
+    if spec and spec != "flatprofile":
+        raise ValueError(f"Invalid profile spec: expected 'flatprofile', got '{spec}'")
+
+    return config.get("data", config)
+
+
+def resolve_profile_config(
+    profile_ref: Any,
+    config_dir: str,
+) -> Dict[str, Any]:
+    """Resolve a profile ref into a concrete execution profile dict."""
+    if isinstance(profile_ref, str):
+        path = profile_ref if os.path.isabs(profile_ref) else os.path.join(config_dir, profile_ref)
+        return load_profile_from_file(path)
+
+    if isinstance(profile_ref, dict):
+        if profile_ref.get("spec") == "flatprofile":
+            return profile_ref.get("data", {})
+        return profile_ref
+
+    raise ValueError("Invalid profile reference. Expected path string or profile dict.")
+
+
 __all__ = [
     "ProfileManager",
     "load_profiles_from_file",
     "resolve_model_config",
     "resolve_profiles_with_fallback",
     "discover_profiles_file",
+    "load_profile_from_file",
+    "resolve_profile_config",
 ]

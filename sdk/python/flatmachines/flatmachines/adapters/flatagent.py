@@ -57,10 +57,23 @@ def _map_error_code(error_type: str, status_code: Optional[int]) -> str:
 class FlatAgentExecutor(AgentExecutor):
     def __init__(self, agent: FlatAgent):
         self._agent = agent
+        self._stream_event_callback = None
 
     @property
     def metadata(self) -> Dict[str, Any]:
         return getattr(self._agent, "metadata", {})
+
+    def _sync_stream_callback(self) -> None:
+        runtime_executor = getattr(self._agent, "_runtime_executor", None)
+        if runtime_executor is not None and hasattr(runtime_executor, "_stream_event_callback"):
+            runtime_executor._stream_event_callback = self._stream_event_callback
+
+    async def cancel(self) -> bool:
+        runtime_executor = getattr(self._agent, "_runtime_executor", None)
+        cancel_fn = getattr(runtime_executor, "cancel", None)
+        if cancel_fn is None:
+            return False
+        return await cancel_fn()
 
     def _map_response(self, response, delta_calls: int, delta_cost: float) -> AgentResult:
         """Map a FlatAgent AgentResponse to a FlatMachines AgentResult."""
@@ -141,13 +154,13 @@ class FlatAgentExecutor(AgentExecutor):
                 rate_limit["limited"] = response.rate_limit.is_limited()
 
         # Build provider data
-        provider_data: Optional[ProviderData] = {
-            "provider": getattr(self._agent, "provider", None),
-            "model": getattr(self._agent, "model", None),
-        }
-        if raw_headers:
+        provider_data: Optional[ProviderData] = dict(getattr(response, "provider_data", None) or {})
+        if getattr(self._agent, "provider", None) is not None and "provider" not in provider_data:
+            provider_data["provider"] = getattr(self._agent, "provider", None)
+        if getattr(self._agent, "model", None) is not None and "model" not in provider_data:
+            provider_data["model"] = getattr(self._agent, "model", None)
+        if raw_headers and "raw_headers" not in provider_data:
             provider_data["raw_headers"] = raw_headers
-        # Clean up None values
         provider_data = {k: v for k, v in provider_data.items() if v is not None}
         if not provider_data:
             provider_data = None
@@ -167,13 +180,19 @@ class FlatAgentExecutor(AgentExecutor):
                 for tc in response.tool_calls
             ]
 
+        metadata = {}
+        if getattr(self._agent, "metadata", None):
+            metadata.update(getattr(self._agent, "metadata", None))
+        if getattr(response, "metadata", None):
+            metadata.update(getattr(response, "metadata", None))
+
         return AgentResult(
             output=response.output,
             content=response.content,
             raw=response,
             usage=usage,
             cost=cost,
-            metadata=getattr(self._agent, "metadata", None),
+            metadata=metadata or None,
             finish_reason=finish_reason,
             error=error,
             rate_limit=rate_limit,
@@ -191,11 +210,14 @@ class FlatAgentExecutor(AgentExecutor):
         pre_calls = self._agent.total_api_calls
         pre_cost = self._agent.total_cost
 
-        extra: Dict[str, Any] = {}
-        if session_id and self._agent._backend == "codex":
-            extra["session_id"] = session_id
-
-        response = await self._agent.call(**input_data, **extra)
+        self._sync_stream_callback()
+        call_kwargs = dict(input_data)
+        if session_id is not None and "session_id" not in call_kwargs:
+            call_kwargs["session_id"] = session_id
+        response = await self._agent.call(
+            context=context,
+            **call_kwargs,
+        )
 
         delta_calls = self._agent.total_api_calls - pre_calls
         delta_cost = self._agent.total_cost - pre_cost
@@ -213,15 +235,15 @@ class FlatAgentExecutor(AgentExecutor):
         pre_calls = self._agent.total_api_calls
         pre_cost = self._agent.total_cost
 
-        extra: Dict[str, Any] = {}
-        if session_id and self._agent._backend == "codex":
-            extra["session_id"] = session_id
-
+        self._sync_stream_callback()
+        call_kwargs = dict(input_data)
+        if session_id is not None and "session_id" not in call_kwargs:
+            call_kwargs["session_id"] = session_id
         response = await self._agent.call(
             tools=tools,
             messages=messages,
-            **input_data,
-            **extra,
+            context=context,
+            **call_kwargs,
         )
 
         delta_calls = self._agent.total_api_calls - pre_calls
