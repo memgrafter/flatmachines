@@ -2,18 +2,14 @@
  * Prompt Configuration Schema
  * ===========================
  *
- * Prompt is the pure prompt/output contract used by FlatMachine.
+ * Prompt is the pure prompt/output contract.
  *
- * A Prompt defines:
+ * It defines:
  * - authored prompt text (`system`, `user`, `instruction_suffix`)
  * - expected structured output (`output`)
- * - optional model-facing tool context (`tools`, `mcp`)
+ * - optional model-facing tool declarations (`tools`, `mcp`)
  *
- * A Prompt does NOT define runtime, model, profile, or adapter selection.
- * Those belong to `profiles.d.ts` and `flatmachine.d.ts`.
- *
- * This file is the source of truth for prompt config shapes.
- * Generated schema assets may be derived from this file.
+ * It does not define runtime, model, profile, or adapter selection.
  */
 
 export const SPEC_VERSION = "4.0.0";
@@ -25,12 +21,6 @@ export interface PromptWrapper {
   metadata?: Record<string, any>;
 }
 
-/**
- * Pure prompt contract.
- *
- * `tools` and `mcp` are prompt-local declarations. They are only meaningful
- * when the selected execution profile/agent supports model-facing tool use.
- */
 export interface PromptData {
   name?: string;
   system?: string;
@@ -42,8 +32,12 @@ export interface PromptData {
 }
 
 /**
- * Model-facing function tool definition.
+ * Prompt inline-or-ref value.
+ * - string: path/ref to a prompt file
+ * - object: inline prompt config
  */
+export type PromptRef = string | PromptData | PromptWrapper;
+
 export interface ToolDefinition {
   type: "function";
   function: {
@@ -53,9 +47,6 @@ export interface ToolDefinition {
   };
 }
 
-/**
- * MCP configuration for prompt-local tool discovery/injection.
- */
 export interface MCPConfig {
   servers: Record<string, MCPServerDef>;
   tool_filter?: ToolFilter;

@@ -1,38 +1,40 @@
 /**
- * FlatAgent Profiles Schema
- * ========================
+ * Profile Configuration Schema
+ * ============================
  *
- * Profiles hold reusable execution configuration so FlatAgents can stay
- * focused on prompts.
+ * Profile is the pure execution contract for prompt execution.
  *
- * A profile fully determines how an agent is executed:
- * - which runtime is used
- * - which model is used (for the built-in `llm` runtime or runtimes that need a model name)
- * - which operational/runtime settings are applied
+ * It defines:
+ * - which runtime executes the prompt
+ * - which model is used when applicable
+ * - runtime-specific operational settings
+ * - execution semantics such as session / continuation behavior when supported
  *
- * FlatAgent files should usually specify only `data.profile` plus prompts.
- *
- * This file is the source of truth for profile schemas.
- * Generated schema assets are derived from this file.
+ * It does not define prompt text or output schema.
  */
 
 export const SPEC_VERSION = "4.0.0";
 
-export interface ProfilesWrapper {
-  spec: "flatprofiles";
+export interface ProfileWrapper {
+  spec: "flatprofile";
   spec_version: string;
-  data: ProfilesData;
+  data: ProfileData;
   metadata?: Record<string, any>;
 }
 
-export interface ProfilesData {
-  /** Unified execution profile namespace. */
-  profiles: Record<string, ExecutionProfileConfig>;
-  /** Fallback profile when an agent omits `data.profile`. */
-  default?: string;
-  /** Global override profile applied ahead of any agent-selected profile. */
-  override?: string;
-}
+/**
+ * Profile inline-or-ref value.
+ * - string: path/ref to a profile file
+ * - object: inline profile config
+ */
+export type ProfileRef = string | ProfileData | ProfileWrapper;
+
+export type ProfileData =
+  | LLMProfile
+  | ClaudeCodeProfile
+  | CodexCliProfile
+  | SmolagentsProfile
+  | PiAgentProfile;
 
 export interface OAuthConfig {
   provider?: "openai-codex" | string;
@@ -45,11 +47,7 @@ export interface OAuthConfig {
   client_id?: string;
 }
 
-/**
- * Shared model vocabulary for profiles that resolve through the built-in `llm`
- * runtime.
- */
-export interface ModelProfileConfig {
+export interface ModelConfig {
   name: string;
   provider?: string;
   temperature?: number;
@@ -66,28 +64,14 @@ export interface ModelProfileConfig {
   oauth?: OAuthConfig;
 }
 
-/**
- * Unified execution profile space.
- */
-export type ExecutionProfileConfig =
-  | LLMExecutionProfileConfig
-  | ClaudeCodeExecutionProfileConfig
-  | CodexCliExecutionProfileConfig
-  | SmolagentsExecutionProfileConfig
-  | PiAgentExecutionProfileConfig;
-
-/**
- * Built-in FlatAgent LLM runtime profile.
- */
-export interface LLMExecutionProfileConfig {
+/** Built-in API/LLM execution profile. */
+export interface LLMProfile {
   type: "llm";
-  model: ModelProfileConfig;
+  model: ModelConfig;
 }
 
-/**
- * Claude Code CLI runtime profile.
- */
-export interface ClaudeCodeExecutionProfileConfig {
+/** Claude Code CLI execution profile. */
+export interface ClaudeCodeProfile {
   type: "claude-code";
   model?: string;
   effort?: "low" | "medium" | "high" | "max";
@@ -107,10 +91,8 @@ export interface ClaudeCodeExecutionProfileConfig {
   rate_limit_jitter?: number;
 }
 
-/**
- * Codex CLI runtime profile.
- */
-export interface CodexCliExecutionProfileConfig {
+/** Codex CLI execution profile. */
+export interface CodexCliProfile {
   type: "codex-cli";
   model?: string;
   reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -133,19 +115,15 @@ export interface CodexCliExecutionProfileConfig {
   session_source?: string;
 }
 
-/**
- * smolagents runtime profile.
- */
-export interface SmolagentsExecutionProfileConfig {
+/** smolagents execution profile. */
+export interface SmolagentsProfile {
   type: "smolagents";
   ref: string;
   config?: Record<string, any>;
 }
 
-/**
- * pi-agent bridge runtime profile.
- */
-export interface PiAgentExecutionProfileConfig {
+/** pi-agent bridge execution profile. */
+export interface PiAgentProfile {
   type: "pi-agent";
   ref: string;
   runner?: string;
@@ -156,4 +134,4 @@ export interface PiAgentExecutionProfileConfig {
   agent_config?: Record<string, any>;
 }
 
-export type FlatprofilesConfig = ProfilesWrapper;
+export type FlatprofileConfig = ProfileWrapper;
