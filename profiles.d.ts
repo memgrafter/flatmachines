@@ -1,116 +1,22 @@
 /**
- * FlatAgents Model Profiles Schema
- * =================================
+ * FlatAgent Profiles Schema
+ * ========================
  *
- * Model profiles provide reusable model configurations that agents can reference
- * by name. This enables centralized model management and easy switching between
- * configurations (e.g., development vs production, fast vs quality).
+ * Profiles hold reusable execution configuration so FlatAgents can stay
+ * focused on prompts.
  *
- * STRUCTURE:
- * ----------
- * spec           - Fixed string "flatprofiles"
- * spec_version   - Semver string
- * data           - Profile definitions and settings
- * metadata       - Extensibility layer
+ * A profile fully determines how an agent is executed:
+ * - which runtime is used
+ * - which model is used (for the built-in `llm` runtime or runtimes that need a model name)
+ * - which operational/runtime settings are applied
  *
- * DERIVED SCHEMAS:
- * ----------------
- * This file (/profiles.d.ts) is the SOURCE OF TRUTH for all profile schemas.
- * Other schemas (JSON Schema, etc.) are DERIVED from this file using scripts.
- * See: /scripts/generate-spec-assets.ts
+ * FlatAgent files should usually specify only `data.profile` plus prompts.
  *
- * PROFILE RESOLUTION ORDER (low to high priority):
- * ------------------------------------------------
- * 1. default profile from profiles.yml (fallback when agent has no model config)
- * 2. Named profile from agent's model: "profile-name"
- * 3. Inline overrides from agent's model: { profile: "name", temperature: 0.5 }
- * 4. override profile from profiles.yml (trumps all agent configs)
- *
- * AGENT USAGE:
- * ------------
- * String shorthand - profile lookup:
- *
- *   data:
- *     model: "fast-cheap"
- *
- * Profile with overrides:
- *
- *   data:
- *     model:
- *       profile: "fast-cheap"
- *       temperature: 0.9
- *
- * Inline config (no profile):
- *
- *   data:
- *     model:
- *       provider: cerebras
- *       name: zai-glm-4.6
- *       temperature: 0.6
- *
- * EXAMPLE CONFIGURATION:
- * ----------------------
- *
- *   spec: flatprofiles
- *   spec_version: "0.7.0"
- *
- *   data:
- *     model_profiles:
- *       fast-cheap:
- *         provider: cerebras
- *         name: zai-glm-4.6
- *         temperature: 0.6
- *         max_tokens: 2048
- *
- *       smart-expensive:
- *         provider: anthropic
- *         name: claude-3-opus-20240229
- *         temperature: 0.3
- *         max_tokens: 4096
- *
- *       local-dev:
- *         provider: ollama
- *         name: llama3
- *         base_url: http://localhost:11434
- *         temperature: 0.7
- *
- *       deterministic:
- *         provider: openai
- *         name: gpt-4-turbo
- *         temperature: 0
- *         seed: 42
- *
- *     default: fast-cheap
- *     # override: smart-expensive
- *
- *   metadata:
- *     description: "Model profiles for the project"
- *
- * PROFILESDATA FIELDS:
- * --------------------
- * model_profiles - Named model profiles, keyed by profile name
- * default        - Default profile name, used when agent has no model config
- * override       - Override profile name, trumps all agent model configs
- *
- * MODELPROFILECONFIG FIELDS:
- * --------------------------
- * Defines all parameters for an LLM model.
- * name              - Model name (e.g., "gpt-4", "zai-glm-4.6", "claude-3-opus-20240229")
- * provider          - Provider name (e.g., "openai", "anthropic", "cerebras", "ollama")
- * temperature       - Sampling temperature (0.0 to 2.0)
- * max_tokens        - Maximum tokens to generate
- * top_p             - Nucleus sampling parameter (0.0 to 1.0)
- * top_k             - Top-k sampling parameter
- * frequency_penalty - Frequency penalty (-2.0 to 2.0)
- * presence_penalty  - Presence penalty (-2.0 to 2.0)
- * seed              - Random seed for reproducibility
- * base_url          - Custom base URL for the API (e.g., for local models or proxies)
- * stream            - Enable streaming responses (default: false)
- * backend           - Runtime backend override (litellm, aisuite, codex, copilot)
- * oauth             - OAuth settings (used by codex/copilot backends)
+ * This file is the source of truth for profile schemas.
+ * Generated schema assets are derived from this file.
  */
 
-export const SPEC_VERSION = "3.0.0";
+export const SPEC_VERSION = "4.0.0";
 
 export interface ProfilesWrapper {
   spec: "flatprofiles";
@@ -120,8 +26,11 @@ export interface ProfilesWrapper {
 }
 
 export interface ProfilesData {
-  model_profiles: Record<string, ModelProfileConfig>;
+  /** Unified execution profile namespace. */
+  profiles: Record<string, ExecutionProfileConfig>;
+  /** Fallback profile when an agent omits `data.profile`. */
   default?: string;
+  /** Global override profile applied ahead of any agent-selected profile. */
   override?: string;
 }
 
@@ -136,6 +45,10 @@ export interface OAuthConfig {
   client_id?: string;
 }
 
+/**
+ * Shared model vocabulary for profiles that resolve through the built-in `llm`
+ * runtime.
+ */
 export interface ModelProfileConfig {
   name: string;
   provider?: string;
@@ -151,6 +64,96 @@ export interface ModelProfileConfig {
   backend?: "litellm" | "aisuite" | "codex" | "copilot";
   api?: string;
   oauth?: OAuthConfig;
+}
+
+/**
+ * Unified execution profile space.
+ */
+export type ExecutionProfileConfig =
+  | LLMExecutionProfileConfig
+  | ClaudeCodeExecutionProfileConfig
+  | CodexCliExecutionProfileConfig
+  | SmolagentsExecutionProfileConfig
+  | PiAgentExecutionProfileConfig;
+
+/**
+ * Built-in FlatAgent LLM runtime profile.
+ */
+export interface LLMExecutionProfileConfig {
+  type: "llm";
+  model: ModelProfileConfig;
+}
+
+/**
+ * Claude Code CLI runtime profile.
+ */
+export interface ClaudeCodeExecutionProfileConfig {
+  type: "claude-code";
+  model?: string;
+  effort?: "low" | "medium" | "high" | "max";
+  permission_mode?: "default" | "acceptEdits" | "bypassPermissions" | "dontAsk" | "plan" | "auto";
+  dangerously_skip_permissions?: boolean;
+  tools?: string[];
+  max_budget_usd?: number;
+  add_dirs?: string[];
+  claude_bin?: string;
+  working_dir?: string;
+  timeout?: number;
+  max_continuations?: number;
+  exit_sentinel?: string;
+  continuation_prompt?: string;
+  mcp_config?: string;
+  rate_limit_delay?: number;
+  rate_limit_jitter?: number;
+}
+
+/**
+ * Codex CLI runtime profile.
+ */
+export interface CodexCliExecutionProfileConfig {
+  type: "codex-cli";
+  model?: string;
+  reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  sandbox?: "read-only" | "workspace-write" | "danger-full-access";
+  approval_policy?: "untrusted" | "on-request" | "never";
+  dangerously_bypass_approvals_and_sandbox?: boolean;
+  add_dirs?: string[];
+  codex_bin?: string;
+  working_dir?: string;
+  timeout?: number;
+  skip_git_repo_check?: boolean;
+  ephemeral?: boolean;
+  search?: boolean;
+  config_overrides?: Record<string, string | number | boolean>;
+  feature_enable?: string[];
+  feature_disable?: string[];
+  rate_limit_delay?: number;
+  rate_limit_jitter?: number;
+  use_app_server?: boolean;
+  session_source?: string;
+}
+
+/**
+ * smolagents runtime profile.
+ */
+export interface SmolagentsExecutionProfileConfig {
+  type: "smolagents";
+  ref: string;
+  config?: Record<string, any>;
+}
+
+/**
+ * pi-agent bridge runtime profile.
+ */
+export interface PiAgentExecutionProfileConfig {
+  type: "pi-agent";
+  ref: string;
+  runner?: string;
+  node?: string;
+  cwd?: string;
+  env?: Record<string, string>;
+  timeout?: number;
+  agent_config?: Record<string, any>;
 }
 
 export type FlatprofilesConfig = ProfilesWrapper;
