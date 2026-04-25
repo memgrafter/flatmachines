@@ -203,6 +203,12 @@
             "auto"
           ]
         },
+        "system_prompt": {
+          "type": "string"
+        },
+        "append_system_prompt": {
+          "type": "string"
+        },
         "dangerously_skip_permissions": {
           "type": "boolean"
         },

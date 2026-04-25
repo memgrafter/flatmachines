@@ -46,6 +46,8 @@ export interface ClaudeCodeProfile {
     model?: string;
     effort?: "low" | "medium" | "high" | "max";
     permission_mode?: "default" | "acceptEdits" | "bypassPermissions" | "dontAsk" | "plan" | "auto";
+    system_prompt?: string;
+    append_system_prompt?: string;
     dangerously_skip_permissions?: boolean;
     tools?: string[];
     max_budget_usd?: number;
