@@ -60,13 +60,13 @@ class Guardrails:
     Numeric guardrails use 0 to mean unlimited/disabled.
     max_turns counts LLM calls, not tool calls.
     """
-    max_tool_calls: int = 50
-    max_turns: int = 20
+    max_tool_calls: int = 0
+    max_turns: int = 0
     allowed_tools: Optional[List[str]] = None
     denied_tools: Optional[List[str]] = None
-    tool_timeout: float = 30.0
-    total_timeout: float = 600.0
-    max_cost: Optional[float] = None
+    tool_timeout: float = 0.0
+    total_timeout: float = 0.0
+    max_cost: Optional[float] = 0.0
 
 
 @dataclass

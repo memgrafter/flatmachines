@@ -1643,11 +1643,11 @@ class FlatMachine:
             loop_config = {}
 
         variables = {"context": context, "input": context}
-        max_turns = self._render_guardrail(loop_config.get('max_turns', 20), variables, int)
-        max_tool_calls = self._render_guardrail(loop_config.get('max_tool_calls', 50), variables, int)
-        tool_timeout = self._render_guardrail(loop_config.get('tool_timeout', 30.0), variables, float)
-        total_timeout = self._render_guardrail(loop_config.get('total_timeout', 600.0), variables, float)
-        max_cost = self._render_guardrail(loop_config.get('max_cost'), variables, float)
+        max_turns = self._render_guardrail(loop_config.get('max_turns', 0), variables, int)
+        max_tool_calls = self._render_guardrail(loop_config.get('max_tool_calls', 0), variables, int)
+        tool_timeout = self._render_guardrail(loop_config.get('tool_timeout', 0.0), variables, float)
+        total_timeout = self._render_guardrail(loop_config.get('total_timeout', 0.0), variables, float)
+        max_cost = self._render_guardrail(loop_config.get('max_cost', 0.0), variables, float)
         allowed_tools = set(loop_config.get('allowed_tools', []))
         denied_tools = set(loop_config.get('denied_tools', []))
 
@@ -1696,13 +1696,13 @@ class FlatMachine:
 
         while True:
             # --- Guardrail checks ---
-            if time.monotonic() - start_time >= total_timeout:
+            if total_timeout > 0 and time.monotonic() - start_time >= total_timeout:
                 context['_tool_loop_stop'] = 'timeout'
                 break
-            if turns >= max_turns:
+            if max_turns > 0 and turns >= max_turns:
                 context['_tool_loop_stop'] = 'max_turns'
                 break
-            if max_cost is not None and loop_cost >= max_cost:
+            if max_cost is not None and max_cost > 0 and loop_cost >= max_cost:
                 context['_tool_loop_stop'] = 'cost_limit'
                 break
 
@@ -1760,7 +1760,7 @@ class FlatMachine:
             pending_calls = result.tool_calls or []
 
             # --- Guardrail: tool call count ---
-            if tool_calls_count + len(pending_calls) > max_tool_calls:
+            if max_tool_calls > 0 and tool_calls_count + len(pending_calls) > max_tool_calls:
                 context['_tool_loop_stop'] = 'max_tool_calls'
                 break
 
@@ -1809,10 +1809,11 @@ class FlatMachine:
                 # Execute single tool
                 if tool_provider is not None:
                     try:
-                        tool_result = await asyncio.wait_for(
-                            tool_provider.execute_tool(tc_name, tc_id, tc_args),
-                            timeout=tool_timeout,
-                        )
+                        tool_coro = tool_provider.execute_tool(tc_name, tc_id, tc_args)
+                        if tool_timeout > 0:
+                            tool_result = await asyncio.wait_for(tool_coro, timeout=tool_timeout)
+                        else:
+                            tool_result = await tool_coro
                     except asyncio.TimeoutError:
                         from flatagents.tools import ToolResult as _ToolResult
                         tool_result = _ToolResult(

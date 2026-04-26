@@ -288,13 +288,13 @@ export interface StateDefinition {
 }
 
 export interface ToolLoopStateConfig {
-  max_tool_calls?: number;  // default: 50
-  max_turns?: number;       // default: 20
+  max_tool_calls?: number;  // default: 0 (unlimited)
+  max_turns?: number;       // default: 0 (unlimited); counts LLM calls, not tool calls
   allowed_tools?: string[]; // allowlist
   denied_tools?: string[];  // denylist (wins)
-  tool_timeout?: number;    // seconds, default: 30
-  total_timeout?: number;   // seconds, default: 600
-  max_cost?: number;        // dollars
+  tool_timeout?: number;    // seconds, default: 0 (unlimited)
+  total_timeout?: number;   // seconds, default: 0 (unlimited)
+  max_cost?: number;        // dollars, default: 0 (unlimited)
 }
 
 export interface MachineInput {
