@@ -4,6 +4,8 @@
 >
 > **Versioning:** All specs and SDKs use lockstep versioning.
 
+Note: FlatAgents JS SDK does not yet support post-history instructions.
+
 ## Concepts
 
 **FlatAgent**: Single LLM call. Model + prompts + output schema. No orchestration.
