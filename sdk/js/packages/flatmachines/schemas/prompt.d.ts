@@ -5,14 +5,14 @@
  * Prompt is the pure prompt/output contract.
  *
  * It defines:
- * - authored prompt text (`system`, `user`, `instruction_suffix`)
+ * - authored prompt text (`system`, `user`, `instruction_suffix`, `post_history_instructions`)
  * - expected structured output (`output`)
  * - optional model-facing tool declarations (`tools`, `mcp`)
  *
  * It does not define runtime, model, profile, or adapter selection.
  */
 
-export const SPEC_VERSION = "4.0.1";
+export const SPEC_VERSION = "4.1.0";
 
 export interface PromptWrapper {
   spec: "prompt";
@@ -26,6 +26,7 @@ export interface PromptData {
   system?: string;
   user: string;
   instruction_suffix?: string;
+  post_history_instructions?: string;
   output?: OutputSchema;
   mcp?: MCPConfig;
   tools?: ToolDefinition[];

@@ -1,4 +1,4 @@
-export const SPEC_VERSION = "4.0.1";
+export const SPEC_VERSION = "4.1.0";
 export interface PromptWrapper {
     spec: "prompt";
     spec_version: string;
@@ -10,6 +10,7 @@ export interface PromptData {
     system?: string;
     user: string;
     instruction_suffix?: string;
+    post_history_instructions?: string;
     output?: OutputSchema;
     mcp?: MCPConfig;
     tools?: ToolDefinition[];

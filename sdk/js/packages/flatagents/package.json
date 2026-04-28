@@ -1,6 +1,6 @@
 {
   "name": "@memgrafter/flatagents",
-  "version": "4.0.1",
+  "version": "4.1.0",
   "description": "TypeScript SDK for FlatAgents — declarative LLM agents with YAML",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

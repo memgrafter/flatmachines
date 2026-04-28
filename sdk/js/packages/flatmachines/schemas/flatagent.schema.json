@@ -71,6 +71,9 @@
         "instruction_suffix": {
           "type": "string"
         },
+        "post_history_instructions": {
+          "type": "string"
+        },
         "output": {
           "$ref": "#/definitions/OutputSchema"
         },

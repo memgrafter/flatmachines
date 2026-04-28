@@ -35,19 +35,62 @@ if [ "$DRY_RUN" = true ]; then
 fi
 echo ""
 
-# Setup virtualenv with build tools
+# Setup virtualenv with build tools. Use explicit interpreter paths instead of
+# activation so a moved/copy-restored .venv with stale absolute paths in
+# bin/activate or console-script shebangs cannot redirect the release process.
 VENV_PATH="$SDK_DIR/.venv"
+VENV_PYTHON="$VENV_PATH/bin/python"
 if ! command -v uv &> /dev/null; then
     echo "📥 Installing uv..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
     export PATH="$HOME/.local/bin:$PATH"
 fi
-if [ ! -d "$VENV_PATH" ]; then
+if [ ! -x "$VENV_PYTHON" ]; then
     echo "🔧 Creating virtual environment..."
+    rm -rf "$VENV_PATH"
     uv venv "$VENV_PATH"
 fi
-uv pip install --python "$VENV_PATH/bin/python" --upgrade build twine
-source "$VENV_PATH/bin/activate"
+
+if ! "$VENV_PYTHON" - "$VENV_PATH" <<'PY'
+import pathlib
+import sys
+
+expected = pathlib.Path(sys.argv[1]).resolve()
+actual = pathlib.Path(sys.prefix).resolve()
+if actual != expected:
+    raise SystemExit(f"venv python sys.prefix mismatch: {actual} != {expected}")
+PY
+then
+    echo "🔧 Recreating invalid virtual environment..."
+    rm -rf "$VENV_PATH"
+    uv venv "$VENV_PATH"
+fi
+
+uv pip install --python "$VENV_PYTHON" --upgrade build twine
+export UV_PYTHON="$VENV_PYTHON"
+export VIRTUAL_ENV="$VENV_PATH"
+export PATH="$VENV_PATH/bin:$PATH"
+
+# Keep legacy command names in the script body but bind them to sdk/python/.venv.
+python() { "$VENV_PYTHON" "$@"; }
+twine() { "$VENV_PYTHON" -m twine "$@"; }
+
+# Verify release tools import from the intended venv, not from user/system PATH.
+"$VENV_PYTHON" - <<'PY'
+import importlib.util
+import pathlib
+import sys
+
+venv = pathlib.Path(sys.prefix).resolve()
+for module in ("build", "twine"):
+    spec = importlib.util.find_spec(module)
+    if spec is None or spec.origin is None:
+        raise SystemExit(f"{module} is not installed in {venv}")
+    origin = pathlib.Path(spec.origin).resolve()
+    if venv not in origin.parents:
+        raise SystemExit(f"{module} imports from {origin}, outside {venv}")
+PY
+
 
 # Sync and validate __version__ with pyproject.toml for each package
 for PKG in $PACKAGES; do
@@ -266,13 +309,13 @@ for PKG in $PACKAGES; do
     cd "$SDK_DIR/$PKG"
     echo "Building $PKG..."
     rm -rf dist/ build/ *.egg-info
-    uv build
+    uv build --python "$VENV_PYTHON"
 
     if [ "$DRY_RUN" = true ]; then
         echo "DRY RUN: Skipping PyPI upload for $PKG."
         echo "Built: $(ls dist/*.whl | head -1 | xargs basename)"
     else
-        twine upload dist/*
+        "$VENV_PYTHON" -m twine upload dist/*
         echo "Released $(ls dist/*.whl | head -1 | xargs basename)"
     fi
     echo ""
