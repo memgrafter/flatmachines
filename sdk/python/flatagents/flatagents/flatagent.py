@@ -604,6 +604,7 @@ class FlatAgent:
             self._system_prompt_template = prompt_data.get('system', self.DEFAULT_SYSTEM_PROMPT)
             self._user_prompt_template = prompt_data.get('user', '')
             self._instruction_suffix = prompt_data.get('instruction_suffix', '')
+            self._post_history_instructions = prompt_data.get('post_history_instructions', '')
             self.output_schema = prompt_data.get('output', {})
             self.mcp_config = prompt_data.get('mcp')
             self.tools = prompt_data.get('tools', [])
@@ -613,6 +614,11 @@ class FlatAgent:
             self._compiled_instruction_suffix = (
                 self._jinja_env.from_string(self._instruction_suffix)
                 if self._instruction_suffix
+                else None
+            )
+            self._compiled_post_history_instructions = (
+                self._jinja_env.from_string(self._post_history_instructions)
+                if self._post_history_instructions
                 else None
             )
 
@@ -644,11 +650,17 @@ class FlatAgent:
         self._system_prompt_template = data.get('system', self.DEFAULT_SYSTEM_PROMPT)
         self._user_prompt_template = data.get('user', '')
         self._instruction_suffix = data.get('instruction_suffix', '')
+        self._post_history_instructions = data.get('post_history_instructions', '')
         self._compiled_system = self._jinja_env.from_string(self._system_prompt_template)
         self._compiled_user = self._jinja_env.from_string(self._user_prompt_template)
         self._compiled_instruction_suffix = (
             self._jinja_env.from_string(self._instruction_suffix)
             if self._instruction_suffix
+            else None
+        )
+        self._compiled_post_history_instructions = (
+            self._jinja_env.from_string(self._post_history_instructions)
+            if self._post_history_instructions
             else None
         )
         self.output_schema = data.get('output', {})
@@ -904,6 +916,87 @@ class FlatAgent:
                 prompt = f"{prompt}\n\n{suffix}"
         return prompt
 
+    def _render_post_history_instructions(
+        self,
+        input_data: Dict[str, Any],
+        tools_prompt: str = "",
+        tools: Optional[List[Dict]] = None,
+    ) -> str:
+        """
+        Render post-history instructions with the same template context as prompts.
+
+        These instructions are not part of the stored logical conversation. They
+        are appended ephemerally to the final submitted user/tool message after
+        the full message history has been constructed.
+        """
+        if self._compiled_post_history_instructions is None:
+            return ""
+
+        model_config = {
+            **self._model_config_raw,
+            "name": self.model,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "top_p": self.top_p,
+            "top_k": self.top_k,
+            "frequency_penalty": self.frequency_penalty,
+            "presence_penalty": self.presence_penalty,
+            "seed": self.seed,
+            "base_url": self.base_url,
+        }
+        return self._compiled_post_history_instructions.render(
+            input=input_data,
+            tools_prompt=tools_prompt,
+            tools=tools or [],
+            model=model_config,
+        )
+
+    def _messages_with_post_history_instructions(
+        self,
+        messages: List[Dict[str, Any]],
+        post_history_instructions: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Return an ephemeral copy of messages with post-history instructions.
+
+        Rules:
+        - if the final submitted message is user/tool, append there;
+        - otherwise append a synthetic user message;
+        - never mutate the original list or message dicts.
+        """
+        instructions = (post_history_instructions or "").strip()
+        if not instructions:
+            return messages
+
+        copied = [dict(message) for message in messages]
+        body = f"System:\n\n{instructions}"
+
+        if copied and copied[-1].get("role") in ("user", "tool"):
+            self._append_post_history_to_message(copied[-1], body)
+        else:
+            copied.append({"role": "user", "content": body})
+        return copied
+
+    def _append_post_history_to_message(self, message: Dict[str, Any], body: str) -> None:
+        """Append rendered post-history body to one copied message in-place."""
+        content = message.get("content")
+        append_text = f"\n\n{body}"
+
+        if isinstance(content, str):
+            message["content"] = f"{content}{append_text}" if content else body
+            return
+
+        if isinstance(content, list):
+            text = append_text if content else body
+            message["content"] = list(content) + [{"type": "text", "text": text}]
+            return
+
+        if content is None:
+            message["content"] = body
+            return
+
+        message["content"] = f"{content}{append_text}"
+
     def _runtime_task_from_prompt(self, system_prompt: str, user_prompt: str) -> str:
         """Flatten prompt fields into a runtime task when needed."""
         if self._runtime_type == "claude-code":
@@ -1150,10 +1243,23 @@ class FlatAgent:
                 {"role": "user", "content": user_prompt}
             ]
 
+        # Append post-history instructions only to an ephemeral submit copy.
+        # The logical history, caller-provided messages, and rendered_user_prompt
+        # must remain unchanged so tool-loop chains/checkpoints never persist it.
+        post_history_instructions = self._render_post_history_instructions(
+            input_data,
+            tools_prompt=tools_prompt,
+            tools=_mcp_tools,
+        )
+        submit_messages = self._messages_with_post_history_instructions(
+            all_messages,
+            post_history_instructions,
+        )
+
         # Build LLM call parameters
         params = {
             "model": self.model,
-            "messages": all_messages,
+            "messages": submit_messages,
         }
         # Only include temperature if explicitly provided
         if self.temperature is not None:
