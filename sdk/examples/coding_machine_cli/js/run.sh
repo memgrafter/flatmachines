@@ -58,6 +58,7 @@ echo "📦 Installing dependencies..."
 if [ "$LOCAL_INSTALL" = true ]; then
     echo "  - Using local flatmachines SDK..."
     cd "$JS_SDK_PATH"
+    npm install
     npm run build
     cd "$SCRIPT_DIR"
     npm pkg set dependencies.@memgrafter/flatmachines="file:../../../js/packages/flatmachines"
