@@ -32,7 +32,7 @@ from . import __version__
 from .monitoring import get_logger
 from .utils import check_spec_version
 from .expressions import get_expression_engine, ExpressionEngine
-from .execution import get_execution_type, ExecutionType
+from .execution import ExecutionType, RetryableError, get_execution_type
 from .hooks import MachineHooks, LoggingHooks, HooksRegistry
 from .agents import (
     AgentAdapterContext,
@@ -1451,6 +1451,8 @@ class FlatMachine:
 
                 if agent_result.error:
                     err = agent_result.error
+                    if err.get("retryable", False):
+                        raise RetryableError(err)
                     raise RuntimeError(f"{err.get('type', 'AgentError')}: {err.get('message', 'unknown')}")
 
                 output = agent_result.output_payload()
@@ -1764,9 +1766,12 @@ class FlatMachine:
 
             # --- Handle error ---
             if result.error:
+                err = result.error
+                if err.get("retryable", False):
+                    raise RetryableError(err)
                 raise RuntimeError(
-                    f"{result.error.get('type', 'AgentError')}: "
-                    f"{result.error.get('message', 'unknown')}"
+                    f"{err.get('type', 'AgentError')}: "
+                    f"{err.get('message', 'unknown')}"
                 )
 
             # --- Seed chain on first turn ---

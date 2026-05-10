@@ -6,6 +6,7 @@ from .actions import SubprocessInvoker, launch_machine
 from .expressions import get_expression_engine, ExpressionEngine
 from .execution import (
     ExecutionType,
+    RetryableError,
     DefaultExecution,
     ParallelExecution,
     RetryExecution,
@@ -110,6 +111,7 @@ __all__ = [
     "ExpressionEngine",
     "get_expression_engine",
     "ExecutionType",
+    "RetryableError",
     "DefaultExecution",
     "ParallelExecution",
     "RetryExecution",

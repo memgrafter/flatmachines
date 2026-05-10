@@ -19,6 +19,20 @@ from typing import Any, Dict, List, Optional, Tuple
 from .monitoring import get_logger
 from .agents import AgentExecutor, AgentResult, coerce_agent_result
 
+
+class RetryableError(Exception):
+    """Raised when an agent returns a retryable error.
+
+    Carries the original error info so the executor can decide whether to retry.
+    Catch this in BackoffExecutor; re-raise non-retryable as RuntimeError.
+    """
+    def __init__(self, error_info: Dict[str, Any]):
+        self.error_info = error_info
+        super().__init__(
+            f"{error_info.get('type', 'AgentError')}: "
+            f"{error_info.get('message', 'unknown')}"
+        )
+
 logger = get_logger(__name__)
 
 
@@ -339,8 +353,8 @@ class RetryExecution(ExecutionType):
                 agent_result = coerce_agent_result(result)
                 total_api_calls += _extract_api_calls(agent_result)
                 total_cost += _extract_cost(agent_result)
-                
-                # Check for structured error from adapter (e.g., rate limit)
+
+                # Handle RetryableError raised from inside tool loops etc.
                 if agent_result.error:
                     error_info = agent_result.error
                     is_retryable = error_info.get("retryable", False)
@@ -408,6 +422,22 @@ class RetryExecution(ExecutionType):
                     provider_data=agent_result.provider_data,
                 )
 
+            except RetryableError as e:
+                last_error = e
+                error_info = e.error_info
+                log_msg = (
+                    f"Attempt {attempt + 1}/{max_attempts} failed (retryable): "
+                    f"{error_info.get('type', 'AgentError')}: {error_info.get('message', 'Unknown error')}"
+                )
+                logger.warning(log_msg)
+
+                if attempt < len(self.backoffs):
+                    delay = self._apply_jitter(self.backoffs[attempt])
+                    logger.info(f"Retrying in {delay:.1f}s...")
+                    await asyncio.sleep(delay)
+                    continue
+                # Out of retries — fall through to final error below
+
             except Exception as e:
                 last_error = e
                 log_msg = f"Attempt {attempt + 1}/{max_attempts} failed: {e}"
@@ -419,11 +449,8 @@ class RetryExecution(ExecutionType):
                         log_msg += f" | headers={dict(headers)}"
                 logger.warning(log_msg)
 
-                # If we have more retries, wait with jitter
-                if attempt < len(self.backoffs):
-                    delay = self._apply_jitter(self.backoffs[attempt])
-                    logger.info(f"Retrying in {delay:.1f}s...")
-                    await asyncio.sleep(delay)
+                # Non-retryable exception — don't waste remaining attempts
+                break
 
         # All retries exhausted
         logger.error(f"All {max_attempts} attempts failed.")
