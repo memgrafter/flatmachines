@@ -141,12 +141,14 @@ class TestBuildExecArgs:
         assert args[-1] == "follow up"
         assert "--json" in args
 
-    def test_output_schema(self):
-        executor = _make_executor({"output_schema": "/tmp/schema.json"})
+    def test_output_schema(self, tmp_path):
+        schema_path = tmp_path / "schema.json"
+        schema_path.write_text("{}")
+        executor = _make_executor({"output_schema": str(schema_path)})
         args = executor._build_exec_args("task", None)
         assert "--output-schema" in args
         idx = args.index("--output-schema")
-        assert args[idx + 1] == "/tmp/schema.json"
+        assert args[idx + 1] == str(schema_path)
 
     def test_sandbox_modes(self):
         for mode in ("read-only", "workspace-write", "danger-full-access"):

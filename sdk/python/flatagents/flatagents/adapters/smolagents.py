@@ -105,9 +105,11 @@ def _load_factory(ref: str, config_dir: str):
     module_ref, factory_name = _parse_ref(ref)
 
     if module_ref.endswith(".py") or module_ref.startswith(".") or "/" in module_ref:
-        module_path = module_ref
+        module_path = os.path.expanduser(module_ref)
         if not os.path.isabs(module_path):
             module_path = os.path.join(config_dir, module_path)
+        if not os.path.isfile(module_path):
+            raise FileNotFoundError(f"Smolagents factory file not found: {module_path}")
         spec = importlib.util.spec_from_file_location("smolagents_factory", module_path)
         if spec is None or spec.loader is None:
             raise ImportError(f"Unable to load smolagents factory from {module_path}")

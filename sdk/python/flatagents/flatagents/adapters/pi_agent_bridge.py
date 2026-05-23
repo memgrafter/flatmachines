@@ -103,8 +103,12 @@ def create_pi_agent_bridge_executor(
     runner_path = config.get("runner") or settings.get("runner")
     if not runner_path:
         runner_path = os.path.join(os.path.dirname(__file__), "pi_agent_runner.mjs")
-    elif not os.path.isabs(runner_path):
-        runner_path = os.path.join(config_dir, runner_path)
+    else:
+        runner_path = os.path.expanduser(runner_path)
+        if not os.path.isabs(runner_path):
+            runner_path = os.path.join(config_dir, runner_path)
+    if not os.path.isfile(runner_path):
+        raise FileNotFoundError(f"pi-agent runner file not found: {runner_path}")
 
     node_path = config.get("node") or settings.get("node") or "node"
     timeout = config.get("timeout") or settings.get("timeout")

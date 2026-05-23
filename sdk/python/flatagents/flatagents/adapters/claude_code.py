@@ -838,7 +838,12 @@ class ClaudeCodeExecutor:
         # MCP server configuration
         mcp_config = cfg.get("mcp_config")
         if mcp_config:
-            args += ["--mcp-config", str(mcp_config)]
+            mcp_config_path = os.path.expanduser(str(mcp_config))
+            if not os.path.isabs(mcp_config_path):
+                mcp_config_path = os.path.join(self._config_dir, mcp_config_path)
+            if not os.path.isfile(mcp_config_path):
+                raise FileNotFoundError(f"Claude MCP config file not found: {mcp_config_path}")
+            args += ["--mcp-config", mcp_config_path]
 
         # Budget (0 = disabled)
         max_budget = cfg.get("max_budget_usd", 0)

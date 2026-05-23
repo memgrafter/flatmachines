@@ -446,6 +446,7 @@ class FlatAgent:
         config_dir = kwargs.get("config_dir") or os.getcwd()
 
         if config_file is not None:
+            config_file = os.path.abspath(os.path.expanduser(config_file))
             if not os.path.exists(config_file):
                 raise FileNotFoundError(f"Configuration file not found: {config_file}")
             with open(config_file, 'r') as f:
@@ -515,7 +516,8 @@ class FlatAgent:
         except ImportError:
             yaml = None
 
-        path = ref if os.path.isabs(ref) else os.path.join(self._config_dir, ref)
+        expanded = os.path.expanduser(ref)
+        path = expanded if os.path.isabs(expanded) else os.path.join(self._config_dir, expanded)
         if not os.path.exists(path):
             raise FileNotFoundError(f"Referenced config file not found: {path}")
 

@@ -1030,6 +1030,7 @@ class FlatAgent(ABC):
         config = {}
 
         if config_file is not None:
+            config_file = os.path.abspath(os.path.expanduser(config_file))
             if not os.path.exists(config_file):
                 raise FileNotFoundError(f"Configuration file not found: {config_file}")
 

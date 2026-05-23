@@ -132,6 +132,17 @@ class NoToolsExecutor:
         return _make_agent_result()
 
 
+_INLINE_AGENT = {
+    "spec": "flatagent",
+    "spec_version": "1.1.1",
+    "data": {
+        "model": {"provider": "test", "name": "test"},
+        "system": "test",
+        "user": "{{ input.task }}",
+    },
+}
+
+
 def _machine_config(
     tool_loop=True,
     transitions=None,
@@ -151,7 +162,7 @@ def _machine_config(
     if output_to_context:
         state_def["output_to_context"] = output_to_context
 
-    agents = {"coder": agent_inline} if agent_inline else {"coder": "./agent.yml"}
+    agents = {"coder": agent_inline} if agent_inline else {"coder": _INLINE_AGENT}
 
     return {
         "spec": "flatmachine",
@@ -319,7 +330,7 @@ class TestToolLoopChainScoping:
             "data": {
                 "name": "chain-scope",
                 "context": {},
-                "agents": {"coder": "./agent.yml"},
+                "agents": {"coder": _INLINE_AGENT},
                 "states": {
                     "start": {"type": "initial", "transitions": [{"to": "work_a"}]},
                     "work_a": {

@@ -135,6 +135,15 @@ class FlatMachine:
 
         self._load_config(config_file, config_dict)
 
+        # Allow launcher to override config_dir for launched machines before
+        # resolving embedded refs.  Child machines are passed as config_dicts,
+        # so _load_config() initially uses cwd; without this override here,
+        # their ./agents refs are not embedded and FlatAgent later resolves
+        # nested prompt refs relative to config/agents instead of the child
+        # machine config directory.
+        if config_dir_override:
+            self._config_dir = config_dir_override
+
         # Resolve file-based agent refs into embedded config dicts.
         # Must happen before _capture_config_raw so checkpoints are self-contained.
         self._resolve_agent_file_refs()
@@ -144,10 +153,6 @@ class FlatMachine:
         # contain resolved agent refs and don't need path resolution on resume.
         self._config_raw: Optional[str] = self._capture_config_raw()
         self._config_hash: Optional[str] = None  # Set on first checkpoint save
-
-        # Allow launcher to override config_dir for launched machines
-        if config_dir_override:
-            self._config_dir = config_dir_override
 
         legacy_hooks = kwargs.pop('hooks', None)
         self._legacy_global_hooks = legacy_hooks
@@ -341,6 +346,7 @@ class FlatMachine:
         config = {}
 
         if config_file is not None:
+            config_file = os.path.abspath(os.path.expanduser(config_file))
             if not os.path.exists(config_file):
                 raise FileNotFoundError(f"Config file not found: {config_file}")
 
@@ -412,14 +418,15 @@ class FlatMachine:
             raw = agents[name]
 
             if isinstance(raw, str):
-                resolved = self._load_agent_ref_file(raw)
-                if resolved is not None:
-                    agents[name] = resolved
+                agents[name] = self._load_agent_ref_file(raw, required=True)
 
             elif isinstance(raw, dict) and 'ref' in raw:
                 ref_path = raw['ref']
                 if isinstance(ref_path, str):
-                    resolved = self._load_agent_ref_file(ref_path)
+                    resolved = self._load_agent_ref_file(
+                        ref_path,
+                        required=self._looks_like_file_ref(ref_path),
+                    )
                     if resolved is not None:
                         new_raw = dict(raw)
                         del new_raw['ref']
@@ -428,19 +435,33 @@ class FlatMachine:
                         new_raw['config'] = {**resolved, **existing_config}
                         agents[name] = new_raw
 
-    def _load_agent_ref_file(self, ref_path: str) -> Optional[Dict]:
+    @staticmethod
+    def _looks_like_file_ref(ref_path: str) -> bool:
+        """Return true for refs that are intended to be local files."""
+        expanded = os.path.expanduser(str(ref_path))
+        return (
+            os.path.isabs(expanded)
+            or expanded.startswith(("./", "../", "~/"))
+            or os.sep in expanded
+            or expanded.endswith((".yml", ".yaml", ".json"))
+        )
+
+    def _load_agent_ref_file(self, ref_path: str, *, required: bool = False) -> Optional[Dict]:
         """Load an agent ref file, returning its parsed contents.
 
         Resolves *ref_path* relative to ``self._config_dir``.
-        Returns ``None`` if the file does not exist (the ref may be
-        a non-file identifier handled by an adapter at runtime).
+        Non-file adapter identifiers may return ``None``; required file refs
+        raise immediately when missing.
         """
-        if os.path.isabs(ref_path):
-            abs_path = ref_path
+        expanded = os.path.expanduser(ref_path)
+        if os.path.isabs(expanded):
+            abs_path = expanded
         else:
-            abs_path = os.path.join(self._config_dir, ref_path)
+            abs_path = os.path.join(self._config_dir, expanded)
 
         if not os.path.isfile(abs_path):
+            if required:
+                raise FileNotFoundError(f"Agent config file not found: {abs_path}")
             return None
 
         with open(abs_path, 'r') as f:
@@ -838,7 +859,7 @@ class FlatMachine:
             return ref
 
         if isinstance(ref, str):
-            path = ref
+            path = os.path.expanduser(ref)
             if not os.path.isabs(path):
                 path = os.path.join(self._config_dir, path)
             
@@ -872,7 +893,7 @@ class FlatMachine:
             return ref, self._config_dir
 
         if isinstance(ref, str):
-            path = ref
+            path = os.path.expanduser(ref)
             if not os.path.isabs(path):
                 path = os.path.join(self._config_dir, path)
             
@@ -1528,11 +1549,15 @@ class FlatMachine:
                 return ref["config"]
         # String path — load from file
         if isinstance(ref, str):
-            config_path = os.path.join(self._config_dir, ref)
-            if os.path.exists(config_path):
-                if yaml is not None:
-                    with open(config_path, 'r') as f:
-                        return yaml.safe_load(f)
+            config_path = os.path.expanduser(ref)
+            if not os.path.isabs(config_path):
+                config_path = os.path.join(self._config_dir, config_path)
+            if not os.path.exists(config_path):
+                raise FileNotFoundError(f"Agent config file not found: {config_path}")
+            if yaml is not None:
+                with open(config_path, 'r') as f:
+                    return yaml.safe_load(f)
+            raise ImportError(f"pyyaml is required to load YAML agent config: {config_path}")
         return None
 
     def _render_guardrail(self, value, variables: Dict[str, Any], target_type: type):

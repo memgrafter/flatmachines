@@ -1155,11 +1155,13 @@ class TestRateLimitSurfacing:
 # ---------------------------------------------------------------------------
 
 class TestMcpConfig:
-    def test_mcp_config_arg(self):
-        executor = _make_executor({"mcp_config": "/path/to/mcp.json"})
+    def test_mcp_config_arg(self, tmp_path):
+        mcp_path = tmp_path / "mcp.json"
+        mcp_path.write_text("{}")
+        executor = _make_executor({"mcp_config": str(mcp_path)})
         args = executor._build_args("task", "s1", resume=False)
         idx = args.index("--mcp-config")
-        assert args[idx + 1] == "/path/to/mcp.json"
+        assert args[idx + 1] == str(mcp_path)
 
     def test_mcp_config_absent(self):
         executor = _make_executor()

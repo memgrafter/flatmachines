@@ -177,8 +177,8 @@ class TestTypedRefResolution:
         assert m.agent_refs["coder"]["config"]["model"] == "opus"
         assert "ref" not in m.agent_refs["coder"]
 
-    def test_nonexistent_ref_left_alone(self, tmp_path):
-        """If the ref file doesn't exist, the ref is left unresolved."""
+    def test_nonexistent_file_ref_raises(self, tmp_path):
+        """Missing typed file refs fail at machine load time."""
         machine_config = _minimal_machine({
             "coder": {
                 "type": "claude-code",
@@ -187,10 +187,8 @@ class TestTypedRefResolution:
         })
         machine_path = _write_json(str(tmp_path), "machine.json", machine_config)
 
-        m = FlatMachine(config_file=machine_path)
-
-        # ref stays — adapter will handle or fail at runtime
-        assert m.agent_refs["coder"]["ref"] == "./does-not-exist.json"
+        with pytest.raises(FileNotFoundError, match="Agent config file not found"):
+            FlatMachine(config_file=machine_path)
 
 
 # ---------------------------------------------------------------------------
@@ -227,16 +225,15 @@ class TestStringRefResolution:
         assert agent["spec"] == "flatagent"
         assert agent["data"]["name"] == "extractor"
 
-    def test_string_ref_nonexistent_left_alone(self, tmp_path):
-        """Non-file string refs are left as-is."""
+    def test_string_ref_nonexistent_raises(self, tmp_path):
+        """String agent refs are file refs and must resolve."""
         machine_config = _minimal_machine({
             "agent": "not-a-file-path",
         })
         machine_path = _write_json(str(tmp_path), "machine.json", machine_config)
 
-        m = FlatMachine(config_file=machine_path)
-
-        assert m.agent_refs["agent"] == "not-a-file-path"
+        with pytest.raises(FileNotFoundError, match="Agent config file not found"):
+            FlatMachine(config_file=machine_path)
 
 
 # ---------------------------------------------------------------------------
@@ -327,6 +324,39 @@ class TestConfigRawResolution:
 
         assert m._config_raw is not None
         assert "sonnet" in m._config_raw
+
+    def test_config_dir_override_resolves_child_agent_refs_before_runtime(self, tmp_path):
+        """Launched child config_dicts use _config_dir before embedding agent refs."""
+        (tmp_path / "agents").mkdir()
+        (tmp_path / "prompts").mkdir()
+        _write_yaml(str(tmp_path / "prompts"), "writer.prompt.yml", {
+            "spec": "prompt",
+            "spec_version": "4.1.0",
+            "data": {"user": "hello"},
+        })
+        _write_yaml(str(tmp_path / "agents"), "writer.flatagent.yml", {
+            "spec": "flatagent",
+            "spec_version": "4.1.0",
+            "data": {
+                "prompt": "./prompts/writer.prompt.yml",
+                "profile": {
+                    "spec": "flatprofile",
+                    "spec_version": "4.1.0",
+                    "data": {
+                        "model_profiles": {"default": {"provider": "openai", "name": "gpt-test"}},
+                        "default": "default",
+                    },
+                },
+            },
+        })
+
+        machine_config = _minimal_machine({"writer": "./agents/writer.flatagent.yml"})
+
+        machine = FlatMachine(config_dict=machine_config, _config_dir=str(tmp_path))
+        assert isinstance(machine.agent_refs["writer"], dict)
+        executor = machine._get_executor("writer")
+        prompt = executor._agent._resolve_prompt_ref("./prompts/writer.prompt.yml")
+        assert prompt["user"] == "hello"
 
 
 # ---------------------------------------------------------------------------

@@ -58,12 +58,13 @@ class ClaudeCodeAdapter(AgentAdapter):
 
     @staticmethod
     def _load_ref(ref: str, config_dir: str) -> Optional[dict]:
-        if os.path.isabs(ref):
-            path = ref
+        expanded = os.path.expanduser(ref)
+        if os.path.isabs(expanded):
+            path = expanded
         else:
-            path = os.path.join(config_dir, ref)
+            path = os.path.join(config_dir, expanded)
         if not os.path.isfile(path):
-            return None
+            raise FileNotFoundError(f"Claude Code agent config file not found: {path}")
         with open(path, "r") as f:
             if path.endswith(".json"):
                 return json.load(f)

@@ -224,9 +224,9 @@ def load_profiles_from_file(profiles_file: str) -> Dict[str, Any]:
     except ImportError:
         raise ImportError("pyyaml is required for profiles.yml")
 
+    profiles_file = os.path.abspath(os.path.expanduser(profiles_file))
     if not os.path.exists(profiles_file):
-        logger.debug(f"No profiles file at {profiles_file}")
-        return {'profiles': {}, 'default': None, 'override': None}
+        raise FileNotFoundError(f"Profiles file not found: {profiles_file}")
 
     with open(profiles_file, 'r') as f:
         config = yaml.safe_load(f) or {}
@@ -320,7 +320,13 @@ def discover_profiles_file(config_dir: str, explicit_path: Optional[str] = None)
         Path to profiles.yml if found, explicit_path if provided, or None
     """
     if explicit_path:
-        return explicit_path
+        path = os.path.expanduser(explicit_path)
+        if not os.path.isabs(path):
+            path = os.path.join(config_dir, path)
+        path = os.path.abspath(path)
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Profiles file not found: {path}")
+        return path
     default_path = os.path.join(config_dir, 'profiles.yml')
     return default_path if os.path.exists(default_path) else None
 

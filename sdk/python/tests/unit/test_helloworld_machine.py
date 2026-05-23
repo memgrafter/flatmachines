@@ -23,7 +23,15 @@ def get_helloworld_config():
                 "current": ""
             },
             "agents": {
-                "builder": "./agent.yml"
+                "builder": {
+                    "spec": "flatagent",
+                    "spec_version": "0.8.0",
+                    "data": {
+                        "model": {"provider": "test", "name": "test"},
+                        "system": "test",
+                        "user": "{{ input.current }}",
+                    },
+                }
             },
             "states": {
                 "start": {

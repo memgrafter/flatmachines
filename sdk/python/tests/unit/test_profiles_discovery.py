@@ -18,10 +18,17 @@ class TestDiscoverProfilesFile:
     """Test the discover_profiles_file utility function."""
 
     def test_returns_explicit_path_when_provided(self, tmp_path):
-        """Explicit path is returned as-is, even if it doesn't exist."""
-        explicit = "/some/explicit/path/profiles.yml"
-        result = discover_profiles_file(str(tmp_path), explicit)
-        assert result == explicit
+        """Explicit path is returned when it exists."""
+        explicit_path = tmp_path / "explicit-profiles.yml"
+        explicit_path.write_text("spec: flatprofile\ndata:\n  model_profiles: {}")
+        result = discover_profiles_file(str(tmp_path), str(explicit_path))
+        assert result == str(explicit_path)
+
+    def test_missing_explicit_path_raises(self, tmp_path):
+        """Explicit profile file refs must resolve."""
+        explicit = tmp_path / "missing-profiles.yml"
+        with pytest.raises(FileNotFoundError, match="Profiles file not found"):
+            discover_profiles_file(str(tmp_path), str(explicit))
 
     def test_discovers_profiles_in_config_dir(self, tmp_path):
         """Discovers profiles.yml when it exists in config_dir."""
@@ -43,9 +50,10 @@ class TestDiscoverProfilesFile:
         profiles_path.write_text("spec: flatprofile\ndata:\n  model_profiles: {}")
 
         # But provide explicit path
-        explicit = "/explicit/profiles.yml"
-        result = discover_profiles_file(str(tmp_path), explicit)
-        assert result == explicit
+        explicit_path = tmp_path / "explicit-profiles.yml"
+        explicit_path.write_text("spec: flatprofile\ndata:\n  model_profiles: {}")
+        result = discover_profiles_file(str(tmp_path), str(explicit_path))
+        assert result == str(explicit_path)
 
     def test_empty_explicit_path_triggers_discovery(self, tmp_path):
         """Empty string explicit path is falsy, triggers discovery."""

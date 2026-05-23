@@ -133,7 +133,15 @@ def hooks_config_file(tmp_path):
 
 @pytest.fixture
 def path_refs_config_file(tmp_path):
-    """Write a machine config that includes string/path refs."""
+    """Write a machine config that includes resolvable string/path refs."""
+    (tmp_path / "agents").mkdir()
+    (tmp_path / "machines").mkdir()
+    (tmp_path / "agents" / "writer.yml").write_text(
+        'spec: flatagent\nspec_version: "2.1.0"\ndata:\n  model: dummy\n'
+    )
+    (tmp_path / "machines" / "reviewer.yml").write_text(
+        'spec: flatmachine\nspec_version: "2.1.0"\ndata:\n  name: reviewer\n  states:\n    start:\n      type: initial\n      transitions:\n        - to: done\n    done:\n      type: final\n      output: {}\n'
+    )
     p = tmp_path / "path_refs_machine.yml"
     p.write_text(_PATH_REFS_CONFIG)
     return str(p)

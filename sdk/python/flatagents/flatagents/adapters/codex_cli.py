@@ -641,7 +641,12 @@ class CodexCliExecutor:
         # Output schema
         output_schema = cfg.get("output_schema")
         if output_schema:
-            args += ["--output-schema", str(output_schema)]
+            output_schema_path = os.path.expanduser(str(output_schema))
+            if not os.path.isabs(output_schema_path):
+                output_schema_path = os.path.join(self._config_dir, output_schema_path)
+            if not os.path.isfile(output_schema_path):
+                raise FileNotFoundError(f"Codex output schema file not found: {output_schema_path}")
+            args += ["--output-schema", output_schema_path]
 
         # Additional directories
         add_dirs = cfg.get("add_dirs")
@@ -862,8 +867,13 @@ class CodexCliExecutor:
             # Load output schema if configured
             output_schema = None
             schema_path = self._merged.get("output_schema")
-            if schema_path and os.path.isfile(str(schema_path)):
-                with open(str(schema_path)) as f:
+            if schema_path:
+                schema_path = os.path.expanduser(str(schema_path))
+                if not os.path.isabs(schema_path):
+                    schema_path = os.path.join(self._config_dir, schema_path)
+                if not os.path.isfile(schema_path):
+                    raise FileNotFoundError(f"Codex output schema file not found: {schema_path}")
+                with open(schema_path) as f:
                     output_schema = json.load(f)
 
             await transport.turn_start(thread_id, text, output_schema)
