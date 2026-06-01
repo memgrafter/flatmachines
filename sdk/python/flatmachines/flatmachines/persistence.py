@@ -77,6 +77,23 @@ class PersistenceBackend(ABC):
         """Remove all checkpoint data for an execution."""
         pass
 
+    async def prune(
+        self,
+        *,
+        max_age_seconds: Optional[float] = None,
+        max_count: Optional[int] = None,
+    ) -> int:
+        """Prune old checkpoints based on age and/or count limits.
+
+        Returns the number of checkpoint files/directories deleted.
+
+        Args:
+            max_age_seconds: Remove checkpoints older than this many seconds.
+            max_count: Keep only the *N* most recent checkpoints (by
+                       ``created_at`` / file modification time).
+        """
+        return 0
+
 
 # ---------------------------------------------------------------------------
 # Config store — content-addressed storage for machine configs
@@ -306,6 +323,53 @@ class LocalFileBackend(PersistenceBackend):
         if exec_dir.exists() and exec_dir.is_dir():
             shutil.rmtree(exec_dir)
 
+    async def prune(
+        self,
+        *,
+        max_age_seconds: Optional[float] = None,
+        max_count: Optional[int] = None,
+    ) -> int:
+        now = datetime.now(timezone.utc)
+        deleted = 0
+
+        candidates = sorted(
+            (d for d in self.base_dir.iterdir() if d.is_dir() and not d.name.startswith(".")),
+            key=lambda d: d.name,
+        )
+
+        # 1) Age-based pruning
+        if max_age_seconds is not None:
+            cutoff = now.timestamp() - max_age_seconds
+            stale = [
+                d for d in candidates
+                if (d.stat().st_mtime < cutoff)
+            ]
+            for d in stale:
+                shutil.rmtree(d)
+                deleted += 1
+            candidates = [d for d in candidates if d not in set(stale)]
+
+        # 2) Count-based pruning — keep most recent by file mtime
+        if max_count is not None:
+            alive = sorted(
+                candidates,
+                key=lambda d: d.stat().st_mtime,
+            )
+            to_keep = alive[-max_count:] if len(alive) > max_count else alive
+            to_remove = [d for d in candidates if d not in set(to_keep)]
+            for d in to_remove:
+                shutil.rmtree(d)
+                deleted += len(d.iterdir())  # approximate: files inside dir
+            # Actually count the dir as one execution
+            deleted -= len(to_remove)  # fix double-count
+            # Count files per removed dir
+            for d in to_remove:
+                for f in d.iterdir():
+                    if not f.name.startswith("."):
+                        deleted += 1
+
+        return deleted
+
 class MemoryBackend(PersistenceBackend):
     """In-memory backend for ephemeral executions."""
     
@@ -358,6 +422,65 @@ class MemoryBackend(PersistenceBackend):
         keys = [k for k in self._store if k.startswith(prefix)]
         for k in keys:
             del self._store[k]
+
+    async def prune(
+        self,
+        *,
+        max_age_seconds: Optional[float] = None,
+        max_count: Optional[int] = None,
+    ) -> int:
+        from copy import deepcopy
+
+        # Gather execution -> latest snapshot for sorting
+        executions: Dict[str, Dict] = {}
+        for eid in {k.split("/", 1)[0] for k in self._store if "/" in k}:
+            ptr_bytes = await self.load(f"{eid}/latest")
+            if not ptr_bytes:
+                continue
+            key = ptr_bytes.decode("utf-8")
+            data_bytes = await self.load(key)
+            if not data_bytes:
+                continue
+            try:
+                snapshot = json.loads(data_bytes.decode("utf-8"))
+                executions[eid] = snapshot
+            except Exception:
+                continue
+
+        if not executions:
+            return 0
+
+        to_delete: set = set()
+        now_ts = datetime.now(timezone.utc).timestamp()
+
+        # 1) Age-based
+        if max_age_seconds is not None:
+            cutoff = now_ts - max_age_seconds
+            to_delete.update(
+                eid for eid, snap in executions.items()
+                if (created := _parse_iso(snap.get("created_at")))
+                and created.timestamp() < cutoff
+            )
+
+        # 2) Count-based
+        if max_count is not None:
+            alive = sorted(
+                executions,
+                key=lambda eid: _parse_iso(executions[eid].get("created_at"))
+                or datetime.min.replace(tzinfo=timezone.utc),
+            )
+            keep = set(alive[-max_count:])
+            to_delete.update(eid for eid in executions if eid not in keep)
+
+        # Delete
+        deleted = 0
+        for eid in to_delete:
+            prefix = f"{eid}/"
+            keys = [k for k in self._store if k.startswith(prefix)]
+            deleted += len(keys)
+            for k in keys:
+                del self._store[k]
+        return deleted
 
 class CheckpointManager:
     """Manages saving and loading machine snapshots."""
@@ -493,6 +616,30 @@ class CheckpointManager:
 
         data = json.loads(data_bytes.decode('utf-8'))
         return (data.get("event"), data.get("current_state"))
+
+    async def prune_checkpoints(
+        self,
+        *,
+        max_age_seconds: Optional[float] = None,
+        max_count: Optional[int] = None,
+    ) -> int:
+        """Prune old checkpoints via the underlying backend.
+
+        Delegates to ``backend.prune()`` and returns the number of
+        checkpoint files/directories deleted.
+
+        Args:
+            max_age_seconds: Remove checkpoints older than this many seconds.
+            max_count: Keep only the *N* most recent checkpoints (by
+                       ``created_at`` / file modification time).
+
+        Returns:
+            Number of checkpoint files/directories deleted.
+        """
+        return await self.backend.prune(
+            max_age_seconds=max_age_seconds,
+            max_count=max_count,
+        )
 
 
 def _utc_now_iso() -> str:
@@ -737,6 +884,93 @@ class SQLiteCheckpointBackend(PersistenceBackend):
                 (execution_id,),
             )
             self._conn.commit()
+
+    async def prune(
+        self,
+        *,
+        max_age_seconds: Optional[float] = None,
+        max_count: Optional[int] = None,
+    ) -> int:
+        async with self._op_lock:
+            now = _utc_now_iso()
+            deleted = 0
+
+            # Determine which execution_ids are candidates
+            if max_age_seconds is not None and max_count is not None:
+                # Phase 1: age
+                cutoff_ts = datetime.now(timezone.utc).timestamp() - max_age_seconds
+                rows = self._conn.execute(
+                    "SELECT DISTINCT execution_id, created_at FROM machine_checkpoints "
+                    "ORDER BY created_at DESC"
+                ).fetchall()
+
+                # Build ordered list by created_at
+                ordered: list[tuple[str, str]] = []
+                seen: set[str] = set()
+                for r in rows:
+                    eid = r["execution_id"]
+                    ts = _parse_iso(r["created_at"])
+                    if eid not in seen and ts:
+                        ordered.append((eid, r["created_at"]))
+                        seen.add(eid)
+
+                to_delete: set = set()
+                # Remove old by age
+                to_delete.update(
+                    eid for eid, ts_str in ordered
+                    if (ts := _parse_iso(ts_str)) and ts.timestamp() < cutoff_ts
+                )
+                # Remove oldest beyond count
+                keep_ages = [eid for eid, _ in ordered if eid not in to_delete]
+                if len(keep_ages) > max_count:
+                    to_delete.update(keep_ages[:len(keep_ages) - max_count])
+
+            elif max_age_seconds is not None:
+                cutoff_ts = datetime.now(timezone.utc).timestamp() - max_age_seconds
+                rows = self._conn.execute(
+                    "SELECT DISTINCT execution_id, created_at FROM machine_checkpoints "
+                    "ORDER BY created_at DESC"
+                ).fetchall()
+                to_delete: set = set(
+                    r["execution_id"] for r in rows
+                    if (ts := _parse_iso(r["created_at"])) and ts.timestamp() < cutoff_ts
+                )
+            elif max_count is not None:
+                rows = self._conn.execute(
+                    "SELECT DISTINCT execution_id, created_at FROM machine_checkpoints "
+                    "ORDER BY created_at DESC"
+                ).fetchall()
+                ordered = list({r["execution_id"]: r["created_at"] for r in rows}.items())
+                if len(ordered) > max_count:
+                    to_delete = set(eid for eid, _ in ordered[:-max_count])
+                else:
+                    to_delete = set()
+            else:
+                return 0
+
+            for eid in to_delete:
+                self._conn.execute(
+                    "DELETE FROM machine_checkpoints WHERE execution_id = ?",
+                    (eid,),
+                )
+                self._conn.execute(
+                    "DELETE FROM machine_latest WHERE execution_id = ?",
+                    (eid,),
+                )
+                deleted += 1
+
+            self._conn.commit()
+            return deleted
+
+
+def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
+    """Parse an ISO-8601 timestamp string to a datetime in UTC."""
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts)
+    except (ValueError, TypeError):
+        return None
 
 
 async def clone_snapshot(
