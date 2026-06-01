@@ -376,6 +376,52 @@ class TestExecuteValidation:
         assert "requires input.task" in result.error["message"]
 
     @pytest.mark.asyncio
+    async def test_session_id_kwarg_is_accepted_but_not_codex_resume(self):
+        executor = _make_executor()
+        captured: Dict[str, Any] = {}
+
+        async def fake_execute_exec(task, resume_session, context):
+            captured["task"] = task
+            captured["resume_session"] = resume_session
+            captured["context"] = context
+            return AgentResult(output={"result": "ok"}, content="ok", finish_reason="stop")
+
+        executor._execute_exec = fake_execute_exec
+
+        result = await executor.execute(
+            {"task": "hello"},
+            context={"machine": "ctx"},
+            session_id="state-session-id",
+        )
+
+        assert result.success
+        assert captured == {
+            "task": "hello",
+            "resume_session": None,
+            "context": {"machine": "ctx"},
+        }
+
+    @pytest.mark.asyncio
+    async def test_resume_session_input_controls_codex_resume(self):
+        executor = _make_executor()
+        captured: Dict[str, Any] = {}
+
+        async def fake_execute_exec(task, resume_session, context):
+            captured["task"] = task
+            captured["resume_session"] = resume_session
+            return AgentResult(output={"result": "ok"}, content="ok", finish_reason="stop")
+
+        executor._execute_exec = fake_execute_exec
+
+        result = await executor.execute(
+            {"task": "hello", "resume_session": "codex-thread-id"},
+            session_id="state-session-id",
+        )
+
+        assert result.success
+        assert captured == {"task": "hello", "resume_session": "codex-thread-id"}
+
+    @pytest.mark.asyncio
     async def test_accepts_task_key(self):
         """Verify input_data["task"] is accepted (not just "prompt")."""
         executor = _make_executor()

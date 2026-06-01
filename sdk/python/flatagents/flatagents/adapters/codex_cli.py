@@ -40,6 +40,17 @@ Config keys (agent config or global settings.agent_runners.codex_cli):
   rate_limit_jitter   +/-seconds jitter (default: 0)
   use_app_server      bool -- use app-server transport (required for fork)
   session_source      App-server session source tag (default: "exec")
+
+Session semantics:
+  - FlatMachine ``state.session_id`` is accepted by execute() for executor
+    protocol compatibility only.  It is a machine-level cache/session key and
+    is NOT a Codex thread id.
+  - To resume an existing Codex CLI conversation/thread, pass
+    ``input.resume_session``.  Exec transport maps it to
+    ``codex exec resume <SESSION_ID>``; app-server transport maps it to
+    ``thread/resume``.
+  - Do not map arbitrary ``state.session_id`` values to Codex resume; Codex
+    requires the real thread id returned in ``output.thread_id``.
 """
 
 from __future__ import annotations
@@ -384,8 +395,9 @@ class CodexCliExecutor:
         """Execute a Codex CLI invocation.
 
         `session_id` is accepted for AgentExecutor protocol compatibility.
-        The Codex CLI adapter uses explicit `input.resume_session` to resume
-        existing Codex threads; `session_id` is intentionally ignored.
+        It is intentionally ignored because FlatMachine state session ids are
+        not Codex thread ids.  To resume a Codex CLI thread, pass the real
+        Codex thread id as `input.resume_session`.
         """
         task = input_data.get("task") or input_data.get("prompt", "")
         if not task:

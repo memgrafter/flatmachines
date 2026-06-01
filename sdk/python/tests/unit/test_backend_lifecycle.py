@@ -4,8 +4,11 @@ Unit tests for PersistenceBackend.list_execution_ids() and .delete_execution().
 Tests the backend contract directly — no FlatMachine, no CheckpointManager.
 """
 
+import json
 import os
 import shutil
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from flatmachines import LocalFileBackend, MemoryBackend, SQLiteCheckpointBackend
@@ -22,19 +25,21 @@ def cleanup():
             shutil.rmtree(d)
 
 
-import json
-
-
 async def _write_checkpoint(
     backend,
     execution_id: str,
     step: int = 1,
     event: str = "execute",
     waiting_channel: str = None,
+    created_at: str = None,
 ):
     """Write a fake checkpoint directly to the backend."""
     key = f"{execution_id}/step_{step:06d}_{event}.json"
-    data = {"fake": True, "event": event}
+    data = {
+        "fake": True,
+        "event": event,
+        "created_at": created_at or datetime.now(timezone.utc).isoformat(),
+    }
     if waiting_channel is not None:
         data["waiting_channel"] = waiting_channel
     await backend.save(key, json.dumps(data).encode())
@@ -49,6 +54,10 @@ def backend(request, tmp_path):
     elif request.param == "sqlite":
         return SQLiteCheckpointBackend(db_path=str(tmp_path / "test.sqlite"))
     return MemoryBackend()
+
+
+def _days_ago(days: int) -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +139,59 @@ class TestDeleteExecution:
         await _write_checkpoint(backend, "once")
         await backend.delete_execution("once")
         await backend.delete_execution("once")  # second call is fine
+
+
+# ---------------------------------------------------------------------------
+# prune execution checkpoint sets
+# ---------------------------------------------------------------------------
+
+class TestPruneExecutions:
+
+    @pytest.mark.asyncio
+    async def test_max_count_one_keeps_most_recent_execution(self, backend):
+        await _write_checkpoint(backend, "old", created_at=_days_ago(3))
+        await _write_checkpoint(backend, "mid", created_at=_days_ago(2))
+        await _write_checkpoint(backend, "new", created_at=_days_ago(1))
+
+        deleted = await backend.prune(max_count=1)
+
+        assert deleted == 2
+        assert await backend.list_execution_ids() == ["new"]
+        assert await backend.load("new/latest") is not None
+
+    @pytest.mark.asyncio
+    async def test_max_count_zero_removes_all_executions(self, backend):
+        await _write_checkpoint(backend, "exec-a")
+        await _write_checkpoint(backend, "exec-b")
+
+        deleted = await backend.prune(max_count=0)
+
+        assert deleted == 2
+        assert await backend.list_execution_ids() == []
+
+    @pytest.mark.asyncio
+    async def test_age_cutoff_removes_old_executions(self, backend):
+        await _write_checkpoint(backend, "old", created_at=_days_ago(30))
+        await _write_checkpoint(backend, "fresh", created_at=_days_ago(1))
+
+        deleted = await backend.prune(max_age_seconds=7 * 24 * 60 * 60)
+
+        assert deleted == 1
+        assert await backend.list_execution_ids() == ["fresh"]
+
+    @pytest.mark.asyncio
+    async def test_combined_age_and_count_pruning(self, backend):
+        await _write_checkpoint(backend, "too-old", created_at=_days_ago(30))
+        await _write_checkpoint(backend, "recent-older", created_at=_days_ago(3))
+        await _write_checkpoint(backend, "recent-newer", created_at=_days_ago(1))
+
+        deleted = await backend.prune(
+            max_age_seconds=7 * 24 * 60 * 60,
+            max_count=1,
+        )
+
+        assert deleted == 2
+        assert await backend.list_execution_ids() == ["recent-newer"]
 
 
 # ---------------------------------------------------------------------------

@@ -9,12 +9,16 @@ import pytest
 
 
 def pytest_addoption(parser):
-    parser.addoption(
-        "--live",
-        action="store_true",
-        default=False,
-        help="Run live GitHub Copilot OAuth integration tests (hits real API)",
-    )
+    try:
+        parser.addoption(
+            "--live",
+            action="store_true",
+            default=False,
+            help="Run live GitHub Copilot OAuth integration tests (hits real API)",
+        )
+    except ValueError as exc:
+        if "--live" not in str(exc):
+            raise
 
 
 def pytest_configure(config):
@@ -27,5 +31,5 @@ def pytest_collection_modifyitems(config, items):
 
     skip_live = pytest.mark.skip(reason="live integration tests require --live flag")
     for item in items:
-        if "live" in item.keywords:
+        if item.get_closest_marker("live") is not None:
             item.add_marker(skip_live)

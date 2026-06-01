@@ -90,6 +90,7 @@ describe('context-machine parity (python unit test_context_machine.py)', () => {
 
     expect(Object.keys(stateEntries.start ?? {}).sort()).toEqual([
       'current_state',
+      'depth',
       'execution_id',
       'machine_name',
       'parent_execution_id',

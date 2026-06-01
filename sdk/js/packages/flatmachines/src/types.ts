@@ -28,7 +28,7 @@ export interface MachineConfig {
     agents?: Record<string, string | Record<string, any>>;
     machines?: Record<string, string | MachineConfig | MachineWrapper | MachineReference>;
     states: Record<string, State>;
-    settings?: { max_steps?: number; backends?: BackendConfig; [key: string]: any };
+    settings?: { max_steps?: number; max_depth?: number; backends?: BackendConfig; [key: string]: any };
     persistence?: { enabled: boolean; backend: "local" | "memory" | "redis" | string; checkpoint_on?: string[]; db_path?: string; [key: string]: any };
   };
 }
@@ -78,6 +78,8 @@ export interface MachineSnapshot {
   tool_loop_state?: Record<string, any>;
   // Config hash (v2.1.0) — content-addressed key into config store for cross-SDK resume
   config_hash?: string;
+  // Current nesting depth (root = 0). Used to preserve max_depth enforcement across resume.
+  depth?: number;
 }
 
 // Matches flatmachine.d.ts:326-331
