@@ -120,15 +120,21 @@ def setup_logging(
     if force:
         lib_logger.handlers.clear()
     
-    # Only add a handler if this logger has none yet (avoid duplicates)
-    if not lib_logger.handlers:
-        stdout_handler = logging.StreamHandler(sys.stdout)
-        stdout_handler.setFormatter(formatter)
-        lib_logger.addHandler(stdout_handler)
+    # Opt-in to a console handler via FLATAGENTS_LOG_HANDLER.
+    # This keeps headful apps (CLI, TUI, REPL) from seeing library
+    # logs unless the user explicitly requests them.
+    add_console = os.getenv('FLATAGENTS_LOG_HANDLER', '').lower() in ('stdout', 'console', 'true')
     
-    # Prevent propagation to root to avoid duplicate output when the
-    # application also configures root-level handlers.
-    lib_logger.propagate = False
+    if add_console:
+        if not lib_logger.handlers:
+            stdout_handler = logging.StreamHandler(sys.stdout)
+            stdout_handler.setFormatter(formatter)
+            lib_logger.addHandler(stdout_handler)
+        lib_logger.propagate = False
+    else:
+        # No stdout handler by default — logs propagate to the host app's
+        # root logger so headful apps control whether they appear on console.
+        lib_logger.propagate = True
     
     # Add file handler if FLATAGENTS_LOG_DIR is set
     log_dir = os.getenv('FLATAGENTS_LOG_DIR')
@@ -232,8 +238,13 @@ def _init_metrics() -> None:
             SERVICE_NAME: service_name
         })
         
-        # Check which exporter to use (default to console so metrics are visible)
-        exporter_type = os.getenv('OTEL_METRICS_EXPORTER', 'console').lower()
+        # Check which exporter to use (default to none — headful apps
+        # control whether metrics appear via explicit env opt-in).
+        exporter_type = os.getenv('OTEL_METRICS_EXPORTER', 'none').lower()
+        
+        if exporter_type == 'none':
+            _metrics_enabled = False
+            return
         
         if exporter_type == 'console':
             # Use console exporter for testing/debugging
