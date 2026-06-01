@@ -196,7 +196,11 @@ class ProfileManager:
             if override_cfg:
                 result.update(override_cfg)
             else:
-                logger.warning(f"Override profile '{self._override_profile}' not found")
+                logger.error(
+                    f"[PROFILES] Override profile '{self._override_profile}' not found! "
+                    f"The intended model override was NOT applied. "
+                    f"Available profiles: {list(self._profiles.keys())}"
+                )
 
         return result
 
