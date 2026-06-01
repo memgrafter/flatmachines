@@ -1,4 +1,4 @@
-export const SPEC_VERSION = "4.1.0";
+export const SPEC_VERSION = "4.2.0";
 import { PromptWrapper, PromptData, PromptRef, OutputSchema, MCPConfig, ToolDefinition, } from "./prompt";
 import { ProfileWrapper, ProfileData, ProfileRef, ModelConfig, OAuthConfig, } from "./profile";
 export interface AgentWrapper {

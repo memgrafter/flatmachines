@@ -14,7 +14,7 @@
  * It does not define prompt text or output schema.
  */
 
-export const SPEC_VERSION = "4.1.0";
+export const SPEC_VERSION = "4.2.0";
 
 export interface ProfileWrapper {
   spec: "flatprofile";

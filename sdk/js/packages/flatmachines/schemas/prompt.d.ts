@@ -12,7 +12,7 @@
  * It does not define runtime, model, profile, or adapter selection.
  */
 
-export const SPEC_VERSION = "4.1.0";
+export const SPEC_VERSION = "4.2.0";
 
 export interface PromptWrapper {
   spec: "prompt";

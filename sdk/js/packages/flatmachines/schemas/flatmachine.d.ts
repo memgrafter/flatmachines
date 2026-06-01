@@ -190,7 +190,7 @@ waiting_channel     - Signal channel this machine is blocked on (v1.2.0)
 config_hash         - Content-addressed machine config key for cross-SDK resume (v2.1.0)
 */
 
-export const SPEC_VERSION = "4.1.0";
+export const SPEC_VERSION = "4.2.0";
 
 export interface MachineWrapper {
   spec: "flatmachine";
@@ -209,7 +209,6 @@ export interface MachineRuntimeMetadata {
   current_state: string;
   total_api_calls: number;
   total_cost: number;
-  /** Current nesting depth (root = 0). */
   depth?: number;
 }
 
@@ -247,7 +246,6 @@ export interface HooksRefConfig {
 export interface MachineSettings {
   max_steps?: number;
   parallel_fallback?: "sequential" | "error";
-  /** Maximum nesting depth for machine launches. Prevents runaway recursive launches. */
   max_depth?: number;
   [key: string]: any;
 }

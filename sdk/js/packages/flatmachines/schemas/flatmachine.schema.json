@@ -116,8 +116,7 @@
           "type": "number"
         },
         "depth": {
-          "type": "number",
-          "description": "Current nesting depth (root = 0)."
+          "type": "number"
         }
       },
       "required": [
@@ -1133,8 +1132,7 @@
           ]
         },
         "max_depth": {
-          "type": "number",
-          "description": "Maximum nesting depth for machine launches. Prevents runaway recursive launches."
+          "type": "number"
         }
       }
     },

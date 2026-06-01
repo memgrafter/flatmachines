@@ -22,7 +22,7 @@
 ```yaml
 # profiles.yml — agents reference by name
 spec: flatprofile
-spec_version: "4.1.0"
+spec_version: "4.2.0"
 data:
   model_profiles:
     fast: { provider: cerebras, name: zai-glm-4.6, temperature: 0.6 }

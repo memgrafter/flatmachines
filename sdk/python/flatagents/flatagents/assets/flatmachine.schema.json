@@ -114,6 +114,9 @@
         },
         "total_cost": {
           "type": "number"
+        },
+        "depth": {
+          "type": "number"
         }
       },
       "required": [
@@ -1127,6 +1130,9 @@
             "sequential",
             "error"
           ]
+        },
+        "max_depth": {
+          "type": "number"
         }
       }
     },
