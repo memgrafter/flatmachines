@@ -2,6 +2,58 @@ import type { PersistenceBackend, MachineSnapshot } from './types';
 import { promises as fs } from 'fs';
 import { join, dirname } from 'path';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared selection logic for prune — pure function, no I/O
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Select execution IDs to delete using execution-level pruning rules.
+ *
+ * Ported from Python ``_select_executions_to_prune`` in persistence.py.
+ *
+ * @param executions  Map of execution ID -> latest checkpoint timestamp
+ * @param opts        Prune options
+ * @returns           Set of execution IDs to delete
+ */
+export function selectExecutionsToPrune(
+  executions: Map<string, Date>,
+  opts?: { max_age_seconds?: number; max_count?: number },
+): Set<string> {
+  if (!executions.size) return new Set();
+
+  const toDelete = new Set<string>();
+
+  // Age-based pruning
+  if (opts?.max_age_seconds != null) {
+    const cutoff = new Date(Date.now() - opts.max_age_seconds * 1000);
+    for (const [executionId, latestCheckpointAt] of executions) {
+      if (latestCheckpointAt < cutoff) {
+        toDelete.add(executionId);
+      }
+    }
+  }
+
+  // Count-based pruning — keep N most recent after age pruning
+  if (opts?.max_count != null) {
+    const survivors = [...executions.entries()]
+      .filter(([id]) => !toDelete.has(id))
+      .sort((a, b) => {
+        const dateCmp = a[1].getTime() - b[1].getTime();
+        if (dateCmp !== 0) return dateCmp;
+        return a[0].localeCompare(b[0]);
+      });
+
+    if (survivors.length > opts.max_count) {
+      const excess = survivors.slice(0, survivors.length - opts.max_count);
+      for (const [id] of excess) {
+        toDelete.add(id);
+      }
+    }
+  }
+
+  return toDelete;
+}
+
 export class MemoryBackend implements PersistenceBackend {
   private store = new Map<string, MachineSnapshot>();
 
@@ -57,6 +109,33 @@ export class MemoryBackend implements PersistenceBackend {
         this.store.delete(key);
       }
     }
+  }
+
+  async prune(opts?: { max_age_seconds?: number; max_count?: number }): Promise<number> {
+    const execMap = new Map<string, { key: string; snapshot: MachineSnapshot }>();
+
+    for (const [key, snapshot] of this.store.entries()) {
+      if (!snapshot || typeof snapshot !== 'object' || !snapshot.execution_id) continue;
+      const eid = snapshot.execution_id;
+      const existing = execMap.get(eid);
+      if (!existing || (snapshot.step ?? 0) > (existing.snapshot.step ?? 0) ||
+          ((snapshot.step ?? 0) === (existing.snapshot.step ?? 0) && key > existing.key)) {
+        execMap.set(eid, { key, snapshot });
+      }
+    }
+
+    const executions = new Map<string, Date>();
+    for (const [eid, { snapshot }] of execMap.entries()) {
+      executions.set(eid, snapshot.created_at ? new Date(snapshot.created_at) : new Date(0));
+    }
+
+    const toDelete = selectExecutionsToPrune(executions, opts);
+    let deleted = 0;
+    for (const eid of [...toDelete].sort()) {
+      await this.deleteExecution(eid);
+      deleted++;
+    }
+    return deleted;
   }
 }
 
@@ -149,6 +228,35 @@ export class LocalFileBackend implements PersistenceBackend {
     for (const key of keys) {
       await this.delete(key);
     }
+  }
+
+  async prune(opts?: { max_age_seconds?: number; max_count?: number }): Promise<number> {
+    const allKeys = await this.list('');
+    const execMap = new Map<string, { key: string; snapshot: MachineSnapshot }>();
+
+    for (const key of allKeys) {
+      const snapshot = await this.load(key);
+      if (!snapshot || !snapshot.execution_id) continue;
+      const eid = snapshot.execution_id;
+      const existing = execMap.get(eid);
+      if (!existing || (snapshot.step ?? 0) > (existing.snapshot.step ?? 0) ||
+          ((snapshot.step ?? 0) === (existing.snapshot.step ?? 0) && key > existing.key)) {
+        execMap.set(eid, { key, snapshot });
+      }
+    }
+
+    const executions = new Map<string, Date>();
+    for (const [eid, { snapshot }] of execMap.entries()) {
+      executions.set(eid, snapshot.created_at ? new Date(snapshot.created_at) : new Date(0));
+    }
+
+    const toDelete = selectExecutionsToPrune(executions, opts);
+    let deleted = 0;
+    for (const eid of [...toDelete].sort()) {
+      await this.deleteExecution(eid);
+      deleted++;
+    }
+    return deleted;
   }
 }
 

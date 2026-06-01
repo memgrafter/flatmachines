@@ -10,6 +10,7 @@ import { mkdirSync, writeFileSync, readFileSync, unlinkSync, existsSync, renameS
 import { join } from 'path';
 import * as yaml from 'yaml';
 import { PersistenceBackend, MachineSnapshot } from './types';
+import { selectExecutionsToPrune } from './persistence';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Lazy load node:sqlite — fails gracefully on older Node versions
@@ -223,6 +224,30 @@ export class SQLiteCheckpointBackend implements PersistenceBackend {
     SQLiteCheckpointBackend.validateKey(executionId);
     this.db.prepare('DELETE FROM machine_checkpoints WHERE execution_id = ?').run(executionId);
     this.db.prepare('DELETE FROM machine_latest WHERE execution_id = ?').run(executionId);
+  }
+
+  async prune(opts?: { max_age_seconds?: number; max_count?: number }): Promise<number> {
+    // Query max created_at from snapshot_json for each execution, since the
+    // created_at column stores the insert timestamp, not the snapshot time.
+    const rows = this.db.prepare(
+      "SELECT execution_id, MAX(json_extract(snapshot_json, '$.created_at')) as max_created_at FROM machine_checkpoints GROUP BY execution_id"
+    ).all() as Array<{ execution_id: string; max_created_at: string | null }>;
+
+    const executions = new Map<string, Date>();
+    for (const row of rows) {
+      if (row.max_created_at) {
+        executions.set(row.execution_id, new Date(row.max_created_at));
+      }
+    }
+
+    const toDelete = selectExecutionsToPrune(executions, opts);
+
+    for (const executionId of [...toDelete].sort()) {
+      this.db.prepare('DELETE FROM machine_checkpoints WHERE execution_id = ?').run(executionId);
+      this.db.prepare('DELETE FROM machine_latest WHERE execution_id = ?').run(executionId);
+    }
+
+    return toDelete.size;
   }
 
   /**

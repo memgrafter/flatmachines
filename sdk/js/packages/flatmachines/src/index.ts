@@ -50,6 +50,7 @@ export {
   LocalFileBackend,
   CheckpointManager,
   cloneSnapshot,
+  selectExecutionsToPrune,
 } from './persistence';
 
 export {

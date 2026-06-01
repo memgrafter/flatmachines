@@ -1,8 +1,11 @@
 // persistence.test.ts
 // Comprehensive unit tests for persistence functionality
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { MemoryBackend, LocalFileBackend, CheckpointManager } from '@memgrafter/flatmachines';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, existsSync, rmSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { MemoryBackend, LocalFileBackend, CheckpointManager, selectExecutionsToPrune } from '@memgrafter/flatmachines';
 import { MachineSnapshot } from '@memgrafter/flatagents';
 
 describe('MemoryBackend', () => {
@@ -375,9 +378,17 @@ describe('MemoryBackend', () => {
 
 describe('LocalFileBackend', () => {
   let backend: LocalFileBackend;
+  let tmpDir: string;
   
   beforeEach(() => {
-    backend = new LocalFileBackend();
+    tmpDir = mkdtempSync(join(tmpdir(), 'flatmachines-test-'));
+    backend = new LocalFileBackend(tmpDir);
+  });
+
+  afterEach(() => {
+    if (existsSync(tmpDir)) {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it('should store and retrieve snapshots from files', async () => {
@@ -404,7 +415,8 @@ describe('LocalFileBackend', () => {
   });
 
   it('should create and use custom directory', async () => {
-    const customBackend = new LocalFileBackend('/tmp/custom-checkpoints');
+    const customTmpDir = mkdtempSync(join(tmpdir(), 'flatmachines-test-custom-'));
+    const customBackend = new LocalFileBackend(customTmpDir);
     const snapshot: MachineSnapshot = {
       execution_id: 'custom-dir-test',
       machine_name: 'test-machine',
@@ -417,6 +429,8 @@ describe('LocalFileBackend', () => {
     await customBackend.save('custom-test', snapshot);
     const retrieved = await customBackend.load('custom-test');
     expect(retrieved).toEqual(snapshot);
+
+    rmSync(customTmpDir, { recursive: true, force: true });
   });
 
   it('should handle file deletion', async () => {
@@ -441,8 +455,8 @@ describe('LocalFileBackend', () => {
   });
 
   it('should list files in directory', async () => {
-    // Use isolated directory to avoid interference from other tests
-    const isolatedBackend = new LocalFileBackend('/tmp/list-test-checkpoints');
+    const listTmpDir = mkdtempSync(join(tmpdir(), 'flatmachines-test-list-'));
+    const isolatedBackend = new LocalFileBackend(listTmpDir);
     const snapshot: MachineSnapshot = {
       execution_id: 'list-test',
       machine_name: 'test-machine',
@@ -468,6 +482,8 @@ describe('LocalFileBackend', () => {
     expect(otherKeys).toContain('other/item3');
 
     expect(allKeys).toHaveLength(3);
+
+    rmSync(listTmpDir, { recursive: true, force: true });
   });
 });
 
@@ -819,5 +835,268 @@ describe('Persistence Integration', () => {
     // Verify nested execution contexts are preserved
     expect(restoredParent?.context.childExecutions).toEqual(['child-1', 'child-2']);
     expect(restoredChild?.context.parentRef).toBe('parent-execution');
+  });
+});
+
+describe('selectExecutionsToPrune', () => {
+  it('should return empty set for empty map', () => {
+    const result = selectExecutionsToPrune(new Map());
+    expect(result.size).toBe(0);
+  });
+
+  it('should prune nothing when no options are given', () => {
+    const executions = new Map<string, Date>([
+      ['exec-1', new Date('2026-01-01T00:00:00Z')],
+      ['exec-2', new Date('2026-06-01T00:00:00Z')],
+    ]);
+    const result = selectExecutionsToPrune(executions);
+    expect(result.size).toBe(0);
+  });
+
+  it('should prune executions older than max_age_seconds', () => {
+    const now = Date.now();
+    const executions = new Map<string, Date>([
+      ['old', new Date(now - 200_000)],  // 200s ago
+      ['recent', new Date(now - 10_000)], // 10s ago
+    ]);
+    const result = selectExecutionsToPrune(executions, { max_age_seconds: 60 });
+    expect(result.has('old')).toBe(true);
+    expect(result.has('recent')).toBe(false);
+  });
+
+  it('should keep only N most recent executions by count', () => {
+    const now = Date.now();
+    const executions = new Map<string, Date>([
+      ['exec-1', new Date(now - 100_000)],
+      ['exec-2', new Date(now - 80_000)],
+      ['exec-3', new Date(now - 60_000)],
+      ['exec-4', new Date(now - 40_000)],
+      ['exec-5', new Date(now - 20_000)],
+    ]);
+    const result = selectExecutionsToPrune(executions, { max_count: 3 });
+    expect(result.size).toBe(2);
+    expect(result.has('exec-1')).toBe(true);
+    expect(result.has('exec-2')).toBe(true);
+  });
+
+  it('should apply age pruning first, then count pruning on survivors', () => {
+    const now = Date.now();
+    // exec-1 is old, exec-2/3/4/5 are recent
+    const executions = new Map<string, Date>([
+      ['exec-1', new Date(now - 120_000)], // 120s ago — caught by age
+      ['exec-2', new Date(now - 50_000)],  // 50s ago — kept by age, but caught by count (oldest of survivors)
+      ['exec-3', new Date(now - 30_000)],  // kept
+      ['exec-4', new Date(now - 20_000)],  // kept
+      ['exec-5', new Date(now - 10_000)],  // kept
+    ]);
+    const result = selectExecutionsToPrune(executions, { max_age_seconds: 60, max_count: 3 });
+    expect(result.has('exec-1')).toBe(true);  // age-pruned
+    expect(result.has('exec-2')).toBe(true);  // count-pruned (oldest survivor)
+    expect(result.size).toBe(2);
+  });
+
+  it('should prune all with max_count=0', () => {
+    const executions = new Map<string, Date>([
+      ['exec-1', new Date('2026-01-01T00:00:00Z')],
+      ['exec-2', new Date('2026-06-01T00:00:00Z')],
+    ]);
+    const result = selectExecutionsToPrune(executions, { max_count: 0 });
+    expect(result.size).toBe(2);
+  });
+
+  it('should use execution ID as tiebreaker for identical timestamps', () => {
+    const sameTime = new Date('2026-06-01T00:00:00Z');
+    const executions = new Map<string, Date>([
+      ['b-exec', sameTime],
+      ['a-exec', sameTime],
+    ]);
+    const result = selectExecutionsToPrune(executions, { max_count: 1 });
+    // 'a-exec' sorts first, so it's the one removed
+    expect(result.has('a-exec')).toBe(true);
+    expect(result.size).toBe(1);
+  });
+});
+
+describe('MemoryBackend - Prune', () => {
+  let backend: MemoryBackend;
+  const baseSnapshot = {
+    execution_id: 'prune-test',
+    machine_name: 'test-machine',
+    current_state: 'test-state',
+    context: {},
+    step: 1,
+    created_at: '2026-06-01T00:00:00Z',
+  };
+
+  beforeEach(() => {
+    backend = new MemoryBackend();
+  });
+
+  it('should prune executions by age', async () => {
+    const old = {
+      ...baseSnapshot,
+      execution_id: 'old-exec',
+      created_at: '2026-01-01T00:00:00Z',
+    };
+    const recent = {
+      ...baseSnapshot,
+      execution_id: 'recent-exec',
+      created_at: new Date().toISOString(),
+    };
+
+    await backend.save('old-exec/step_000001', old);
+    await backend.save('recent-exec/step_000001', recent);
+
+    const deleted = await backend.prune({ max_age_seconds: 3600 }); // 1 hour
+    expect(deleted).toBe(1);
+
+    const remaining = await backend.list('');
+    expect(remaining.length).toBe(1);
+    expect(remaining[0]).toContain('recent-exec');
+  });
+
+  it('should prune executions by count', async () => {
+    for (let i = 1; i <= 5; i++) {
+      await backend.save(`exec-${i}/step_000001`, {
+        ...baseSnapshot,
+        execution_id: `exec-${i}`,
+        created_at: `2026-06-0${i}T00:00:00Z`,
+        step: 1,
+      });
+    }
+
+    const deleted = await backend.prune({ max_count: 3 });
+    expect(deleted).toBe(2);
+
+    const remaining = await backend.list('');
+    expect(remaining.length).toBe(3);
+  });
+
+  it('should return 0 when nothing matches', async () => {
+    await backend.save('exec-1/step_000001', {
+      ...baseSnapshot,
+      execution_id: 'exec-1',
+      created_at: new Date().toISOString(),
+    });
+
+    const deleted = await backend.prune({ max_age_seconds: 3600 });
+    expect(deleted).toBe(0);
+  });
+
+  it('should not affect unrelated executions', async () => {
+    await backend.save('keep/step_000001', {
+      ...baseSnapshot,
+      execution_id: 'keep',
+      created_at: new Date().toISOString(),
+    });
+    await backend.save('prune-me/step_000001', {
+      ...baseSnapshot,
+      execution_id: 'prune-me',
+      created_at: '2026-01-01T00:00:00Z',
+    });
+
+    await backend.prune({ max_age_seconds: 3600 });
+
+    const keep = await backend.load('keep/step_000001');
+    expect(keep).not.toBeNull();
+
+    const pruned = await backend.load('prune-me/step_000001');
+    expect(pruned).toBeNull();
+  });
+});
+
+describe('LocalFileBackend - Prune', () => {
+  let backend: LocalFileBackend;
+  let tmpDir: string;
+  const baseSnapshot = {
+    execution_id: 'prune-test',
+    machine_name: 'test-machine',
+    current_state: 'test-state',
+    context: {},
+    step: 1,
+    created_at: '2026-06-01T00:00:00Z',
+  };
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'flatmachines-test-prune-'));
+    backend = new LocalFileBackend(tmpDir);
+  });
+
+  afterEach(() => {
+    if (existsSync(tmpDir)) {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should prune executions by age', async () => {
+    const old = {
+      ...baseSnapshot,
+      execution_id: 'old-exec',
+      created_at: '2026-01-01T00:00:00Z',
+    };
+    const recent = {
+      ...baseSnapshot,
+      execution_id: 'recent-exec',
+      created_at: new Date().toISOString(),
+    };
+
+    await backend.save('old-exec/step_000001', old);
+    await backend.save('recent-exec/step_000001', recent);
+
+    const deleted = await backend.prune({ max_age_seconds: 3600 });
+    expect(deleted).toBe(1);
+
+    const remaining = await backend.list('');
+    expect(remaining.length).toBe(1);
+    expect(remaining[0]).toContain('recent-exec');
+  });
+
+  it('should prune executions by count', async () => {
+    for (let i = 1; i <= 5; i++) {
+      await backend.save(`exec-${i}/step_000001`, {
+        ...baseSnapshot,
+        execution_id: `exec-${i}`,
+        created_at: `2026-06-0${i}T00:00:00Z`,
+        step: 1,
+      });
+    }
+
+    const deleted = await backend.prune({ max_count: 3 });
+    expect(deleted).toBe(2);
+
+    const remaining = await backend.list('');
+    expect(remaining.length).toBe(3);
+  });
+
+  it('should return 0 when nothing matches', async () => {
+    await backend.save('exec-1/step_000001', {
+      ...baseSnapshot,
+      execution_id: 'exec-1',
+      created_at: new Date().toISOString(),
+    });
+
+    const deleted = await backend.prune({ max_age_seconds: 3600 });
+    expect(deleted).toBe(0);
+  });
+
+  it('should not affect unrelated executions', async () => {
+    await backend.save('keep/step_000001', {
+      ...baseSnapshot,
+      execution_id: 'keep',
+      created_at: new Date().toISOString(),
+    });
+    await backend.save('prune-me/step_000001', {
+      ...baseSnapshot,
+      execution_id: 'prune-me',
+      created_at: '2026-01-01T00:00:00Z',
+    });
+
+    await backend.prune({ max_age_seconds: 3600 });
+
+    const keep = await backend.load('keep/step_000001');
+    expect(keep).not.toBeNull();
+
+    const pruned = await backend.load('prune-me/step_000001');
+    expect(pruned).toBeNull();
   });
 });

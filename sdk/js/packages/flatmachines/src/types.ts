@@ -126,6 +126,7 @@ export interface PersistenceBackend {
   list(prefix: string): Promise<string[]>;
   listExecutionIds?(options?: { event?: string; waiting_channel?: string }): Promise<string[]>;
   deleteExecution?(executionId: string): Promise<void>;
+  prune?(opts: { max_age_seconds?: number; max_count?: number }): Promise<number>;
 }
 
 export interface ResultBackend {
