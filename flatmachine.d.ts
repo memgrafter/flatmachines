@@ -209,6 +209,7 @@ export interface MachineRuntimeMetadata {
   current_state: string;
   total_api_calls: number;
   total_cost: number;
+  depth?: number;
 }
 
 export interface MachineData {
@@ -245,6 +246,7 @@ export interface HooksRefConfig {
 export interface MachineSettings {
   max_steps?: number;
   parallel_fallback?: "sequential" | "error";
+  max_depth?: number;
   [key: string]: any;
 }
 
@@ -350,6 +352,7 @@ export interface MachineSnapshot {
     loop_cost: number;
   };
   config_hash?: string;
+  depth?: number;
 }
 
 export interface PersistenceConfig {
