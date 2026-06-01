@@ -3,7 +3,7 @@ name = "flatagents_integration_tests"
 version = "0.1.0"
 description = "Integration tests for FlatAgents persistence and distribution features"
 dependencies = ["flatagents[litellm]", "flatmachines[flatagents]", "pytest", "pytest-asyncio"]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 [build-system]
 requires = ["hatchling"]

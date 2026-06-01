@@ -14,6 +14,8 @@ import aiofiles
 
 logger = logging.getLogger(__name__)
 
+_EPOCH = datetime.min.replace(tzinfo=timezone.utc)
+
 @dataclass
 class MachineSnapshot:
     """Wire format for machine checkpoints."""
@@ -449,24 +451,24 @@ class MemoryBackend(PersistenceBackend):
         for eid in {k.split("/", 1)[0] for k in self._store if "/" in k}:
             ptr_bytes = await self.load(f"{eid}/latest")
             if not ptr_bytes:
-                executions[eid] = datetime.min.replace(tzinfo=timezone.utc)
+                executions[eid] = _EPOCH
                 continue
 
             data_bytes = await self.load(ptr_bytes.decode("utf-8"))
             if not data_bytes:
-                executions[eid] = datetime.min.replace(tzinfo=timezone.utc)
+                executions[eid] = _EPOCH
                 continue
 
             try:
                 snapshot = json.loads(data_bytes.decode("utf-8"))
             except Exception:
-                executions[eid] = datetime.min.replace(tzinfo=timezone.utc)
+                executions[eid] = _EPOCH
                 continue
 
             if not isinstance(snapshot, dict):
-                executions[eid] = datetime.min.replace(tzinfo=timezone.utc)
+                executions[eid] = _EPOCH
                 continue
-            executions[eid] = _parse_iso(snapshot.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc)
+            executions[eid] = _parse_iso(snapshot.get("created_at")) or _EPOCH
 
         to_delete = _select_executions_to_prune(
             executions,
@@ -771,9 +773,7 @@ class SQLiteCheckpointBackend(PersistenceBackend):
                     event = snapshot.get("event")
                     current_state = snapshot.get("current_state")
                     waiting_channel = snapshot.get("waiting_channel")
-                    snapshot_created_at = _parse_iso(snapshot.get("created_at"))
-                    if snapshot_created_at is not None:
-                        created_at = snapshot_created_at.isoformat()
+                    created_at = snapshot.get("created_at") or now
             except Exception:
                 pass
 
@@ -905,9 +905,9 @@ class SQLiteCheckpointBackend(PersistenceBackend):
 
             executions: Dict[str, datetime] = {}
             for row in rows:
-                checkpoint_time = _parse_iso(row["created_at"]) or datetime.min.replace(tzinfo=timezone.utc)
+                checkpoint_time = _parse_iso(row["created_at"]) or _EPOCH
                 execution_id = row["execution_id"]
-                if checkpoint_time > executions.get(execution_id, datetime.min.replace(tzinfo=timezone.utc)):
+                if checkpoint_time > executions.get(execution_id, _EPOCH):
                     executions[execution_id] = checkpoint_time
 
             to_delete = _select_executions_to_prune(
@@ -977,16 +977,22 @@ def _select_executions_to_prune(
 
 
 def _parse_iso(ts: Optional[str]) -> Optional[datetime]:
-    """Parse an ISO-8601 timestamp string to a timezone-aware UTC datetime."""
+    """Parse an ISO-8601 timestamp string to a timezone-aware UTC datetime.
+
+    Python 3.11+ ``fromisoformat`` handles ``Z`` suffix natively, so no
+    pre-normalization is needed.  The ``astimezone`` branch below is dead
+    for data written by ``_utc_now_iso()`` (always UTC) but is kept as a
+    safety net for externally-ingested checkpoints.
+    """
     if not ts:
         return None
     try:
-        normalized = ts.replace("Z", "+00:00") if isinstance(ts, str) else ts
-        parsed = datetime.fromisoformat(normalized)
-    except (ValueError, TypeError):
+        parsed = datetime.fromisoformat(ts)
+    except ValueError:
         return None
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
+    # Convert non-UTC offsets to UTC (defensive — not hit by our writers).
     return parsed.astimezone(timezone.utc)
 
 
