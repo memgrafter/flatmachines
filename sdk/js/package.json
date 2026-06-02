@@ -1,6 +1,6 @@
 {
   "name": "flatagents-js-workspace",
-  "version": "4.2.0",
+  "version": "4.2.1",
   "private": true,
   "description": "JavaScript SDK workspace for FlatAgents and FlatMachines",
   "workspaces": [

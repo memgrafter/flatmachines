@@ -190,7 +190,7 @@ waiting_channel     - Signal channel this machine is blocked on (v1.2.0)
 config_hash         - Content-addressed machine config key for cross-SDK resume (v2.1.0)
 */
 
-export const SPEC_VERSION = "4.2.0";
+export const SPEC_VERSION = "4.2.1";
 
 export interface MachineWrapper {
   spec: "flatmachine";

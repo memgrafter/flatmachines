@@ -9,7 +9,7 @@
  * Each may be provided inline or by reference.
  */
 
-export const SPEC_VERSION = "4.2.0";
+export const SPEC_VERSION = "4.2.1";
 
 import {
   PromptWrapper,
