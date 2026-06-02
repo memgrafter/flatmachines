@@ -74,7 +74,6 @@ if [[ -z "$NEW_VERSION" ]]; then
     echo "What gets updated:"
     echo "  Always:     Root .d.ts specs, README.md, AGENTS.md"
     echo "              Sync root AGENTS.md -> sdk/python/{flatagents,flatmachines}/AGENTS.md"
-    echo "              Remove sdk/python/{flatagents,flatmachines}/MACHINES.md"
     echo "  --python:   sdk/python/flatagents/pyproject.toml, sdk/python/flatmachines/pyproject.toml"
     echo "              sdk/python/flatagents/flatagents/__init__.py"
     echo "              sdk/python/flatmachines/flatmachines/__init__.py"
@@ -209,10 +208,6 @@ echo "SDK docs:"
 # Keep Python SDK agent docs in lockstep with root reference
 sync_file "AGENTS.md" "sdk/python/flatagents/AGENTS.md"
 sync_file "AGENTS.md" "sdk/python/flatmachines/AGENTS.md"
-
-# Remove deprecated duplicate docs
-remove_file_if_exists "sdk/python/flatagents/MACHINES.md"
-remove_file_if_exists "sdk/python/flatmachines/MACHINES.md"
 
 echo ""
 
